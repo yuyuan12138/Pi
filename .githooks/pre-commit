@@ -1,0 +1,3 @@
+#!/bin/sh
+# Shared local-only staged-content check. Never print secret values.
+exec python3 "$(dirname "$0")/../tools/git_guard.py"

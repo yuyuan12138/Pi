@@ -1,0 +1,10 @@
+# Independent agent/infrastructure repositories and runtime files are not vendored.
+/*
+!/.gitignore
+!/AGENTS.md
+!/README.md
+!/agents.json
+!/tools/
+!/.githooks/
+**/__pycache__/
+*.pyc

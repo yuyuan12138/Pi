@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "coordinator": {"path": ".", "role": "Capability maintenance and coordination"},
+  "agents": [
+    {"name": "research-agent", "path": "research-agent", "role": "Evidence-based research"},
+    {"name": "code-agent", "path": "code-agent", "role": "Software task management and implementation"},
+    {"name": "remote-agent", "path": "remote-agent", "role": "Approved remote-machine operations"}
+  ],
+  "infrastructure": [{"name": "knowledge-base", "path": "knowledge-base", "role": "Local retrieval"}],
+  "git": {"independent_repositories": true, "remotes_configured": false, "push_authorized": false}
+}
