@@ -1,6 +1,6 @@
 # Pi agent workspaces
 
-The coordinator maintains capabilities across three independent agents: research-agent, code-agent, and remote-agent. knowledge-base provides local retrieval. Each workspace has its own local Git repository; this parent repository tracks coordinator policy, agent registry, and the shared commit guard. Child repositories are deliberately ignored, not copied or added as submodules.
+The coordinator maintains capabilities across four independent agent workspaces: research-agent, code-agent, remote-agent, and internet-search-agent. knowledge-base provides local retrieval. Each workspace has its own local Git repository; this parent repository tracks coordinator policy, agent registry, and the shared commit guard. Child repositories are deliberately ignored, not copied or added as submodules.
 
 ## Start a session
 
@@ -10,6 +10,10 @@ pi
 ```
 
 Use `/alias <agent-name>` when pi-intercom is loaded. Folders and Git repositories do not themselves start running agents. Each agent can communicate with connected peers, while user instructions and per-task approvals retain priority.
+
+## Compact internet search
+
+`internet-search-agent/` provides public-source search and verification instructions plus a dependency-free Python tool. It returns bounded source-linked snippets/metadata instead of entire pages. Public searches use external providers; they are not local/private retrieval. Refer to that workspace's README and compact-search skill. Delegate to its session when connected, otherwise the tool can be used directly for authorized public searches. This does not add a RAG source, start a daemon/session, or connect a Telegram bot.
 
 ## Version control
 

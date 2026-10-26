@@ -4,7 +4,8 @@
   "agents": [
     {"name": "research-agent", "path": "research-agent", "role": "Evidence-based research"},
     {"name": "code-agent", "path": "code-agent", "role": "Software task management and implementation"},
-    {"name": "remote-agent", "path": "remote-agent", "role": "Approved remote-machine operations"}
+    {"name": "remote-agent", "path": "remote-agent", "role": "Approved remote-machine operations"},
+    {"name": "internet-search-agent", "path": "internet-search-agent", "role": "Compact public-source discovery and verification"}
   ],
   "infrastructure": [{"name": "knowledge-base", "path": "knowledge-base", "role": "Local retrieval"}],
   "git": {"independent_repositories": true, "remotes_configured": false, "push_authorized": false}
