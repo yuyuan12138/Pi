@@ -4,6 +4,10 @@
 !/AGENTS.md
 !/README.md
 !/agents.json
+!/WORKSPACE-SUMMARY.md
+!/.pi/
+/.pi/*
+!/.pi/skills/
 !/tools/
 !/.githooks/
 **/__pycache__/

@@ -2,6 +2,12 @@
 
 The coordinator maintains capabilities across four independent agent workspaces: research-agent, code-agent, remote-agent, and internet-search-agent. knowledge-base provides local retrieval. Each workspace has its own local Git repository; this parent repository tracks coordinator policy, agent registry, and the shared commit guard. Child repositories are deliberately ignored, not copied or added as submodules.
 
+## Consolidated checkpoint and reusable skills
+
+See [WORKSPACE-SUMMARY.md](WORKSPACE-SUMMARY.md) for the 2026-10-27 evidence-linked summary: each agent's actual work, the skill/tool catalog, Minecraft failures and unverified milestones, research provenance, and remaining approvals. It deliberately separates infrastructure from successful experiments and coordinator execution from specialist contributions. This is an as-of checkpoint, not live monitoring.
+
+The coordinator skill `.pi/skills/workspace-checkpoint/SKILL.md` captures how to produce future handoffs and extract reusable lessons. Specialist skills live in their own repositories; they do not automatically become available in sibling workspaces. Use `/reload` or a new session, then inspect discovery diagnostics. Skills guide behavior; they neither enforce OS isolation nor grant operation permission.
+
 ## Start a session
 
 ```sh
