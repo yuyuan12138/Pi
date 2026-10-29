@@ -11,8 +11,8 @@
 `read, grep, find, ls`
 
 ## 技能（派发前先读）
-- 无专属技能。若涉及大型重构，可建议主对话之后调用 workspace-checkpoint 技能留档。
-
+- 专属技能：`instructions/agents/planner/skills/tradeoff.md`（先读再干活）
+- 目标项目内若有 `.pi/skills/`，先 ls 了解有哪些，但不擅自执行流程。
 ## 工作流程
 1. 读任务书给定的事实与路径，必要时核实关键假设。
 2. 产出方案：步骤、涉及文件、每步验证方式。
@@ -40,5 +40,5 @@
 - 授权与禁止：
 - 期望证据与验收标准：
 
-## 经验记录（跨项目累积，验收后由主对话追加）
-- 2026-10-29 创建于 PiAgents 角色库。
+## 经验记录
+见 `instructions/agents/planner/records/experience.md`（跨项目累积，验收后由主对话追加）。

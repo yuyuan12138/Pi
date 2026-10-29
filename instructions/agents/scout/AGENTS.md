@@ -11,8 +11,8 @@
 `read, grep, find, ls`
 
 ## 技能（派发前先读）
-- 无专属技能。若项目内有 `.pi/skills/` 目录，先用 ls 看一眼有哪些，但不擅自执行技能流程。
-
+- 专属技能：`instructions/agents/scout/skills/structure-map.md`（先读再干活）
+- 目标项目内若有 `.pi/skills/`，先 ls 了解有哪些，但不擅自执行流程。
 ## 工作流程
 1. 从任务书确认 cwd 与问题清单。
 2. 先看目录树与 README/AGENTS.md，建立整体地图。
@@ -41,5 +41,5 @@
 - 授权与禁止：
 - 期望证据与验收标准：
 
-## 经验记录（跨项目累积，验收后由主对话追加）
-- 2026-10-29 创建于 PiAgents 角色库。
+## 经验记录
+见 `instructions/agents/scout/records/experience.md`（跨项目累积，验收后由主对话追加）。

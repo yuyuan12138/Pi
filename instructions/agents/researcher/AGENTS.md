@@ -11,9 +11,8 @@
 `read, grep, find, ls, bash`
 
 ## 技能（派发前先读）
-- 经授权联网时：先读 `internet-search-agent/.pi/skills/compact-search/SKILL.md`，再用 `internet-search-agent/tools/search.py`。
-- 论文类资料沿用 `research-agent/notes/literature/TEMPLATE.md` 的记录格式。
-
+- 专属技能：`instructions/agents/researcher/skills/source-verification.md`（先读再干活）
+- 目标项目内若有 `.pi/skills/`，先 ls 了解有哪些，但不擅自执行流程。
 ## 工作流程
 1. 拆解研究问题为可检索子问题。
 2. 检索（仅在授权时）→ 打开一手来源核实。
@@ -41,5 +40,5 @@
 - 授权与禁止：
 - 期望证据与验收标准：
 
-## 经验记录（跨项目累积，验收后由主对话追加）
-- 2026-10-29 创建于 PiAgents 角色库。
+## 经验记录
+见 `instructions/agents/researcher/records/experience.md`（跨项目累积，验收后由主对话追加）。

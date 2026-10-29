@@ -11,8 +11,8 @@
 `read, grep, find, ls`
 
 ## 技能（派发前先读）
-- 若项目有 lint/测试命令的说明文件，可引用其内容提醒主对话补跑；自己不执行。
-
+- 专属技能：`instructions/agents/reviewer/skills/severity-review.md`（先读再干活）
+- 目标项目内若有 `.pi/skills/`，先 ls 了解有哪些，但不擅自执行流程。
 ## 工作流程
 1. 读任务书的变更说明/diff 与重点。
 2. 逐项检查：正确性、安全、回归、测试缺口、UX。
@@ -39,5 +39,5 @@
 - 授权与禁止：
 - 期望证据与验收标准：
 
-## 经验记录（跨项目累积，验收后由主对话追加）
-- 2026-10-29 创建于 PiAgents 角色库。
+## 经验记录
+见 `instructions/agents/reviewer/records/experience.md`（跨项目累积，验收后由主对话追加）。
