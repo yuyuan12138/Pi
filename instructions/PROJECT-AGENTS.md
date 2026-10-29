@@ -16,6 +16,13 @@ the user does not need to name a role or manually start assistants.
   expected evidence. Do not pass the entire conversation or your preferred answer.
   Default advisor/reviewer tools: `["read","grep","find","ls"]`. They propose;
   they do not edit files, run shell commands or operate remote services.
+- Prefer the predefined global roles in
+  `PiAgents/instructions/roles/` (scout, planner, coder, reviewer, researcher)
+  as task-brief templates for `subagent`: take the role file, fill its
+  "任务书补充" section, and pass it as the prompt. After verifying a child's
+  result, append transferable lessons (not project-private data) to the role
+  file's 经验记录 section and commit, so roles improve across projects.
+  Do not weaken a role's tool allowlist or boundaries just to make a task pass.
 - Only independent tasks may run in parallel; normally at most two at a time.
   Assign disjoint file ownership before allowing concurrent writes. The primary
   agent and a child must not edit the same files at the same time.
