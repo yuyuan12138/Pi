@@ -16,6 +16,12 @@ the user does not need to name a role or manually start assistants.
   expected evidence. Do not pass the entire conversation or your preferred answer.
   Default advisor/reviewer tools: `["read","grep","find","ls"]`. They propose;
   they do not edit files, run shell commands or operate remote services.
+- Knowledge base: after a verified result with transferable value, append a
+  dated entry to `knowledge-base/daily/YYYY-MM-DD.md` (one-line context,
+  durable lesson, source pointer; no secrets or unverified claims).
+  Periodically promote repeated lessons into `knowledge-base/knowledge/concepts/`
+  and run `python3 knowledge-base/scripts/compile_kb.py` to regenerate the
+  index and lint. See knowledge-base/AGENTS.md for conventions.
 - Prefer the predefined global roles in
   `PiAgents/instructions/agents/` (scout, planner, coder, reviewer,
   researcher, each a folder with AGENTS.md, skills/, records/)
