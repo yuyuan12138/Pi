@@ -1,0 +1,42 @@
+{
+  "name": "pi-fork",
+  "version": "0.1.0",
+  "description": "Cache-friendly fork tool for Pi coding agent. Run a task in an isolated child Pi process with the current branch context.",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.mjs'"
+  },
+  "keywords": [
+    "pi",
+    "fork",
+    "delegation",
+    "pi-package"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": ">=0.75.0",
+    "@earendil-works/pi-ai": ">=0.75.0",
+    "@earendil-works/pi-coding-agent": ">=0.75.0",
+    "@earendil-works/pi-tui": ">=0.75.0",
+    "@sinclair/typebox": ">=0.34.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    }
+  }
+}

@@ -1,6 +1,8 @@
-# Pi agent workspaces
+# Project-first Pi
 
-The coordinator maintains capabilities across four independent agent workspaces: research-agent, code-agent, remote-agent, and internet-search-agent. knowledge-base provides local retrieval. Each workspace has its own local Git repository; this parent repository tracks coordinator policy, agent registry, and the shared commit guard. Child repositories are deliberately ignored, not copied or added as submodules.
+Current architecture: **one project, one primary conversation**, with automatic bounded forks, independent advisor/reviewer subagents, and session-local observational memory. Intercom is removed. See [PROJECT-ARCHITECTURE.md](PROJECT-ARCHITECTURE.md) for source versions, local adaptations, setup, validation limits and rollback.
+
+The former research-agent, code-agent, remote-agent and internet-search-agent directories remain independent local repositories for preserved tools and records; they are no longer the default standing team. knowledge-base remains supporting retrieval infrastructure. Child repositories are deliberately ignored, not copied or added as submodules.
 
 ## Consolidated checkpoint and reusable skills
 
@@ -11,15 +13,15 @@ The coordinator skill `.pi/skills/workspace-checkpoint/SKILL.md` captures how to
 ## Start a session
 
 ```sh
-cd /Users/yuyuan/PiAgents/<agent-name>
+cd /absolute/path/to/your-project
 pi
 ```
 
-Use `/alias <agent-name>` when pi-intercom is loaded. Folders and Git repositories do not themselves start running agents. Each agent can communicate with connected peers, while user instructions and per-task approvals retain priority.
+Open a separate primary session for another project. The primary model chooses `fork` for context-heavy delegated work and `subagent` for fresh-context advisor/reviewer opinions; you do not need to start role-specific chats. Native `/reload` or a restart activates changed extensions; prefer a clean session for this migration. Telegram conversations must still route to the instance with the intended working directory—opening a chat does not change `cwd`.
 
 ## Compact internet search
 
-`internet-search-agent/` provides public-source search and verification instructions plus a dependency-free Python tool. It returns bounded source-linked snippets/metadata instead of entire pages. Public searches use external providers; they are not local/private retrieval. Refer to that workspace's README and compact-search skill. Delegate to its session when connected, otherwise the tool can be used directly for authorized public searches. This does not add a RAG source, start a daemon/session, or connect a Telegram bot.
+`internet-search-agent/` provides public-source search and verification instructions plus a dependency-free Python tool. It returns bounded source-linked snippets/metadata instead of entire pages. Public searches use external providers; they are not local/private retrieval. Refer to that workspace's README and compact-search skill. Use the tool directly or delegate a bounded task with the necessary source-linked brief and permissions; no connected standing search session is required. This does not add a RAG source, start a daemon/session, or connect a Telegram bot.
 
 ## Version control
 
