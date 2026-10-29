@@ -2,7 +2,7 @@
 
 Current architecture: **one project, one primary conversation**, with automatic bounded forks, independent advisor/reviewer subagents, and session-local observational memory. Intercom is removed. See [PROJECT-ARCHITECTURE.md](PROJECT-ARCHITECTURE.md) for source versions, local adaptations, setup, validation limits and rollback.
 
-The former research-agent, code-agent, remote-agent and internet-search-agent directories remain independent local repositories for preserved tools and records; they are no longer the default standing team. knowledge-base remains supporting retrieval infrastructure. Child repositories are deliberately ignored, not copied or added as submodules.
+The former research-agent, remote-agent and internet-search-agent directories remain independent local repositories for preserved tools and records; they are no longer the default standing team. knowledge-base remains supporting retrieval infrastructure. Child repositories are deliberately ignored, not copied or added as submodules.
 
 ## Consolidated checkpoint and reusable skills
 
