@@ -28,11 +28,13 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const version=fs.readFileSync(path.join(os.homedir(),'.pi/agent/install/current-version'),'utf8').trim();
 const host=path.join(os.homedir(),'.pi/agent/install/releases',version,'node_modules/@earendil-works/pi-coding-agent');
 const {loadExtensions}=await import(pathToFileURL(path.join(host,'dist/core/extensions/loader.js')));
-const names=['pi-fork/src/index.ts','pi-minimal-subagent/index.ts','pi-observational-memory/src/index.ts'];
+const names=['pi-fork/src/index.ts','pi-minimal-subagent/index.ts','pi-observational-memory/src/index.ts','pi-usage-log/index.ts'];
 const loaded=await loadExtensions(names.map(n=>path.join(root,'packages',n)),root);
 assert.deepEqual(loaded.errors,[]);
 const definitions=loaded.extensions.flatMap(e=>[...e.tools.values()].map(t=>t.definition));
 assert.deepEqual(definitions.map(t=>t.name),['fork','subagent','recall']);
+assert(loaded.extensions[3].handlers.has('turn_end'),'usage-log turn_end handler');
+assert([...loaded.extensions[3].commands.keys()].includes('usage'),'usage command');
 const fork=definitions[0],subagent=definitions[1];
 const cwd=fs.mkdtempSync(path.join(os.tmpdir(),'pi-project-check-'));
 try {
@@ -56,5 +58,5 @@ try {
   {type:'custom',id:'memory',customType:'om.observations.recorded',data:{coversUpToId:'old-1',observations:[{}]}},
   {type:'message',id:'kept'}];
  assert.equal(await compact({branchEntries:partial,preparation:{firstKeptEntryId:'kept',tokensBefore:100}},ctx),undefined,'unobserved span must use native compaction');
- console.log(JSON.stringify({status:'PASS',pi:version,model_api_calls:0,checks:['three extensions load','fork branch snapshot/private cleanup','independent context','child flags','error and empty result','settled boundary','project cwd','child tool allowlist','memory lifecycle hooks','partial-memory compaction fallback']}));
+ console.log(JSON.stringify({status:'PASS',pi:version,model_api_calls:0,checks:['three extensions load','fork branch snapshot/private cleanup','independent context','child flags','error and empty result','settled boundary','project cwd','child tool allowlist','memory lifecycle hooks','partial-memory compaction fallback','usage-log extension']}));
 } finally {fs.rmSync(cwd,{recursive:true,force:true});}

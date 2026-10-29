@@ -1,0 +1,8 @@
+{
+  "name": "pi-usage-log",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local usage monitoring for Pi: per-turn token/cost/tool JSONL log and /usage summary",
+  "main": "index.ts"
+}

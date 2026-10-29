@@ -34,6 +34,9 @@ They are local adaptations, **not unmodified upstream installations**:
 - `pi-minimal-subagent`: npm `0.1.0`. Upstream targets Pi 1.4.0; this copy is adapted
   and checked against the installed Pi 1.3.0 instead of upgrading Pi implicitly.
   <https://www.npmjs.com/package/pi-minimal-subagent>
+- `pi-usage-log`: first-party local extension (packages/pi-usage-log). Logs
+  per-turn token/cost/tool usage to `~/.pi/agent/usage/YYYY-MM-DD.jsonl` and
+  adds a `/usage` summary command. Offline; write failures never break a session.
 - `pi-observational-memory`: npm `3.1.4` (V3).
   <https://github.com/elpapi42/pi-observational-memory>
 
