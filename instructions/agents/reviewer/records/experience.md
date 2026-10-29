@@ -1,5 +1,6 @@
-# reviewer 经验记录
+# reviewer experience log
 
-跨项目累积。验收后由主对话追加，注明日期与来源项目。
+Review lessons: severity grading, coverage statements, common blind spots. Append one-line lessons after verified results; date each entry and
+name the source project. Never record project-private data.
 
-- 2026-10-29 创建于 PiAgents 角色库。
+- 2026-10-29 Created in the PiAgents agent library.

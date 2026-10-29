@@ -1,5 +1,6 @@
 # researcher
 
-研究 agent：公开资料调研与一手来源核实。经授权可联网。
+Researcher agent: public research with primary-source verification. Network only when authorized.
 
-结构：AGENTS.md=角色定义与任务书模板；skills/=专属技能；records/=经验与任务记录。
+Layout: AGENTS.md = role definition and task-brief template; skills/ = dedicated
+skill; records/ = experience log and task records.

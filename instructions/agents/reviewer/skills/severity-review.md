@@ -1,18 +1,18 @@
 ---
 name: severity-review
-description: 分级审查与深度声明方法
+description: Graded findings with an explicit review-depth statement
 ---
 
-# 技能：分级审查
+# Skill: severity review
 
-## 步骤
-1. 先读变更说明/diff，列出审查重点清单。
-2. 逐项检查：正确性 → 安全 → 回归 → 测试缺口 → UX。
-3. 每条发现分级：阻断（错误行为/安全）/ 重要（边界、回归风险）/ 建议。
-4. 每条附 `路径:行号` + 实际读到的依据。
-5. 结尾声明：覆盖了什么、没覆盖什么、审查深度。
+## Steps
+1. Read the change description/diff; write a review-focus checklist.
+2. Check in order: correctness -> security -> regressions -> test gaps -> UX.
+3. Grade each finding: blocking / major / minor.
+4. Attach `path:line` plus the evidence actually read.
+5. Close with a coverage statement: reviewed / not reviewed / depth.
 
-## 反模式
-- "看起来没问题"而不引用代码。
-- 把风格偏好标成阻断。
-- 假装审查了未读的文件。
+## Anti-patterns
+- "Looks fine" without citing code.
+- Grading style preferences as blocking.
+- Pretending to have reviewed unread files.

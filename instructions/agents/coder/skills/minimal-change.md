@@ -1,18 +1,19 @@
 ---
 name: minimal-change
-description: 最小可维护改动的实现与自证方法
+description: Minimal maintainable changes with test-based self-verification
 ---
 
-# 技能：最小改动
+# Skill: minimal change
 
-## 步骤
-1. 动手前复述：文件范围、验收标准、禁止事项。
-2. 先读目标文件邻近代码与现有测试，保持风格。
-3. 改动按"每处能一句话说清为什么"的粒度提交。
-4. 改完立即运行相关测试；无测试则写最小验证脚本并注明一次性。
-5. 汇总三态：已实现 / 已测试 / 未验证。
+## Steps
+1. Before starting, restate: file scope, acceptance criteria, prohibitions.
+2. Read adjacent code and existing tests; match their style.
+3. Commit-scale changes, each explainable in one sentence.
+4. Run relevant tests immediately after changing; otherwise write a minimal
+   one-shot verification script and label it as such.
+5. Summarize in three states: implemented / tested / unverified.
 
-## 反模式
-- 顺手重构未授权区域。
-- 删测试或降低断言让测试通过。
-- 报告"完成"但未运行任何验证。
+## Anti-patterns
+- Drive-by refactors outside the authorized scope.
+- Deleting tests or weakening assertions to pass.
+- Reporting "done" without running any verification.
