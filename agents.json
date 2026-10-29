@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "architecture": "project-first",
+  "primary": {
+    "scope": "one conversation per actual project cwd",
+    "role": "Task ownership, automatic bounded delegation, integration and verification"
+  },
+  "delegation": [
+    {
+      "tool": "fork",
+      "context": "active primary branch",
+      "lifetime": "task"
+    },
+    {
+      "tool": "subagent",
+      "context": "self-contained clean brief",
+      "roles": [
+        "advisor",
+        "reviewer"
+      ],
+      "lifetime": "task"
+    }
+  ],
+  "memory": {
+    "extension": "pi-observational-memory",
+    "scope": "session and branch",
+    "infallible": false
+  },
+  "intercom": "removed",
+  "legacy_workspaces": [
+    "research-agent",
+    "remote-agent",
+    "internet-search-agent"
+  ],
+  "infrastructure": [
+    {
+      "name": "knowledge-base",
+      "path": "knowledge-base",
+      "role": "Local retrieval"
+    }
+  ],
+  "git": {
+    "independent_repositories": true,
+    "remotes_configured": false,
+    "push_authorized": false
+  }
+}
