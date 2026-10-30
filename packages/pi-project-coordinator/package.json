@@ -1,0 +1,16 @@
+{
+  "name": "pi-project-coordinator",
+  "version": "0.1.0",
+  "description": "Multi-project coordination layer: project registry, deterministic routing, task journal, per-project queues and leases, with a Pi RPC runtime adapter.",
+  "type": "module",
+  "license": "MIT",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test ../../tools/test_project_coordinator.mjs"
+  }
+}
