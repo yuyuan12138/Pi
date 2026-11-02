@@ -19,7 +19,55 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 
 export type TaskOutcome = "completed-unverified" | "failed" | "unknown-outcome";
-export type TaskPhase = "received" | "queued" | "started" | "settled" | "verified" | "cancelled" | "reconciled";
+export type TaskPhase =
+  | "received"
+  | "queued"
+  | "started"
+  | "settled"
+  | "verified"
+  | "cancelled"
+  | "reconciled"
+  | "question"; // waiting for a person to answer an outstanding question
+
+/** Super-agent style stage label: names WHOM the work currently waits for. */
+export type TaskStage =
+  | "person/blocked-failed" // failed, no retry pending: a person must decide
+  | "person/review" // completed-unverified: a person (primary) must verify
+  | "person/answer" // an explicit question to the user is outstanding
+  | "working" // a worker session is executing
+  | "queued" // waiting for a worker slot
+  | "idle"; // terminal (verified/cancelled/reconciled) or unknown
+
+/** Recorded authorization basis for a task (Mandate-lite, dsh-superagent 002). */
+export interface Authorization {
+  /** Human-readable basis, e.g. a direct user quote. */
+  basis: string;
+  /** ISO timestamp when the basis was recorded. */
+  at: string;
+  /** Scope this authorization covers, e.g. "alpha: deploy only". */
+  scope: string;
+}
+
+export const MANDATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A mandate is valid only with a non-empty basis and age < 7 days. */
+export function mandateValid(a: Authorization | undefined | null, nowMs: number = Date.now()): boolean {
+  if (!a || !a.basis || a.basis.trim().length === 0) return false;
+  const at = Date.parse(a.at);
+  if (!Number.isFinite(at)) return false;
+  const age = nowMs - at;
+  return age >= 0 && age < MANDATE_MAX_AGE_MS;
+}
+
+/** First-match stage derivation; every branch names the waiting party. */
+export function deriveStage(t: { phase?: TaskPhase; outcome?: TaskOutcome }): TaskStage {
+  if (t.outcome === "failed") return "person/blocked-failed";
+  if (t.outcome === "completed-unverified" && t.phase !== "verified") return "person/review";
+  if (t.phase === "question") return "person/answer";
+  if (t.phase === "started") return "working";
+  if (t.phase === "queued" || t.phase === "received") return "queued";
+  return "idle";
+}
 
 export interface TaskEnvelope {
   taskId: string;
@@ -34,6 +82,10 @@ export interface TaskEnvelope {
   nonGoals?: string[];
   /** True when execution may mutate state (deploy/push/migrate/write). */
   mutating: boolean;
+  /** Who asked for this task; "user" messages take queue precedence. */
+  origin?: "user" | "primary";
+  /** Recorded authorization basis; gates automatic resume/retry only. */
+  authorization?: Authorization;
   createdAt: string;
 }
 
@@ -42,6 +94,8 @@ export interface JournalRecord {
   taskId: string;
   phase: TaskPhase;
   detail?: string;
+  /** Derived stage label (whom the work waits for), recorded at transitions. */
+  stage?: TaskStage;
 }
 
 export function computeDedupeKey(sourceMessageId: string, splitIndex: number): string {
@@ -53,7 +107,8 @@ export class TaskJournal {
   private envelopes = new Map<string, TaskEnvelope>();
   private knownPhases = new Map<string, TaskPhase>();
   private outcomes = new Map<string, TaskOutcome>();
-  private readonly file: string;
+  /** Journal file path (public so co-located state files can sit beside it). */
+  readonly file: string;
 
   constructor(file: string) {
     this.file = file;
@@ -128,7 +183,22 @@ export class TaskJournal {
   }
 
   mark(taskId: string, phase: TaskPhase, detail?: string): void {
-    this.append({ at: new Date().toISOString(), taskId, phase, detail });
+    let outcome = this.outcomes.get(taskId);
+    if (phase === "settled" && detail) {
+      const o = detail.split(":")[0] as TaskOutcome;
+      if (o === "completed-unverified" || o === "failed" || o === "unknown-outcome") outcome = o;
+    }
+    this.append({ at: new Date().toISOString(), taskId, phase, detail, stage: deriveStage({ phase, outcome }) });
+  }
+
+  /** Ask the user a question; the task waits for a person (person/answer). */
+  askPerson(taskId: string, question: string): void {
+    this.append({ at: new Date().toISOString(), taskId, phase: "question", detail: question, stage: "person/answer" });
+  }
+
+  /** Current derived stage for a task. */
+  stage(taskId: string): TaskStage {
+    return deriveStage({ phase: this.knownPhases.get(taskId), outcome: this.outcomes.get(taskId) });
   }
 
   /** Mutating tasks stuck in unknown-outcome; never replayed automatically. */

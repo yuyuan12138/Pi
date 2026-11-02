@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Registry } from "./registry.ts";
-import { TaskJournal, computeDedupeKey, type TaskEnvelope, type TaskOutcome } from "./journal.ts";
+import { TaskJournal, computeDedupeKey, mandateValid, type Authorization, type TaskEnvelope, type TaskOutcome } from "./journal.ts";
 
 export interface ProjectRuntime {
   /** Unique adapter instance identity for lease bookkeeping. */
@@ -32,6 +32,13 @@ export interface CoordinatorStats {
   running: string[]; // taskIds
   queues: Record<string, string[]>; // projectId -> waiting taskIds
   leases: Record<string, { holder: string; generation: number }>;
+  paused?: { paused: boolean; reason?: string; at: string };
+}
+
+interface PauseState {
+  paused: boolean;
+  reason?: string;
+  at: string;
 }
 
 export class Coordinator {
@@ -45,6 +52,8 @@ export class Coordinator {
   private readonly journal: TaskJournal;
   private readonly runtime: ProjectRuntime;
   private readonly options: { maxConcurrentProjects?: number };
+  private readonly pauseFile: string;
+  private pause: PauseState;
 
   constructor(
     registry: Registry,
@@ -57,6 +66,42 @@ export class Coordinator {
     this.runtime = runtime;
     this.options = options;
     this.runtimeById.set(runtime.runtimeId, runtime);
+    // Persistent pause flag lives next to the journal (state dir), survives crashes.
+    this.pauseFile = path.join(path.dirname(journal.file ?? "."), "pause.json");
+    this.pause = this.readPause();
+  }
+
+  private readPause(): PauseState {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.pauseFile, "utf8")) as PauseState;
+      if (raw && typeof raw.paused === "boolean") {
+        return { paused: raw.paused, reason: raw.reason, at: raw.at };
+      }
+    } catch {
+      /* absent or unreadable: not paused */
+    }
+    return { paused: false, at: new Date().toISOString() };
+  }
+
+  private writePause(p: PauseState): void {
+    this.pause = p;
+    fs.mkdirSync(path.dirname(this.pauseFile), { recursive: true });
+    fs.writeFileSync(this.pauseFile, JSON.stringify(p, null, 2), "utf8");
+  }
+
+  /** User "stop" command: blocks new starts and auto-retries; running tasks finish. */
+  pauseAll(reason?: string): void {
+    this.writePause({ paused: true, reason, at: new Date().toISOString() });
+  }
+
+  /** Only a person lifts a pause. Resumes queued work immediately. */
+  unpause(): void {
+    this.writePause({ paused: false, at: new Date().toISOString() });
+    this.pump();
+  }
+
+  paused(): boolean {
+    return this.pause.paused;
   }
 
   get maxConcurrent(): number {
@@ -75,6 +120,8 @@ export class Coordinator {
     deliverable: string;
     nonGoals?: string[];
     mutating: boolean;
+    origin?: "user" | "primary";
+    authorization?: Authorization;
   }): SubmitResult {
     const project = this.registry.projects.find((p) => p.id === input.projectId);
     if (!project || project.status !== "registered") {
@@ -94,6 +141,8 @@ export class Coordinator {
       deliverable: input.deliverable,
       nonGoals: input.nonGoals,
       mutating: input.mutating,
+      origin: input.origin,
+      authorization: input.authorization,
       createdAt: new Date().toISOString(),
     };
     this.journal.recordEnvelope(envelope);
@@ -114,15 +163,46 @@ export class Coordinator {
   }
 
   private pump(): void {
+    if (this.pause.paused) return; // person said stop: nothing new starts
     if (this.active >= this.maxConcurrent) return;
     for (const [projectId] of this.queues) {
       if (this.active >= this.maxConcurrent) break;
       if (this.running.has(projectId)) continue;
       const queue = this.queues.get(projectId)!;
-      const taskId = queue.shift();
-      if (taskId === undefined) continue;
+      if (queue.length === 0) continue;
+      // Human precedence: user-origin tasks jump the queue (stable otherwise).
+      let idx = queue.findIndex((id) => this.journal.getEnvelope(id)?.origin === "user");
+      if (idx < 0) idx = 0;
+      const taskId = queue.splice(idx, 1)[0];
       this.start(projectId, taskId);
     }
+  }
+
+  /**
+   * Explicit resume/retry of a settled task (e.g. after reconciliation).
+   * Gated by a valid mandate: automatic replay without a recorded, fresh
+   * authorization basis is refused. Fresh user submissions via submit()
+   * are never gated.
+   */
+  retry(taskId: string, nowMs: number = Date.now()): SubmitResult {
+    const envelope = this.journal.getEnvelope(taskId);
+    if (!envelope) throw new Error(`unknown task: ${taskId}`);
+    if (this.pause.paused) {
+      throw new Error(`refusing auto-resume of ${taskId}: coordinator is paused by a person (unpause first)`);
+    }
+    if (!mandateValid(envelope.authorization, nowMs)) {
+      throw new Error(`refusing auto-resume of ${taskId}: no valid mandate (missing, empty basis, or older than 7 days)`);
+    }
+    if (this.running.has(envelope.projectId) && this.running.get(envelope.projectId) === taskId) {
+      throw new Error(`task ${taskId} is already running`);
+    }
+    const queue = this.queues.get(envelope.projectId) ?? [];
+    if (queue.includes(taskId)) return { status: "queued", taskId };
+    queue.push(taskId);
+    this.queues.set(envelope.projectId, queue);
+    this.journal.mark(taskId, "queued", "requeued via explicit retry (mandate valid)");
+    this.pump();
+    return { status: "queued", taskId };
   }
 
   private start(projectId: string, taskId: string): void {
@@ -168,6 +248,8 @@ export class Coordinator {
     for (const [k, v] of this.leases) leases[k] = { ...v };
     const running: string[] = [];
     for (const taskId of this.running.values()) running.push(taskId);
-    return { running, queues, leases };
+    const stats: CoordinatorStats = { running, queues, leases };
+    if (this.pause.paused) stats.paused = { ...this.pause };
+    return stats;
   }
 }

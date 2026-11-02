@@ -11,6 +11,6 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test ../../tools/test_project_coordinator.mjs"
+    "test": "node --experimental-strip-types --test ../../tools/test_project_coordinator.ts"
   }
 }

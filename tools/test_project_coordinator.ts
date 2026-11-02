@@ -411,3 +411,169 @@ test("real pi rpc smoke: spawn + get_state identity, no model call", { skip: !pr
   }
 });
 
+
+// ------------------------------------- super-agent patterns (stage/mandate/pause/precedence)
+
+import {
+  deriveStage,
+  mandateValid,
+  type Authorization,
+  type TaskStage,
+} from "../packages/pi-project-coordinator/index.ts";
+
+test("stage: deriveStage covers all branches, first-match order", () => {
+  // blocked-failed wins even over working/review signals
+  assert.equal(deriveStage({ phase: "settled", outcome: "failed" }), "person/blocked-failed");
+  assert.equal(deriveStage({ phase: "started", outcome: "failed" }), "person/blocked-failed");
+  // completed-unverified not yet verified => person/review
+  assert.equal(deriveStage({ phase: "settled", outcome: "completed-unverified" }), "person/review");
+  assert.equal(deriveStage({ phase: "queued", outcome: "completed-unverified" }), "person/review");
+  assert.equal(deriveStage({ phase: "verified", outcome: "completed-unverified" }), "idle"); // verified clears review
+  // outstanding question => person/answer (unless failed/unverified)
+  assert.equal(deriveStage({ phase: "question" }), "person/answer");
+  assert.equal(deriveStage({ phase: "question", outcome: "failed" }), "person/blocked-failed");
+  assert.equal(deriveStage({ phase: "started" }), "working");
+  assert.equal(deriveStage({ phase: "queued" }), "queued");
+  assert.equal(deriveStage({ phase: "received" }), "queued");
+  assert.equal(deriveStage({ phase: "cancelled" }), "idle");
+  assert.equal(deriveStage({ phase: "reconciled" }), "idle");
+  assert.equal(deriveStage({ phase: undefined, outcome: undefined }), "idle");
+});
+
+test("journal: stages recorded on transitions, question state via askPerson", async () => {
+  const dir = scratch("stages");
+  const file = path.join(dir, "journal.jsonl");
+  const j = new TaskJournal(file);
+  const envelope = {
+    taskId: "task-s1",
+    dedupeKey: "ks1",
+    sourceMessageId: "tg-s1",
+    splitIndex: 0,
+    projectId: "alpha",
+    goal: "g",
+    deliverable: "d",
+    mutating: false,
+    createdAt: new Date().toISOString(),
+  };
+  j.recordEnvelope(envelope);
+  j.mark("task-s1", "queued");
+  assert.equal(j.stage("task-s1"), "queued" as TaskStage);
+  j.mark("task-s1", "started");
+  assert.equal(j.stage("task-s1"), "working" as TaskStage);
+  j.askPerson("task-s1", "which database?");
+  assert.equal(j.stage("task-s1"), "person/answer" as TaskStage);
+  j.mark("task-s1", "settled", "completed-unverified: done");
+  assert.equal(j.stage("task-s1"), "person/review" as TaskStage);
+  j.mark("task-s1", "verified", "primary inspected evidence");
+  assert.equal(j.stage("task-s1"), "idle" as TaskStage);
+  // stage labels persist in the journal records
+  const stages = j.allRecords().map((r) => r.stage).filter(Boolean);
+  assert.ok(stages.includes("working") && stages.includes("person/answer") && stages.includes("person/review"));
+  // replay keeps stages
+  const j2 = new TaskJournal(file);
+  assert.equal(j2.stage("task-s1"), "idle" as TaskStage);
+});
+
+test("mandate: validity rules and auto-resume gating (fresh submissions never gated)", async () => {
+  const dir = scratch("mandate");
+  let ran = 0;
+  const rt = new ScriptedRuntime(async () => {
+    ran += 1;
+    return { outcome: "failed", summary: "boom" };
+  });
+  const { coordinator, journal } = makeEngine(dir, rt);
+
+  const mandate: Authorization = { basis: "user: 'redeploy the beta service'", at: new Date().toISOString(), scope: "beta" };
+  // mandate validity rules
+  assert.equal(mandateValid(mandate), true);
+  assert.equal(mandateValid(undefined), false);
+  assert.equal(mandateValid({ ...mandate, basis: "  " }), false);
+  assert.equal(mandateValid({ ...mandate, at: "not-a-date" }), false);
+  const stale = Date.now() - 8 * 24 * 60 * 60 * 1000;
+  assert.equal(mandateValid({ ...mandate, at: new Date(stale).toISOString() }), false);
+  const fresh = mandateValid(mandate, Date.now() + 8 * 24 * 60 * 60 * 1000);
+  assert.equal(fresh, false); // basis would be in the future beyond the window
+
+  // Task WITHOUT authorization: fresh submit runs (never gated)...
+  coordinator.submit({ sourceMessageId: "no-mandate", splitIndex: 0, projectId: "beta", goal: "g", deliverable: "d", mutating: false });
+  await coordinator.drain();
+  assert.equal(ran, 1);
+  // ...but retry() (the auto-resume path) is refused without a valid mandate.
+  const noMandateId = [...journal.allRecords()].find((r) => r.phase === "received")!.taskId;
+  assert.throws(() => coordinator.retry(noMandateId), /no valid mandate/);
+
+  // Task WITH fresh mandate: retry succeeds and re-executes.
+  coordinator.submit({
+    sourceMessageId: "with-mandate", splitIndex: 0, projectId: "beta", goal: "g", deliverable: "d",
+    mutating: false, origin: "primary", authorization: mandate,
+  });
+  await coordinator.drain();
+  assert.equal(ran, 2);
+  const withMandateId = [...journal.allRecords()].filter((r) => r.phase === "received").map((r) => r.taskId)[1];
+  const res = coordinator.retry(withMandateId);
+  assert.equal(res.status, "queued");
+  await coordinator.drain();
+  assert.equal(ran, 3); // retried once under the valid mandate
+});
+
+test("pause: blocks new starts and auto-retry; running tasks finish; persists across restarts", async () => {
+  const dir = scratch("pause");
+  const release1 = new Promise<void>(() => {}); // never resolves until we let it
+  let started = 0;
+  let finished = 0;
+  const rt = new ScriptedRuntime(async () => {
+    started += 1;
+    await new Promise((r) => setTimeout(r, 15));
+    finished += 1;
+    return { outcome: "completed-unverified", summary: "ok" };
+  });
+  const { coordinator, journal } = makeEngine(dir, rt);
+  const mandate: Authorization = { basis: "user: 'keep going'", at: new Date().toISOString(), scope: "alpha" };
+
+  // Start one task, then pause mid-flight.
+  coordinator.submit({ sourceMessageId: "p1", splitIndex: 0, projectId: "alpha", goal: "g", deliverable: "d", mutating: false, authorization: mandate });
+  coordinator.pauseAll("user said stop");
+  assert.equal(coordinator.paused(), true);
+  // New submission is accepted but must NOT start while paused.
+  coordinator.submit({ sourceMessageId: "p2", splitIndex: 0, projectId: "alpha", goal: "g", deliverable: "d", mutating: false, authorization: mandate });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(started, 1); // only p1 started; p2 stays queued
+  assert.equal(finished, 1); // the running task was allowed to finish
+  assert.deepEqual(coordinator.stats().queues.alpha.length, 1);
+  assert.equal(coordinator.stats().paused!.reason, "user said stop");
+
+  // Auto-retry refused while paused, even with a valid mandate.
+  const p1 = [...journal.allRecords()].find((r) => r.phase === "received" && JSON.parse(r.detail!).sourceMessageId === "p1")!.taskId;
+  assert.throws(() => coordinator.retry(p1), /paused/);
+
+  // Pause persists across a fresh coordinator over the same state dir.
+  // (A fresh instance never replays queue contents by design; only the flag persists.)
+  const { coordinator: c2 } = makeEngine(dir, rt);
+  assert.equal(c2.paused(), true);
+  // A person lifts the pause on the live instance: queued work resumes.
+  coordinator.unpause();
+  await coordinator.drain();
+  assert.equal(started, 2); // p2 started only after unpause
+});
+
+test("precedence: user-origin tasks dequeue ahead of queued primary tasks (stable order otherwise)", async () => {
+  const dir = scratch("precedence");
+  const rt = new ScriptedRuntime(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+    return { outcome: "completed-unverified", summary: "ok" };
+  });
+  const { coordinator } = makeEngine(dir, rt, 1); // single slot => visible ordering
+  coordinator.submit({ sourceMessageId: "bg-1", splitIndex: 0, projectId: "alpha", goal: "bg1", deliverable: "d", mutating: false, origin: "primary" });
+  coordinator.submit({ sourceMessageId: "bg-2", splitIndex: 0, projectId: "alpha", goal: "bg2", deliverable: "d", mutating: false, origin: "primary" });
+  coordinator.submit({ sourceMessageId: "usr-1", splitIndex: 0, projectId: "alpha", goal: "user wants this now", deliverable: "d", mutating: false, origin: "user" });
+  await coordinator.drain();
+  // First task already started before the user message arrived; after that,
+  // the user task must run before the remaining queued primary task.
+  assert.deepEqual(rt.calls.length, 3);
+  // Reconstruct start order from the journal.
+  const journal = new TaskJournal(path.join(dir, "journal.jsonl"));
+  const startedOrder = journal.allRecords().filter((r) => r.phase === "started").map((r) => r.taskId);
+  const envelopes = new Map(journal.allRecords().filter((r) => r.phase === "received").map((r) => [r.taskId, JSON.parse(r.detail!)]));
+  const origins = startedOrder.map((id) => envelopes.get(id)?.sourceMessageId);
+  assert.deepEqual(origins, ["bg-1", "usr-1", "bg-2"]); // user jumps bg-2
+});
