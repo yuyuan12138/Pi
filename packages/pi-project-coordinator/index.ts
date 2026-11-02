@@ -7,6 +7,7 @@
  * It deliberately does NOT auto-activate anything: see README.md.
  */
 export * from "./src/registry.ts";
+export * from "./src/store.ts";
 export * from "./src/router.ts";
 export * from "./src/journal.ts";
 export * from "./src/engine.ts";

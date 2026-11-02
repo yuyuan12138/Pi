@@ -10,8 +10,6 @@
  *   until markReconciled()/verification clears it;
  * - queue order per project is FIFO across crash-free restarts (journal replay).
  */
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Registry } from "./registry.ts";
 import { TaskJournal, computeDedupeKey, mandateValid, type Authorization, type TaskEnvelope, type TaskOutcome } from "./journal.ts";
@@ -52,7 +50,6 @@ export class Coordinator {
   private readonly journal: TaskJournal;
   private readonly runtime: ProjectRuntime;
   private readonly options: { maxConcurrentProjects?: number };
-  private readonly pauseFile: string;
   private pause: PauseState;
 
   constructor(
@@ -66,27 +63,22 @@ export class Coordinator {
     this.runtime = runtime;
     this.options = options;
     this.runtimeById.set(runtime.runtimeId, runtime);
-    // Persistent pause flag lives next to the journal (state dir), survives crashes.
-    this.pauseFile = path.join(path.dirname(journal.file ?? "."), "pause.json");
+    // Persistent pause flag lives in the coordinator SQLite store (same db as
+    // the journal); it survives crashes and restarts.
     this.pause = this.readPause();
   }
 
   private readPause(): PauseState {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.pauseFile, "utf8")) as PauseState;
-      if (raw && typeof raw.paused === "boolean") {
-        return { paused: raw.paused, reason: raw.reason, at: raw.at };
-      }
-    } catch {
-      /* absent or unreadable: not paused */
+    const row = this.journal.store.readPause();
+    if (row && typeof row.paused === "boolean") {
+      return { paused: row.paused, reason: row.reason, at: row.at };
     }
     return { paused: false, at: new Date().toISOString() };
   }
 
   private writePause(p: PauseState): void {
     this.pause = p;
-    fs.mkdirSync(path.dirname(this.pauseFile), { recursive: true });
-    fs.writeFileSync(this.pauseFile, JSON.stringify(p, null, 2), "utf8");
+    this.journal.store.writePause(p);
   }
 
   /** User "stop" command: blocks new starts and auto-retries; running tasks finish. */
@@ -101,6 +93,9 @@ export class Coordinator {
   }
 
   paused(): boolean {
+    // Re-read from the store so pause state written by another live instance
+    // (or a previous process) is honored without a restart.
+    this.pause = this.readPause();
     return this.pause.paused;
   }
 
@@ -163,7 +158,7 @@ export class Coordinator {
   }
 
   private pump(): void {
-    if (this.pause.paused) return; // person said stop: nothing new starts
+    if (this.paused()) return; // person said stop: nothing new starts
     if (this.active >= this.maxConcurrent) return;
     for (const [projectId] of this.queues) {
       if (this.active >= this.maxConcurrent) break;

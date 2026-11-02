@@ -7,6 +7,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import type { CoordinatorStore } from "./store.ts";
 
 export const REGISTRY_SCHEMA_VERSION = 1;
 
@@ -118,4 +119,24 @@ export function proposeRegistration(
   const next: Registry = { ...registry, projects: [...registry.projects, project] };
   validateRegistry(next);
   return next;
+}
+
+// ------------------------------------------------------------ SQLite store
+
+/**
+ * SQLite-backed registry persistence (single WAL db, see store.ts).
+ * The registry document is stored as validated JSON in the `registry` table.
+ * The file-based loadRegistry/saveRegistry remain for legacy import only.
+ */
+export function loadRegistryFromStore(store: CoordinatorStore): Registry {
+  const json = store.readRegistryJson();
+  if (json === undefined) return emptyRegistry();
+  const registry = JSON.parse(json) as Registry;
+  validateRegistry(registry);
+  return registry;
+}
+
+export function saveRegistryToStore(store: CoordinatorStore, registry: Registry): void {
+  validateRegistry(registry);
+  store.writeRegistryJson(JSON.stringify(registry, null, 2));
 }

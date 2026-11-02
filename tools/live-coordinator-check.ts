@@ -11,7 +11,7 @@
  * The medical project registration is performed here because the user has
  * explicitly confirmed root /Users/yuyuan/projects/mobile-medical/medical-system.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -25,8 +25,7 @@ import { Coordinator } from "../packages/pi-project-coordinator/src/engine.ts";
 import { RpcProjectRuntime } from "../packages/pi-project-coordinator/src/rpc-runtime.ts";
 
 const stateDir = path.join(homedir(), ".pi/agent/project-coordinator");
-const registryFile = path.join(stateDir, "registry.json");
-const journalFile = path.join(stateDir, "journal.jsonl");
+const dbFile = path.join(stateDir, "coordinator.db");
 const sessionDir = path.join(stateDir, "sessions");
 
 const MEDICAL = {
@@ -43,12 +42,15 @@ const cliPath =
 function ensureState() {
   mkdirSync(stateDir, { recursive: true });
   mkdirSync(sessionDir, { recursive: true });
-  if (!existsSync(registryFile)) saveRegistry(registryFile, loadRegistry(registryFile));
-  let reg = loadRegistry(registryFile);
+  const store = new CoordinatorStore(dbFile); // imports legacy *.json/*.jsonl once
+  let reg = loadRegistryFromStore(store);
+  if (reg.projects.length === 0) {
+    saveRegistryToStore(store, emptyRegistry());
+  }
   if (!reg.projects.some((p) => p.id === MEDICAL.id)) {
     reg = proposeRegistration(reg, MEDICAL);
     validateRegistry(reg);
-    saveRegistry(registryFile, reg);
+    saveRegistryToStore(store, reg);
     console.log(`registered project ${MEDICAL.id} -> ${MEDICAL.root}`);
   }
   return reg;
@@ -62,7 +64,7 @@ async function main() {
     process.exit(2);
   }
   const registry = ensureState();
-  const journal = new TaskJournal(journalFile);
+  const journal = new TaskJournal(dbFile);
   const runtime = new RpcProjectRuntime({
     cliPath,
     allowModelCalls: true, // explicit operator decision for this live check
@@ -95,8 +97,8 @@ async function main() {
     await new Promise((r) => setTimeout(r, 1000));
   }
   await runtime.stopAll();
-  const lines = readFileSync(journalFile, "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  console.log("journal tail:", JSON.stringify(lines.slice(-3), null, 2));
+  const tail = journal.allRecords().slice(-3);
+  console.log("journal tail:", JSON.stringify(tail, null, 2));
 }
 
 main().catch((e) => {

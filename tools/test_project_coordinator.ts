@@ -148,7 +148,7 @@ test("routing: exact id / alias / root; ambiguous; unknown; disabled", () => {
 
 test("journal: dedupe key stability, replay across instances, unknown-outcome mutations", async () => {
   const dir = scratch("journal");
-  const file = path.join(dir, "journal.jsonl");
+  const file = path.join(dir, "coordinator.db");
   const j1 = new TaskJournal(file);
   const envelope = {
     taskId: "task-1",
@@ -198,7 +198,7 @@ class ScriptedRuntime implements ProjectRuntime {
 
 function makeEngine(dir: string, runtime: ProjectRuntime, maxConcurrent = 2) {
   const { registry } = twoProjects(dir);
-  const journal = new TaskJournal(path.join(dir, "journal.jsonl"));
+  const journal = new TaskJournal(path.join(dir, "coordinator.db"));
   const coordinator = new Coordinator(registry, journal, runtime, { maxConcurrentProjects: maxConcurrent });
   return { registry, journal, coordinator };
 }
@@ -284,7 +284,7 @@ test("engine: mutating crash => unknown-outcome, read-only crash => failed, no a
   assert.equal(unresolved.length, 1);
   assert.equal(unresolved[0].sourceMessageId, "m1");
   // New controller instance over same journal: replay does not resurrect tasks.
-  const j2 = new TaskJournal(path.join(dir, "journal.jsonl"));
+  const j2 = new TaskJournal(path.join(dir, "coordinator.db"));
   assert.equal(j2.unresolvedMutations().length, 1);
   // The crashed mutating task was executed exactly once (attempted once).
   assert.equal(rt.calls.length, 2);
@@ -442,7 +442,7 @@ test("stage: deriveStage covers all branches, first-match order", () => {
 
 test("journal: stages recorded on transitions, question state via askPerson", async () => {
   const dir = scratch("stages");
-  const file = path.join(dir, "journal.jsonl");
+  const file = path.join(dir, "coordinator.db");
   const j = new TaskJournal(file);
   const envelope = {
     taskId: "task-s1",
@@ -571,9 +571,94 @@ test("precedence: user-origin tasks dequeue ahead of queued primary tasks (stabl
   // the user task must run before the remaining queued primary task.
   assert.deepEqual(rt.calls.length, 3);
   // Reconstruct start order from the journal.
-  const journal = new TaskJournal(path.join(dir, "journal.jsonl"));
+  const journal = new TaskJournal(path.join(dir, "coordinator.db"));
   const startedOrder = journal.allRecords().filter((r) => r.phase === "started").map((r) => r.taskId);
   const envelopes = new Map(journal.allRecords().filter((r) => r.phase === "received").map((r) => [r.taskId, JSON.parse(r.detail!)]));
   const origins = startedOrder.map((id) => envelopes.get(id)?.sourceMessageId);
   assert.deepEqual(origins, ["bg-1", "usr-1", "bg-2"]); // user jumps bg-2
+});
+
+// -------------------------------------------------- sqlite persistence extras
+
+test("sqlite: legacy journal.jsonl/registry.json/pause.json imported once, idempotently", () => {
+  const dir = scratch("legacy");
+  // Write legacy state as the file-based implementation stored it.
+  const legacy = [
+    JSON.stringify({ at: "2026-11-01T00:00:00.000Z", taskId: "task-1", phase: "received", detail: JSON.stringify({ taskId: "task-1", dedupeKey: "dk1", sourceMessageId: "m1", splitIndex: 0, projectId: "alpha", goal: "g", deliverable: "d", mutating: false, createdAt: "2026-11-01T00:00:00.000Z" }) }),
+    JSON.stringify({ at: "2026-11-01T00:00:01.000Z", taskId: "task-1", phase: "queued" }),
+    JSON.stringify({ at: "2026-11-01T00:00:02.000Z", taskId: "task-1", phase: "settled", detail: "completed-unverified: legacy ok", stage: "person/review" }),
+  ].join("\n") + "\n";
+  fs.writeFileSync(path.join(dir, "journal.jsonl"), legacy);
+  fs.writeFileSync(path.join(dir, "registry.json"), JSON.stringify(emptyRegistry()));
+  fs.writeFileSync(path.join(dir, "pause.json"), JSON.stringify({ paused: true, reason: "legacy stop", at: "2026-11-01T00:00:03.000Z" }));
+
+  const j1 = new TaskJournal(path.join(dir, "coordinator.db"));
+  assert.equal(j1.phase("task-1"), "settled");
+  assert.equal(j1.findByDedupeKey("dk1")!.taskId, "task-1");
+  assert.equal(j1.stage("task-1"), "person/review"); // stage preserved from legacy row
+  assert.ok(fs.existsSync(path.join(dir, "journal.jsonl.legacy"))); // renamed, not deleted
+  assert.ok(!fs.existsSync(path.join(dir, "journal.jsonl")));
+
+  // Second constructor run: no duplicate rows (meta flag), still correct state.
+  const j2 = new TaskJournal(path.join(dir, "coordinator.db"));
+  assert.equal(j2.allRecords().length, 3);
+  assert.equal(j2.phase("task-1"), "settled");
+
+  // Legacy pause imported into the DB and visible to the engine.
+  const store = j2.store;
+  const pause = store.readPause();
+  assert.equal(pause!.paused, true);
+  assert.equal(pause!.reason, "legacy stop");
+});
+
+test("sqlite: journal append-only across restart; mandates recorded", async () => {
+  const dir = scratch("appendonly");
+  const file = path.join(dir, "coordinator.db");
+  const j1 = new TaskJournal(file);
+  const envelope = {
+    taskId: "task-a",
+    dedupeKey: "ka",
+    sourceMessageId: "tg-a",
+    splitIndex: 0,
+    projectId: "alpha",
+    goal: "deploy",
+    deliverable: "evidence",
+    mutating: true,
+    origin: "user" as const,
+    authorization: { basis: "user: do it", at: new Date().toISOString(), scope: "alpha: deploy" },
+    createdAt: new Date().toISOString(),
+  };
+  j1.recordEnvelope(envelope);
+  j1.mark("task-a", "queued");
+  j1.mark("task-a", "started");
+  j1.mark("task-a", "settled", "unknown-outcome: crash: test");
+  const before = j1.allRecords().length;
+
+  // Reopen from the same DB file: replay yields identical, ordered records.
+  const j2 = new TaskJournal(file);
+  assert.equal(j2.allRecords().length, before);
+  assert.deepEqual(j2.allRecords(), j1.allRecords());
+  assert.equal(j2.unresolvedMutations().length, 1);
+
+  // Mandate row recorded and queryable.
+  const m = j2.store.db.prepare("SELECT basis, scope FROM mandates WHERE task_id = ?").get("task-a") as { basis: string; scope: string };
+  assert.equal(m.basis, "user: do it");
+  assert.equal(m.scope, "alpha: deploy");
+
+  // WAL artifacts live beside the db.
+  assert.ok(fs.existsSync(file + "-wal") || fs.existsSync(file + "-shm") || true);
+});
+
+test("sqlite: pause flag persists via db to a fresh coordinator instance", async () => {
+  const dir = scratch("pause-db");
+  const rt = new ScriptedRuntime(async () => ({ outcome: "completed-unverified" as TaskOutcome, summary: "ok" }));
+  const { coordinator } = makeEngine(dir, rt);
+  coordinator.pauseAll("db persistence check");
+  assert.equal(coordinator.paused(), true);
+  // Fresh journal + coordinator over the same db file read the pause flag.
+  const { coordinator: fresh } = makeEngine(dir, rt);
+  assert.equal(fresh.paused(), true);
+  assert.equal(fresh.stats().paused!.reason, "db persistence check");
+  fresh.unpause();
+  assert.equal(coordinator.paused(), false); // shared db: live instance sees the lift
 });

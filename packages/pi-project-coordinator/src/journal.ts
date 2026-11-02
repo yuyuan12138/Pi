@@ -13,10 +13,14 @@
  * Crash rule: a mutating task whose outcome is unknown is never replayed
  * automatically. markReconciled() must be called explicitly after the primary
  * inspects repository/session evidence.
+ *
+ * Persistence: SQLite (single WAL db, see store.ts). Journal rows are
+ * append-only and immutable - no UPDATE/DELETE is ever issued against the
+ * journal table. Legacy journal.jsonl in the same directory is imported once
+ * by CoordinatorStore and renamed *.legacy.
  */
-import fs from "node:fs";
-import path from "node:path";
 import { createHash } from "node:crypto";
+import { CoordinatorStore } from "./store.ts";
 
 export type TaskOutcome = "completed-unverified" | "failed" | "unknown-outcome";
 export type TaskPhase =
@@ -107,36 +111,39 @@ export class TaskJournal {
   private envelopes = new Map<string, TaskEnvelope>();
   private knownPhases = new Map<string, TaskPhase>();
   private outcomes = new Map<string, TaskOutcome>();
-  /** Journal file path (public so co-located state files can sit beside it). */
+  /** Backing SQLite store (single writer connection, WAL). */
+  readonly store: CoordinatorStore;
+  /** Database file path (kept as `file`; co-located state stays together). */
   readonly file: string;
 
   constructor(file: string) {
-    this.file = file;
-    if (fs.existsSync(file)) this.replay();
+    this.store = new CoordinatorStore(file);
+    this.file = this.store.dbPath;
+    this.replay();
   }
 
   private replay(): void {
-    const lines = fs.readFileSync(this.file, "utf8").split("\n").filter(Boolean);
-    for (const line of lines) {
-      const rec = JSON.parse(line) as JournalRecord;
-      if (rec.phase === "received" && rec.detail) {
-        const envelope = JSON.parse(rec.detail) as TaskEnvelope;
-        this.envelopes.set(envelope.taskId, envelope);
-      }
-      this.records.push(rec);
-      if (rec.phase === "settled") {
-        const outcome = rec.detail?.split(":")[0] as TaskOutcome;
-        if (outcome === "completed-unverified" || outcome === "failed" || outcome === "unknown-outcome") {
-          this.outcomes.set(rec.taskId, outcome);
-        }
-      }
-      if (rec.phase !== "received") this.knownPhases.set(rec.taskId, rec.phase);
-      else if (!this.knownPhases.has(rec.taskId)) this.knownPhases.set(rec.taskId, "received");
+    const rows = this.store.db
+      .prepare("SELECT at, task_id, phase, detail, stage FROM journal ORDER BY id")
+      .all() as Array<{ at: string; task_id: string; phase: TaskPhase; detail: string | null; stage: string | null }>;
+    for (const row of rows) {
+      const rec: JournalRecord = {
+        at: row.at,
+        taskId: row.task_id,
+        phase: row.phase,
+        detail: row.detail ?? undefined,
+      };
+      if (row.stage !== null) rec.stage = row.stage as TaskStage;
+      this.absorb(rec);
     }
   }
 
-  private append(record: JournalRecord): void {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+  /** Apply a record to the in-memory indexes; replay and append share this. */
+  private absorb(record: JournalRecord): void {
+    if (record.phase === "received" && record.detail) {
+      const envelope = JSON.parse(record.detail) as TaskEnvelope;
+      this.envelopes.set(envelope.taskId, envelope);
+    }
     this.records.push(record);
     if (record.phase === "settled") {
       const outcome = record.detail?.split(":")[0] as TaskOutcome;
@@ -146,7 +153,15 @@ export class TaskJournal {
     }
     if (record.phase !== "received") this.knownPhases.set(record.taskId, record.phase);
     else if (!this.knownPhases.has(record.taskId)) this.knownPhases.set(record.taskId, "received");
-    fs.appendFileSync(this.file, JSON.stringify(record) + "\n", "utf8");
+  }
+
+  /** Append-only INSERT into SQLite; journal rows are never UPDATEd/DELETEd. */
+  private append(record: JournalRecord, dedupeSha?: string): void {
+    this.absorb(record);
+    this.store.db
+      .prepare("INSERT INTO journal(at, task_id, phase, detail, stage, dedupe_sha) VALUES(?, ?, ?, ?, ?, ?)")
+      .run(record.at, record.taskId, record.phase, record.detail ?? null, record.stage ?? null, dedupeSha ?? null);
+    return;
   }
 
   /** Last settled outcome, if any. Kept separate from phase. */
@@ -160,12 +175,22 @@ export class TaskJournal {
       if (existing.dedupeKey === envelope.dedupeKey) return false;
     }
     this.envelopes.set(envelope.taskId, envelope);
-    this.append({
-      at: envelope.createdAt,
-      taskId: envelope.taskId,
-      phase: "received",
-      detail: JSON.stringify(envelope),
-    });
+    this.append(
+      {
+        at: envelope.createdAt,
+        taskId: envelope.taskId,
+        phase: "received",
+        detail: JSON.stringify(envelope),
+      },
+      envelope.dedupeKey,
+    );
+    if (envelope.authorization) {
+      this.store.db
+        .prepare(
+          "INSERT INTO mandates(task_id, basis, at, scope) VALUES(?, ?, ?, ?) ON CONFLICT(task_id) DO NOTHING",
+        )
+        .run(envelope.taskId, envelope.authorization.basis, envelope.authorization.at, envelope.authorization.scope);
+    }
     return true;
   }
 
@@ -174,8 +199,10 @@ export class TaskJournal {
   }
 
   findByDedupeKey(dedupeKey: string): TaskEnvelope | undefined {
-    for (const e of this.envelopes.values()) if (e.dedupeKey === dedupeKey) return e;
-    return undefined;
+    const row = this.store.db
+      .prepare("SELECT task_id FROM journal WHERE dedupe_sha = ? LIMIT 1")
+      .get(dedupeKey) as { task_id: string } | undefined;
+    return row ? this.envelopes.get(row.task_id) : undefined;
   }
 
   phase(taskId: string): TaskPhase | undefined {

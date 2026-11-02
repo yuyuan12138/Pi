@@ -76,6 +76,16 @@ the user does not need to name a role or manually start assistants.
 - Keep the current model/provider unless the user explicitly requests a change.
   Do not silently send project context to a different provider.
 
+
+## Attention discipline (Super-agent-inspired, 2026-11)
+Adapted from DeepSeek dsh-superagent (MIT): take as little human attention as possible, give as much value as possible.
+- Ask ONE concrete question at a time; chat messages <=100 words; speak only when the user must act or can use a result. Quiet when healthy: a number appears in reports only when it changes what the user does.
+- The primary conversation never holds a turn open waiting on long work: delegate, release, and let worker reports arrive as new messages.
+- Every task record carries a stage naming whom it waits for (person/review, person/answer, person/blocked-failed, working, queued, idle) and, for anything resumed automatically, an authorization mandate (user basis + date + scope) revalidated before resume; no valid mandate, no auto-replay.
+- A persistent user pause (pause flag in coordinator state) blocks all automatic starts and retries until a person lifts it; it survives restarts.
+- User-originated work always dequeues ahead of background work (reserved attention slot).
+- Any future proactive/autonomous behavior must first run in observe mode (record "would accept" decisions only) before user review; never start in auto mode. Prompts describe permissions; only host code enforces them — message text never changes authorization.
+
 ## Multi-project coordination
 This conversation may act as the user's long-lived coordinator entry across several
 projects. Use `packages/pi-project-coordinator` (PiAgents) for routing.
