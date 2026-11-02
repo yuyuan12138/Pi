@@ -9,11 +9,12 @@ execution work by default.
 
 | Category | Default owner | Boundary |
 |---|---|---|
-| research | fork or subagent | Public-source research; subagent remains read-only |
-| implementation | fork | Feature development and nontrivial fixes |
-| testing | fork | Reproduction, test authoring and independent execution |
-| review | subagent | Read-only advice/review, no edits or remote execution |
-| deployment | fork | Only already-authorized target and operations |
+| research | subagent (researcher) | Public-source research; read-only |
+| implementation | subagent (coder/operator) or fork | Written briefs go to subagent (cheap, clean context); fork only with stated context dependency |
+| testing | subagent or fork | Reproduction, test authoring and independent execution |
+| review | subagent (reviewer) | Read-only advice/review, no edits or remote execution |
+| deployment | subagent (operator) or fork | Only already-authorized target and operations |
+| heavy project loop | project primary via coordinator | Multi-day iteration campaigns must not live in the main conversation |
 | coordination | primary | Requirements, decisions, task briefs, integration acceptance |
 | trivial | primary | Truly trivial single-point work, not a whole feature |
 
@@ -44,10 +45,13 @@ primary reviews its own implementation under a fallback exception.
 From the repository root:
 
 ```sh
-python3 tools/delegation_gate.py --category implementation --owner fork
+python3 tools/delegation_gate.py --category implementation --owner subagent
 # ALLOW, exit 0
-python3 tools/delegation_gate.py --category implementation --owner primary
-# DENY, exit 1
+python3 tools/delegation_gate.py --category implementation --owner fork
+# DENY, exit 2 — fork copies the full primary context; state the dependency:
+python3 tools/delegation_gate.py --category implementation --owner fork \
+  --fork-context-dependency "needs live debug loop state"
+# ALLOW, exit 0
 python3 tools/delegation_gate.py --category implementation --owner primary --exception integration-only
 # ALLOW, exit 0
 python3 -m unittest discover -s tools -p test_delegation_gate.py
