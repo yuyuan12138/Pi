@@ -8,6 +8,34 @@ standing team of research/code/remote chats or use Intercom.
 When the `fork` and `subagent` tools are available, choose delegation yourself;
 the user does not need to name a role or manually start assistants.
 
+### Preferred coding worker and bounded attempts
+- User-approved preference (2026-11-02): for bounded coding and test-authoring
+  tasks, dispatch a clean-context `subagent` explicitly selecting
+  `model: "training-coder/Qwen3-5"`. Keep the primary model unchanged. Send
+  only task-relevant context; the self-hosted endpoint is an optional backend,
+  not a required dependency. Its current context limit is 65,536 tokens.
+- Default maximum is **3 total implementation attempts per task**, including
+  the first attempt; the primary may extend to **5 total** for difficult,
+  locally verifiable work. State the extension reason. Concurrency is **1**.
+- Use feedback-driven serial repair normally. For genuinely different
+  solutions, use isolated candidate directories/worktrees and the same fixed
+  acceptance tests; never allow concurrent writes to the same worktree.
+  Iterative repair is not an independent pass@k benchmark.
+- Keep acceptance criteria fixed. Never delete/weaken tests to obtain a pass.
+  Primary acceptance includes existing/independent checks and diff inspection,
+  not just worker-authored tests. Report attempts used, failures and evidence.
+- After two consecutive failures with the same cause, pause repetitive repair
+  and diagnose/change strategy. Attempt ceilings do not authorize retries of
+  deployment, remote mutations, database writes or unknown-outcome operations.
+- Before dispatch, check endpoint availability with a short bounded read-only
+  probe. If unavailable, use the already-authorized session-default model and
+  disclose fallback; never silently select a new provider. If it disappears
+  mid-task, reconcile files and in-flight commands before handing work over.
+  Do not restart the remote service, auto-reconnect the tunnel, install tools
+  or relax permissions under this policy.
+- This is dispatch policy, not an automatic retry engine or availability
+  guarantee. Track attempt count explicitly in each task brief/handoff.
+
 ### Role boundaries (each agent does its own job; do not grab work)
 - The **primary conversation** only does what others cannot: user communication
   and requirement understanding, task decomposition and briefs, decisions,
