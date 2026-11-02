@@ -8,6 +8,7 @@ instructions/agents/
 ├─ scout/       AGENTS.md + README.md + skills/ + records/
 ├─ planner/     same shape
 ├─ coder/       same shape
+├─ operator/    same shape (mechanical runbook execution)
 ├─ reviewer/    same shape
 └─ researcher/  same shape
 ```
@@ -17,6 +18,7 @@ instructions/agents/
 | scout | read-only | structure-map | map structure, locate code |
 | planner | read-only | tradeoff | plans with explicit tradeoffs |
 | coder | read/write/exec | minimal-change | scoped implementation + self-verification |
+| operator | bash/read/ls | runbook-execution | launches, monitoring, cleanup, disk hygiene |
 | reviewer | read-only | severity-review | graded findings + depth statement |
 | researcher | read/exec | source-verification | public research + source verification |
 
