@@ -117,7 +117,9 @@ the user does not need to name a role or manually start assistants.
 - Every delegated task has a bounded deliverable, not responsibility for an entire
   department. Ask for conclusions, changed files, evidence, tests and limitations,
   not raw transcripts. Inspect the actual diff and verify material claims.
-- Children must not delegate further, including through shell/CLI/SDK workarounds.
+- Nesting budget: a subagent may delegate once more (primary -> subagent ->
+  sub-subagent, depth cap 2). Nested tasks keep the same authorization limits
+  and must use disjoint files; no shell/CLI/SDK workarounds to bypass the cap.
   Do not use named persistent subagent sessions unless continuation is useful;
   clean-context review should normally start fresh.
 - Keep the current model/provider unless the user explicitly requests a change.

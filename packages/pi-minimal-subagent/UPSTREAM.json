@@ -1,6 +1,7 @@
 {
   "source": "https://registry.npmjs.org/pi-minimal-subagent/-/pi-minimal-subagent-0.1.0.tgz",
   "version": "0.1.0",
-  "local_adaptations": "See PROJECT-ARCHITECTURE.md; not an unmodified upstream installation",
-  "reviewed_at": "2026-10-29"
+  "local_adaptations": "See PROJECT-ARCHITECTURE.md; not an unmodified upstream installation. Added depth-budgeted nesting (PI_SUBAGENT_DEPTH, cap 2): a subagent may delegate once more via an explicit -e reload of this extension, replacing the original hard no-recursion block (PI_SUBAGENT_CHILD=1).",
+  "reviewed_at": "2026-10-29",
+  "nesting_added": "2026-11-02"
 }
