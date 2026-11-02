@@ -1,0 +1,31 @@
+{
+  "name": "pi-delegation-gate",
+  "version": "0.1.0",
+  "description": "Gate fork tool calls on an explicit [fork-context: <reason>] justification; log allowed forks.",
+  "type": "module",
+  "license": "MIT",
+  "author": "lulumaster",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "delegation",
+    "gate"
+  ],
+  "files": [
+    "index.ts",
+    "gate.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
