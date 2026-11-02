@@ -2,11 +2,11 @@
 import argparse
 
 ROUTES = {
-    "research": {"fork", "subagent"},
-    "implementation": {"fork"},
-    "testing": {"fork"},
+    "research": {"subagent", "fork"},
+    "implementation": {"subagent", "fork"},
+    "testing": {"subagent", "fork"},
     "review": {"subagent"},
-    "deployment": {"fork"},
+    "deployment": {"subagent", "fork"},
     "coordination": {"primary"},
     "trivial": {"primary"},
 }
@@ -37,7 +37,19 @@ def main(argv=None):
     parser.add_argument("--category", required=True, choices=sorted(ROUTES))
     parser.add_argument("--owner", required=True, choices=["primary", "fork", "subagent"])
     parser.add_argument("--exception", choices=sorted(EXCEPTIONS))
+    parser.add_argument(
+        "--fork-context-dependency",
+        help="Required when owner=fork: one line stating why the task needs the "
+        "live conversation context; without it prefer a clean-context subagent "
+        "(fork copies the full primary context into the child).",
+    )
     args = parser.parse_args(argv)
+    if args.owner == "fork" and not (args.fork_context_dependency or "").strip():
+        print(
+            "DENY: fork copies the whole primary conversation into the child; "
+            "state --fork-context-dependency or use a clean-context subagent"
+        )
+        return 2
     allowed, message = validate(args.category, args.owner, args.exception)
     print(("ALLOW: " if allowed else "DENY: ") + message)
     return 0 if allowed else 1

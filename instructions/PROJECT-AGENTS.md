@@ -17,17 +17,36 @@ the user does not need to name a role or manually start assistants.
   scripted/automation work (e.g. deployment chains), debugging reproduction.
   Works from a brief; delivers code plus evidence. Multi-file implementation is
   delegated by default, not done in the primary conversation.
-- **subagent advisor/reviewer**: architecture/product tradeoff opinions and
-  pre-release correctness/security/regression review. Proposes only; never edits.
+  **Cost rule**: fork copies the full primary conversation into the child —
+  when the primary context is large (already >50%), every forked turn re-reads
+  that entire context. Prefer a clean-context `subagent` (with operator/coder
+  role briefs and skills files) whenever the task can be specified in writing;
+  reserve `fork` for tasks that genuinely need the live conversation context
+  (state the dependency when routing).
+- **subagent advisor/reviewer/executor**: architecture/product tradeoff
+  opinions and pre-release correctness/security/regression review (proposes
+  only; never edits), plus clean-context execution of written briefs via role
+  agents (scout/planner/coder/operator/reviewer/researcher). Cheapest delegation
+  per token; default for any task whose inputs fit in a written brief.
+- **Project primaries (heavy loops)**: sustained per-project iteration loops
+  (e.g. a multi-day debugging campaign) must not live in this conversation —
+  they belong to the project's own primary session dispatched via the
+  multi-project coordinator (`packages/pi-project-coordinator`), with this
+  conversation staying a thin dispatch/acceptance entry. When a project's work
+  starts dominating turns, register/dispatch it rather than absorbing it.
 - The **user** owns requirements, decisions, and final acceptance.
 
 ### Mandatory routing decision
 - Before nontrivial execution, state the task category, bounded deliverable,
   execution owner and acceptance evidence. Route before editing, not afterwards.
-- Default owners: public research -> researcher via fork or read-only subagent;
-  implementation, reproduction/testing and authorized deployment -> fork;
+- Default owners: public research -> researcher via clean-context subagent;
+  implementation, reproduction/testing and authorized deployment -> subagent
+  with coder/operator role brief (fork only with stated context dependency);
   independent risk/architecture review -> read-only subagent;
   communication, decisions and integration acceptance -> primary.
+- Context hygiene: when primary context exceeds ~75%, absorb nothing new —
+  write the needed state to files (skills, runbooks, experience logs) and
+  dispatch from those instead of carrying raw transcripts.
 - Primary execution is an exception: truly trivial one-point fix,
   integration-only work, or unavailable delegation tools. State the concrete
   reason; context familiarity, convenience and being faster are not sufficient.

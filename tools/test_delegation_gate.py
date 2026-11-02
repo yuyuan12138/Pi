@@ -32,7 +32,11 @@ class RoutingTests(unittest.TestCase):
     def test_cli_exit_codes(self):
         script = Path(__file__).with_name("delegation_gate.py")
         cases = [
-            (["--category", "implementation", "--owner", "fork"], 0, "ALLOW:"),
+            (["--category", "implementation", "--owner", "fork"], 2,
+             "clean-context subagent"),
+            (["--category", "implementation", "--owner", "fork",
+              "--fork-context-dependency", "needs live debug state"], 0, "ALLOW:"),
+            (["--category", "implementation", "--owner", "subagent"], 0, "ALLOW:"),
             (["--category", "implementation", "--owner", "primary"], 1, "DENY:"),
             (["--category", "testing", "--owner", "primary", "--exception", "trivial-fix"], 0, "ALLOW:"),
             (["--category", "deployment", "--owner", "primary", "--exception", "trivial-fix"], 1, "DENY:"),
