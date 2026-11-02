@@ -1,6 +1,6 @@
 ---
 name: severity-review
-description: Graded findings with an explicit review-depth statement
+description: Performs graded correctness, security, regression, test-gap, and UX review of a change with cited evidence and an explicit coverage statement. Use when reviewing diffs, pre-release changes, or any delegated work product before acceptance.
 ---
 
 # Skill: severity review

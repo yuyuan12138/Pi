@@ -1,6 +1,6 @@
 ---
 name: tradeoff
-description: Produce executable plans with explicit tradeoff comparisons
+description: Produces executable plans with explicit multi-option tradeoff comparisons and separated verified/unverified assumptions. Use when a task requires planning, architecture or product tradeoff analysis, or a written plan another agent will execute.
 ---
 
 # Skill: tradeoff analysis

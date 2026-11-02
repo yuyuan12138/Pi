@@ -1,6 +1,6 @@
 ---
 name: minimal-change
-description: Minimal maintainable changes with test-based self-verification
+description: Guides the agent in making minimal, maintainable code changes with test-based self-verification. Use when implementing a coding brief, editing files, or preparing a change summary that distinguishes implemented, tested, and unverified states.
 ---
 
 # Skill: minimal change

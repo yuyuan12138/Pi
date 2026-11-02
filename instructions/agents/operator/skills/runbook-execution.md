@@ -1,3 +1,8 @@
+---
+name: runbook-execution
+description: Executes verified operational runbooks without improvisation, checking semantic status fields, detached launch patterns, unknown-outcome handling, and cleanup verification. Use when performing authorized deployment, service operation, or runbook-driven operational tasks.
+---
+
 # Skill: Runbook execution (runbook-execution)
 
 How to execute verified operational runbooks without improvisation.

@@ -1,6 +1,6 @@
 ---
 name: source-verification
-description: Public research with primary-source verification
+description: Conducts public research with primary-source verification, labeling claims as verified facts, source claims, or inference. Use when answering public-knowledge questions, comparing tools or sources, or writing durable research notes.
 ---
 
 # Skill: source verification

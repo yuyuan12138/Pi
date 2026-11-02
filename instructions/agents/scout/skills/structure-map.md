@@ -1,6 +1,6 @@
 ---
 name: structure-map
-description: Quickly build a structural map of an unfamiliar project
+description: Builds a shallow structural map of an unfamiliar codebase (tree, entry points, config sources, symbol locations). Use when a task brief requires exploring or reporting on a project's layout before deeper work begins.
 ---
 
 # Skill: structure map
