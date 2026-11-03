@@ -18,12 +18,16 @@ execution work by default.
 | coordination | primary | Requirements, decisions, task briefs, integration acceptance |
 | trivial | primary | Truly trivial single-point work, not a whole feature |
 
-These are task roles, not persistent departments. Usually use at most two
-independent children concurrently, with disjoint write ownership. Children must
-not delegate. Use the session model/provider unless the user authorizes a change.
-The primary reviews actual diffs and material evidence; a child's PASS report is
-not final acceptance. API checks do not establish browser usability, and an
-idempotent response does not establish that scoring ran again.
+These are task roles, not persistent departments. Parallelism has two forms:
+(a) independent tasks in parallel (disjoint files), and (b) **best-of-N
+candidates on the same task** — the default for bounded, locally verifiable
+work, where N subagents (default 3) run in parallel, each in its own isolated
+working copy with the same fixed acceptance tests and no shared writes, and the
+primary verifies all N and accepts the best. Children must not delegate. Use the
+session model/provider unless the user authorizes a change. The primary reviews
+actual diffs and material evidence; a child's PASS report is not final
+acceptance. API checks do not establish browser usability, and an idempotent
+response does not establish that scoring ran again.
 
 ## Explicit exceptions
 
