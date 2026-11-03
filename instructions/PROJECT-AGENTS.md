@@ -14,13 +14,23 @@ the user does not need to name a role or manually start assistants.
   `model: "training-coder/Qwen3-5"`. Keep the primary model unchanged. Send
   only task-relevant context; the self-hosted endpoint is an optional backend,
   not a required dependency. Its current context limit is 65,536 tokens.
-- Default maximum is **3 total implementation attempts per task**, including
-  the first attempt; the primary may extend to **5 total** for difficult,
-  locally verifiable work. State the extension reason. Concurrency is **1**.
-- Use feedback-driven serial repair normally. For genuinely different
-  solutions, use isolated candidate directories/worktrees and the same fixed
-  acceptance tests; never allow concurrent writes to the same worktree.
-  Iterative repair is not an independent pass@k benchmark.
+- **Best-of-N parallel candidates is the default** (user policy, near-unlimited
+  fast API): for bounded, locally verifiable tasks, dispatch **N subagents in
+  parallel on the SAME task** (default N=3), each in its own isolated working
+  copy (disjoint candidate dirs/worktrees, same fixed acceptance tests, no
+  shared writes). When all finish, the primary verifies EACH against the fixed
+  acceptance criteria (run the tests, inspect the diff, check the deliverable)
+  and accepts the best: the one that passes all tests; if several pass, pick by
+  quality/simplicity. Report all N outcomes (which passed, which failed and why)
+  plus the accepted candidate. N may be raised (e.g. 5) for hard tasks; state it.
+- This is parallel exploration, not unlimited retries: the acceptance criteria
+  are fixed and identical for all candidates; the primary never weakens a test
+  to make a candidate pass. A candidate that fails is reported, not hidden.
+- Serial feedback-driven repair is the fallback when a task is not suited to
+  parallel candidates (e.g. a single tightly-coupled change where parallel
+  candidates would not diverge) or after a best-of-N round leaves no passing
+  candidate (diagnose the common failure, then one repair round). Never allow
+  concurrent writes to the same worktree; each candidate owns its own copy.
 - Keep acceptance criteria fixed. Never delete/weaken tests to obtain a pass.
   Primary acceptance includes existing/independent checks and diff inspection,
   not just worker-authored tests. Report attempts used, failures and evidence.
@@ -111,9 +121,13 @@ the user does not need to name a role or manually start assistants.
   result, append transferable lessons (not project-private data) to its
   records/experience.md and commit, so agents improve across projects.
   Do not weaken a role's tool allowlist or boundaries just to make a task pass.
-- Only independent tasks may run in parallel; normally at most two at a time.
-  Assign disjoint file ownership before allowing concurrent writes. The primary
-  agent and a child must not edit the same files at the same time.
+- Parallelism has two forms: (a) **independent tasks** in parallel (disjoint
+  files, as before), and (b) **best-of-N candidates on the SAME task** in
+  parallel (the default for bounded verifiable work) — N subagents each in its
+  own isolated working copy, same fixed acceptance tests, no shared writes, then
+  the primary verifies all N and accepts the best. Both forms require disjoint
+  file ownership (each candidate owns its own copy). The primary and a child must
+  not edit the same files at the same time.
 - Every delegated task has a bounded deliverable, not responsibility for an entire
   department. Ask for conclusions, changed files, evidence, tests and limitations,
   not raw transcripts. Inspect the actual diff and verify material claims.
