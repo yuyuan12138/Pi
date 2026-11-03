@@ -1,0 +1,15 @@
+{
+  "source": "https://github.com/aicodewith-team/pi-superagent",
+  "revision": "fd939379f728cb203bc04a098b59d0309d119ea6",
+  "license": "MIT",
+  "upstream_description": "A proactive GitHub coding agent for pi — port of DeepSeek dsh-superagent-prototype as a pi extension. Research-grade; worker ran without approval as the OS user with an 8-entry bash denylist that missed ~/.pi/agent/auth.json.",
+  "local_adaptations": "Security localization (see below). NOT an unmodified upstream install. Targeted pi-coding-agent ^1.4.0; we run 1.3.0 — verify loader compatibility before relying on it.",
+  "adaptations": [
+    "src/subagent/manager.ts launch(): worker spawn args now ['--mode','rpc','--no-session','--no-extensions','--no-mcp','--no-approve','--offline','-e',extensionPath] (was ['-ne']). The worker now loads ONLY this extension for report_to_parent — no Telegram/fork/memory extensions, no MCP, no silent approval, no non-model network. Model API still works (--offline does not gate provider calls).",
+    "src/guard.ts DENY credential-access rule extended from (~/.ssh|~/.aws|~/.config/gh|id_rsa) to also block ~/.pi and any auth.json / models.json, closing the gap that let a worker read the model API keys.",
+    "src/subagent/extension.ts subagent_spawn: cwd now realpath-confined to the current project (a prompt-injected cwd pointing outside is rejected), so a worker cannot be pointed at / or ~/.pi/agent."
+  ],
+  "kept_unchanged": "The report_to_parent protocol (progress throttled 60s coalesced, blocked+one-question immediate wake, ready/failed/dropped immediate, deliver via pi.sendMessage subagent-report followUp, 2000-char result truncation, on-disk logs) and the subagent_spawn/list/status/message/stop/result tools — this is the DeepSeek dispatch value we adopted.",
+  "vendored_at": "2026-11-03",
+  "reviewed_at": "2026-11-03"
+}

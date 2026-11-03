@@ -1,0 +1,55 @@
+{
+  "name": "pi-superagent",
+  "version": "0.1.0",
+  "description": "A proactive GitHub coding agent for pi — port of DeepSeek dsh-superagent-prototype as a pi extension",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "superagent",
+    "deepseek",
+    "dsh-superagent",
+    "github",
+    "coding-agent"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@types/node": "^26.6.6",
+    "typebox": "^1.4.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aicodewith-team/pi-superagent.git"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "examples",
+    "README.md",
+    "SETUP.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "typebox": "*"
+  }
+}

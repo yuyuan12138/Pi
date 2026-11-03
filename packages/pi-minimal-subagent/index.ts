@@ -432,9 +432,18 @@ function sumUsage(results: SingleResult[]): Usage {
 // Self path so a nestable child can explicitly reload this extension under --no-extensions.
 const SELF_EXTENSION_PATH = fileURLToPath(new URL("./index.ts", import.meta.url));
 
-// Nesting budget: depth 0 = primary, depth 1 = subagent, depth 2 = sub-subagent.
-// A session only registers the subagent tool while its depth is below this cap.
-const SUBAGENT_MAX_DEPTH = 2;
+// Nesting budget: depth 0 = primary; depth 1..MAX-1 are nestable subagents; depth MAX is a leaf.
+// Default 3 -> primary -> L1 -> L2 -> L3 (4 layers), L3 a leaf. Override via PI_SUBAGENT_MAX_DEPTH.
+// A session only registers the subagent tool while its depth is below this cap (hard anti-recursion guard).
+function subagentMaxDepth(): number {
+	const raw = process.env.PI_SUBAGENT_MAX_DEPTH;
+	if (raw === undefined || raw === "") return 3;
+	const parsed = Number.parseInt(raw, 10);
+	// Invalid config falls back to the safe default rather than disabling or unbounded nesting.
+	if (Number.isNaN(parsed) || parsed < 0) return 3;
+	return parsed;
+}
+const SUBAGENT_MAX_DEPTH = subagentMaxDepth();
 
 function currentDepth(): number {
 	const raw = process.env.PI_SUBAGENT_DEPTH;

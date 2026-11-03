@@ -1,0 +1,16 @@
+# Copy to <your repo>/.pi/superagent.yml
+repo: your-org/your-repo        # the one GitHub repository this agent serves
+mention: "@your-agent-bot"      # GitHub login of the dedicated agent account (NOT your own)
+allow:                          # who may dispatch work. Start with just yourself.
+  - your-github-login
+baseBranch: main
+pollIntervalSec: 60             # minimum 15
+maxConcurrent: 1
+dryRun: true                    # record work items only; set false when you trust it
+rules:                          # team-written rules for proactive work (still allow-list only)
+  - label: agent-ok             # issues with this label: allowed users' comments trigger work without @mention
+    action: work
+  - label: no-agent             # never act on these
+    action: ignore
+# piCommand: pi
+# piArgs: ["--model", "deepseek/deepseek-chat"]
