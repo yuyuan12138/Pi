@@ -10,7 +10,8 @@ instructions/agents/
 ├─ coder/       same shape
 ├─ operator/    same shape (mechanical runbook execution)
 ├─ reviewer/    same shape
-└─ researcher/  same shape
+├─ researcher/  same shape
+└─ visualizer/  same shape
 ```
 
 | agent | tools | skill | purpose |
@@ -21,6 +22,7 @@ instructions/agents/
 | operator | bash/read/ls | runbook-execution | launches, monitoring, cleanup, disk hygiene |
 | reviewer | read-only | severity-review | graded findings + depth statement |
 | researcher | read/exec | source-verification | public research + source verification |
+| visualizer | read/write/exec | visualization-artifacts | real visual artifacts (charts, diagrams, maps) |
 
 ## Dispatch
 
