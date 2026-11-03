@@ -4,6 +4,22 @@ Current architecture: **one project, one primary conversation**, with automatic 
 
 The former research-agent, remote-agent and internet-search-agent directories remain independent local repositories for preserved tools and records; they are no longer the default standing team. knowledge-base remains supporting retrieval infrastructure. Child repositories are deliberately ignored, not copied or added as submodules.
 
+## Installed Pi extensions
+
+This setup installs **one npm extension and six locally vendored extensions** (under `packages/`, source-tracked and loaded directly from that path, so the running Pi always matches the committed source). See [PROJECT-ARCHITECTURE.md](PROJECT-ARCHITECTURE.md) for upstream provenance and the local adaptations.
+
+| Extension | Origin | Role |
+|---|---|---|
+| `pi-telegram` | npm:@llblab/pi-telegram | Telegram bridge: connects the Pi session to a Telegram bot; source-gated delivery and a FIFO queue (control/steer/priority/default lanes) |
+| `pi-superagent` | vendored + security-adapted | **DeepSeek-style dispatch layer**: `subagent_spawn` headless workers + `report_to_parent` protocol (progress/blocked/ready delivered as messages, no polling) + admission control. Worker hardening: `--no-extensions --no-mcp --no-approve --offline`, credential denylist (blocks auth.json/models.json), cwd confinement, `--model` defaulting to training-coder/Qwen3-5 |
+| `pi-minimal-subagent` | vendored | `subagent` tool, depth-3 nesting (configurable via `PI_SUBAGENT_MAX_DEPTH`, 0 disables) |
+| `pi-fork` | vendored | `fork` tool for context-heavy delegated work (inherits the full conversation, runs in an isolated worktree) |
+| `pi-observational-memory` | vendored | observation/reflection/hierarchical-compaction memory (optional, thresholds configurable) |
+| `pi-usage-log` | local | per-turn token/cost JSONL + `/usage` command (optional monitoring) |
+| `pi-delegation-gate` | local | pre-flight `[fork-context: …]` gate for the delegation policy |
+
+**Dispatch model**: `subagent_spawn` (DeepSeek-style, the primary clean-context channel), `fork` (context-heavy), and `subagent` (depth-3 nesting fallback) coexist; the primary conversation only dispatches and verifies, workers report back proactively.
+
 ## Consolidated checkpoint and reusable skills
 
 See [WORKSPACE-SUMMARY.md](WORKSPACE-SUMMARY.md) for the 2026-10-27 evidence-linked summary: each agent's actual work, the skill/tool catalog, Minecraft failures and unverified milestones, research provenance, and remaining approvals. It deliberately separates infrastructure from successful experiments and coordinator execution from specialist contributions. This is an as-of checkpoint, not live monitoring.
