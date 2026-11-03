@@ -11,7 +11,8 @@ instructions/agents/
 ├─ operator/    same shape (mechanical runbook execution)
 ├─ reviewer/    same shape
 ├─ researcher/  same shape
-└─ visualizer/  same shape
+├─ visualizer/  same shape
+└─ writer/      same shape (documents in the user's style)
 ```
 
 | agent | tools | skill | purpose |
@@ -23,6 +24,7 @@ instructions/agents/
 | reviewer | read-only | severity-review | graded findings + depth statement |
 | researcher | read/exec | source-verification | public research + source verification |
 | visualizer | read/write/exec | visualization-artifacts | real visual artifacts (charts, diagrams, maps) |
+| writer | read/write/exec | document-writing | documents in the user's style (人话/详细/不堆技术细节) + Feishu delivery; skill self-updates from feedback |
 
 ## Dispatch
 
