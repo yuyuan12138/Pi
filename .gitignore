@@ -12,6 +12,12 @@
 /.pi/*
 !/.pi/skills/
 !/tools/
+!/tests/
 !/.githooks/
+# pi-harness2 run artifacts: reports/proposals untracked, only the journal is tracked
+!/harness2/
+/harness2/*
+!/harness2/journal.jsonl
+/harness2/report-*
 **/__pycache__/
 *.pyc
