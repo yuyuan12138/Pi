@@ -1,5 +1,7 @@
 # 委派体系：派工、路由与验收
 
+> **复现要点**：本篇规则文本在 `instructions/PROJECT-AGENTS.md`（零内联执行、best-of-N、验收门、Mandatory routing decision）和 `instructions/DELEGATION-ROUTING.md`（默认归属表 + 三类显式例外：unavailable-tools / integration-only / trivial-fix）。归属校验工具是 `tools/delegation_gate.py`（`--category --owner` 两个参数，exit 0 允许 / 1 违反策略 / 2 参数错误）。注意它是建议性检查，不是运行时拦截器——复现它拷文件即可，但「执行归执行、校验归校验」的性质要记住。
+
 ## 路由决策流程
 
 任何非琐碎工作动手之前，主对话先声明四件事：任务类别、有界交付物、执行者、验收证据。默认归属：公开调研 → researcher 子代理（只读）；实现与测试 → coder / operator 子代理（书面任务书），`fork` 只在有明确上下文依赖时使用并说明依赖什么；评审 → reviewer（只读，只提建议不动手）；部署 → operator（仅限已授权的目标与操作）；多日迭代战役 → 经协调器交给项目自己的主对话；需求理解、决策、任务书与集成验收 → 主对话自己。可选用 `tools/delegation_gate.py` 做归属校验。

@@ -1,5 +1,7 @@
 # 九个预定义角色
 
+> **复现要点**：把 `instructions/agents/` 整个目录拷走就是全部角色资产——9 个角色各一个目录（`AGENTS.md` 任务书模板 + `skills/` 方法论 + `records/experience.md`）。其中 `records/` 是原作者的个人经验，**复现者清空即可**，角色运转只依赖前两者。派工时照每份 `AGENTS.md` 顶部的说明做：填 Task Brief 五字段（Project root / Goal and scope / Relevant paths / Authorization and prohibitions / Expected evidence and acceptance criteria）、按 Tools 段设工具白名单、子代理先读自己的 skill 文件。完整走一遍的例子见仓库根 [README](../README.md) 第三步。
+
 角色库位于 `instructions/agents/`，每个角色一个目录：`AGENTS.md`（任务书模板）+ `skills/`（方法论）+ `records/experience.md`（跨项目经验）。它们不是常驻进程，而是干净上下文子代理的任务书模板。派工流程：主对话读对应 `AGENTS.md` → 填「任务书补充」（cwd、目标、授权、验收）→ 按其 Tools 段设置工具白名单 → 子代理开工前先读自己的 skill 文件。
 
 | 角色 | 工具白名单 | 职责 | 何时用 |

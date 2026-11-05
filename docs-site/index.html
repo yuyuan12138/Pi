@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 架构文档</title>
+<title>Pi Agent 架构：可复现指南</title>
 <style>
   body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1a1a2e;line-height:1.7}
   h1{font-size:1.6rem;border-bottom:3px solid #4a6cf7;padding-bottom:10px}
@@ -17,8 +17,15 @@
 </style>
 </head>
 <body>
-<h1>我的 Pi Agent 架构</h1>
-<p>一套「一个项目一个主对话」的代理工作体系：主对话只派工、决策、验收；干活的是干净上下文的子代理；多项目由确定性协调器路由。</p>
+<h1>PiAgents：一套可复现的「代理操作系统」</h1>
+<p>纯文本规则 + 模板组织的代理操作系统：主对话只派工、决策、验收；干活的是干净上下文的子代理；全部内核是 Markdown 与三个脚本，引擎无关——装 pi 即用，理念可移植到任何 agent 框架。三步复现见 <a href="README.md">README</a>。</p>
+
+<h2>三步复现（详见 README）</h2>
+<ul>
+  <li>① 装 pi（或声明理念可移植）</li>
+  <li>② 拷贝三类文本资产：全局规则 / 9 角色模板 / 3 个脚本</li>
+  <li>③ 走一个真实例子：给 coder 发一份填好的任务书</li>
+</ul>
 
 <h2>一图流架构</h2>
 <pre>
@@ -40,7 +47,7 @@
 
 <h2>文档导览</h2>
 <ul>
-  <li><a href="README.md">总览 README.md</a><br><span class="desc">完整架构图、核心理念（委派→路由→验收闭环）、关键数字</span></li>
+  <li><a href="README.md">总览 README.md</a><br><span class="desc">一句话定位、架构图、三步复现（装 pi → 拷资产 → 走例子）、7 条设计原则</span></li>
   <li><a href="docs/delegation.md">委派体系 delegation.md</a><br><span class="desc">路由决策流程、best-of-N 并行候选、验收门、zero inline execution</span></li>
   <li><a href="docs/roles.md">九个角色 roles.md</a><br><span class="desc">scout / planner / coder / operator / reviewer / researcher / visualizer / writer / designer 的职责、工具白名单与使用时机</span></li>
   <li><a href="docs/coordinator.md">多项目协调器 coordinator.md</a><br><span class="desc">registry / 确定性路由 / 单写队列 / RPC 运行时 / 崩溃语义</span></li>

@@ -1,5 +1,7 @@
 # 多项目协调器 pi-project-coordinator
 
+> **复现要点**：源码与测试都在 `packages/pi-project-coordinator/`，零外部依赖（SQLite 用 Node 内置 `node:sqlite`）。离线测试：`node --test tools/test_project_coordinator.ts`（9 过 0 挂）；真实 CLI 冒烟是 opt-in 的 `PI_COORDINATOR_SMOKE=1`。这是**可选组件**——单项目复现不需要它，只有当你想让一个协调者对话路由多个项目时才装。文中列的安全门（模型调用默认关、接受 prompt ≠ 完成、变更类崩溃不重放）是包内代码实现的行为，不是配置开关。
+
 ## 定位
 
 让一个长期协调者对话把用户请求路由给「每个项目一个主对话」的体系。核心原则：**什么都不会自动激活**——不改全局配置、不自动建会话、不自动注册项目。注册只是「提案」，项目根目录必须经用户明确确认后才生效。

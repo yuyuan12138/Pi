@@ -1,5 +1,7 @@
 # 知识库：两层结构与卫生门
 
+> **复现要点**：拷贝 `knowledge-base/` 目录（`daily/`、`knowledge/concepts/`、`scripts/`）。索引与 lint 用 `python3 knowledge-base/scripts/compile_kb.py`（纯本地、无网络、无模型调用；exit 0 = 干净，1 = lint 失败但仍会写 index）。scope gate 与卫生层不是文档里的约定，是编译器强制执行的规则，规则文本见 `knowledge-base/AGENTS.md`。检索 `scripts/kb.py`（SQLite FTS5）是可选件。写入路径从主对话在结果验证后追加 `daily/YYYY-MM-DD.md` 开始，一行上下文 + 教训 + 来源指针。
+
 `knowledge-base/` 是纯本地的 Markdown 知识库：无向量库、无网络、无后台进程、无模型训练。两层设计——`wiki/` 是面向用户的外层，聚合一手英文来源的 LLM 工程经验（每条带来源 URL、访问日期与置信度：只有真的打开过原文才能标 `verified`，snippet 不算）；`daily/` + `knowledge/concepts/` 是内层工程日志。
 
 ## 写入路径

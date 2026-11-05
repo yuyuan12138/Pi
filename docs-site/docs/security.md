@@ -1,5 +1,7 @@
 # 安全边界
 
+> **复现要点**：本篇的防线分两类，别混淆。技术防线可拷贝：`tools/git_guard.py` + `.githooks/pre-commit`（`git config core.hooksPath .githooks` 启用）。规则防线是给主对话执行的**文本**：权限条款在全局规则（`instructions/PROJECT-AGENTS.md`「Delegation does not expand authorization」段），子代理加固与「不弱化安全检查」写在每个角色的 Boundaries 段（如 `instructions/agents/coder/AGENTS.md`）。后者没有自动执行机制——复现它们就是拷规则并让主对话遵守。
+
 ## 权限不因委派扩大
 
 委派不带来新授权：任务之外不装依赖、不碰远程机器、不发布、不做破坏性操作、不取凭证。并行候选的文件所有权必须互不相交，主对话与子代理不同时编辑同一文件。要认清工具白名单和 cwd 限制的本质：它们是工作流约束，不是 OS 沙箱——子代理运行在宿主用户权限之下，所以授权必须写进任务书并保持最小。
