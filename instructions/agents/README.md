@@ -12,7 +12,8 @@ instructions/agents/
 ├─ reviewer/    same shape
 ├─ researcher/  same shape
 ├─ visualizer/  same shape
-└─ writer/      same shape (documents in the user's style)
+├─ writer/      same shape (documents in the user's style)
+└─ designer/    same shape (beautify pages/docs/emails; ships unslop skill)
 ```
 
 | agent | tools | skill | purpose |
@@ -25,6 +26,7 @@ instructions/agents/
 | researcher | read/exec | source-verification | public research + source verification |
 | visualizer | read/write/exec | visualization-artifacts | real visual artifacts (charts, diagrams, maps) |
 | writer | read/write/exec | document-writing | documents in the user's style (人话/详细/不堆技术细节) + Feishu delivery; skill self-updates from feedback |
+| designer | read/write/edit/exec | design-craft + unslop | beautify pages/emails/docs; presentation-only edits; de-slop prose via installed unslop |
 
 ## Dispatch
 
