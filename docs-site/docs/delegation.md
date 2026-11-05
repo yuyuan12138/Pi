@@ -1,6 +1,6 @@
 # 委派体系：派工、路由与验收
 
-> **复现要点**：本篇规则文本在 `instructions/PROJECT-AGENTS.md`（零内联执行、best-of-N、验收门、Mandatory routing decision）和 `instructions/DELEGATION-ROUTING.md`（默认归属表 + 三类显式例外：unavailable-tools / integration-only / trivial-fix）。归属校验工具是 `tools/delegation_gate.py`（`--category --owner` 两个参数，exit 0 允许 / 1 违反策略 / 2 参数错误）。注意它是建议性检查，不是运行时拦截器——复现它拷文件即可，但「执行归执行、校验归校验」的性质要记住。
+> **复现要点**：本篇规则文本在 `instructions/PROJECT-AGENTS.md`（零内联执行、best-of-N、验收门、Mandatory routing decision）和 `instructions/DELEGATION-ROUTING.md`（默认归属表 + 三类显式例外：unavailable-tools / integration-only / trivial-fix）。归属校验工具是 `tools/delegation_gate.py`（`--category --owner` 两个参数，exit 0 允许 / 1 违反策略 / 2 参数错误）。注意它是建议性检查，不是运行时拦截器——复现它拷文件即可，但「执行归执行、校验归校验」的性质要记住。全局规则文件（`~/.pi/agent/AGENTS.md`，源自 `instructions/PROJECT-AGENTS.md`）还固化了「Agent 间通信一律英文」：发往子代理的 prompt、任务书与角色消息一律用英文，面向人的交付物跟随人的语言。
 
 ## 路由决策流程
 
