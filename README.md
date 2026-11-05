@@ -1,5 +1,7 @@
 # Project-first Pi
 
+> 📚 架构文档门户：[docs-site/](docs-site/README.md)（总览 + 委派体系 / 九个角色 / 多项目协调器 / 知识库 / 安全边界，含 [index.html](docs-site/index.html) 单页导览）
+
 Current architecture: **one project, one primary conversation**, with automatic bounded forks, independent advisor/reviewer subagents, and session-local observational memory. Intercom is removed. See [PROJECT-ARCHITECTURE.md](PROJECT-ARCHITECTURE.md) for source versions, local adaptations, setup, validation limits and rollback.
 
 The former research-agent, remote-agent and internet-search-agent directories remain independent local repositories for preserved tools and records; they are no longer the default standing team. knowledge-base remains supporting retrieval infrastructure. Child repositories are deliberately ignored, not copied or added as submodules.

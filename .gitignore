@@ -13,6 +13,7 @@
 !/.pi/skills/
 !/tools/
 !/tests/
+!/docs-site/
 !/.githooks/
 # pi-harness2 run artifacts: reports/proposals untracked, only the journal is tracked
 !/harness2/

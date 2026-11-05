@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pi Agent 架构文档</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1a1a2e;line-height:1.7}
+  h1{font-size:1.6rem;border-bottom:3px solid #4a6cf7;padding-bottom:10px}
+  h2{font-size:1.1rem;color:#4a6cf7}
+  pre{background:#0f172a;color:#a5f3fc;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;line-height:1.5}
+  ul{padding-left:0;list-style:none}
+  li{margin:10px 0;padding:12px 16px;background:#f4f6fb;border-radius:8px;border-left:4px solid #4a6cf7}
+  li a{font-weight:600;color:#1a1a2e;text-decoration:none}
+  li a:hover{color:#4a6cf7}
+  .desc{color:#555;font-size:.92rem}
+</style>
+</head>
+<body>
+<h1>我的 Pi Agent 架构</h1>
+<p>一套「一个项目一个主对话」的代理工作体系：主对话只派工、决策、验收；干活的是干净上下文的子代理；多项目由确定性协调器路由。</p>
+
+<h2>一图流架构</h2>
+<pre>
+            用户（需求 · 决策 · 最终验收）
+                     │
+   ┌─────────────────▼──────────────────┐
+   │   主对话 primary（每项目一个）        │
+   │   只做：拆解派工 / 决策 / 验收 / 集成 │
+   └───┬──────────┬──────────┬─────────┘
+     fork      subagent   subagent    observational
+   （带上下文）（干净上下文）（干净上下文）   memory
+       ▼          ▼          ▼             ▼
+  实现调试    顾问/评审   9 类角色 worker   会话内记忆
+
+  项目A主对话 ─┐
+  项目B主对话 ─┼─▶ pi-project-coordinator
+  项目C主对话 ─┘   registry · 确定性路由 · 单写队列
+</pre>
+
+<h2>文档导览</h2>
+<ul>
+  <li><a href="README.md">总览 README.md</a><br><span class="desc">完整架构图、核心理念（委派→路由→验收闭环）、关键数字</span></li>
+  <li><a href="docs/delegation.md">委派体系 delegation.md</a><br><span class="desc">路由决策流程、best-of-N 并行候选、验收门、zero inline execution</span></li>
+  <li><a href="docs/roles.md">九个角色 roles.md</a><br><span class="desc">scout / planner / coder / operator / reviewer / researcher / visualizer / writer / designer 的职责、工具白名单与使用时机</span></li>
+  <li><a href="docs/coordinator.md">多项目协调器 coordinator.md</a><br><span class="desc">registry / 确定性路由 / 单写队列 / RPC 运行时 / 崩溃语义</span></li>
+  <li><a href="docs/knowledge-base.md">知识库 knowledge-base.md</a><br><span class="desc">两层结构、scope gate、卫生层、compile_kb 与 FTS5 检索</span></li>
+  <li><a href="docs/security.md">安全边界 security.md</a><br><span class="desc">权限不因委派扩大、子代理加固、Git 与 secrets 规则</span></li>
+</ul>
+</body>
+</html>
