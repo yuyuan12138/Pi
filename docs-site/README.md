@@ -1,152 +1,162 @@
-# PiAgents：一套可复现的「代理操作系统」
+# PiAgents: A Reproducible Agent Operating System
 
-一句话定位：**这不是一个应用，而是一份用纯文本写成的代理操作系统**——主对话只派工、决策、验收，真正干活的是干净上下文的子代理；全部「内核」由 Markdown 规则、角色模板和三个小脚本组成，没有隐藏的二进制或云依赖。它在 [pi](https://github.com/earendil-works/pi) 上验证运行，但设计不绑定引擎：任何支持「主循环 + 子任务派生」的 agent 框架都能套用这套理念。
+> 📚 Chinese edition: [zh/README.md](zh/README.md)（中文版）
 
-## 架构总览
+One-line positioning: **this is not an application — it is an agent operating system written in plain text**. The primary conversation only dispatches work, makes decisions, and accepts deliverables; the actual work is done by clean-context subagents. The entire "kernel" consists of Markdown rules, role templates, and three small scripts — no hidden binaries or cloud dependencies. It is verified running on [pi](https://github.com/earendil-works/pi), but the design is not bound to the engine: any agent framework that supports "a main loop + subtask spawning" can adopt these ideas.
+
+## Architecture overview
 
 ```text
-                      用户（需求 · 决策 · 最终验收）
-                                  │
-      ┌───────────────────────────▼────────────────────────────┐
-      │         主对话 primary（每项目一个，cwd = 项目根）          │
-      │    只做：需求理解 / 书面任务书 / 决策 / 验收 / 集成          │
-      └────────┬─────────────────────────┬─────────────────────┘
-               │ fork                    │ subagent
-               │ 继承当前对话分支          │ 干净上下文（默认）
-               ▼                         ▼
-        上下文密集型探索              9 类角色 worker
-     （调试现场·多文件实现）    scout / planner / coder / operator /
-                               reviewer / researcher / visualizer /
+              User (requirements · decisions · final acceptance)
+                              │
+  ┌───────────────────────────▼────────────────────────────┐
+  │      Primary conversation (one per project, cwd = project root)
+  │  Only does: requirement understanding / written briefs /  │
+  │             decisions / acceptance / integration          │
+  └────────┬─────────────────────────┬─────────────────────┘
+           │ fork                    │ subagent
+           │ inherits the current    │ clean context
+           │ conversation branch     │ (default)
+           ▼                         ▼
+    Context-heavy exploration    9 role workers
+  (live debugging sessions ·  scout / planner / coder / operator /
+   multi-file implementation) reviewer / researcher / visualizer /
                                writer / designer
-               │                         │
-               └────────────┬────────────┘
-                            ▼
-              验收：亲自跑测试 · 看 diff · 核对证据
-                            │ 验证通过，沉淀教训
-                            ▼
-      ┌─────────────────────────────────────────────┐
-      │ knowledge-base/（两层知识库）                 │
-      │  daily/YYYY-MM-DD.md → knowledge/concepts/  │
-      │  compile_kb.py 索引 + scope gate             │
-      └─────────────────────────────────────────────┘
+           │                         │
+           └────────────┬────────────┘
+                        ▼
+      Acceptance: run the tests yourself · inspect the diff ·
+                  verify the evidence
+                        │ verified → lessons recorded
+                        ▼
+  ┌─────────────────────────────────────────────┐
+  │ knowledge-base/ (two-layer knowledge base)  │
+  │  daily/YYYY-MM-DD.md → knowledge/concepts/  │
+  │  compile_kb.py index + scope gate           │
+  └─────────────────────────────────────────────┘
 
- ═══════════════ 跨项目协调层（可选） ═══════════════════════
-   项目 A 主对话 ──┐
-   项目 B 主对话 ──┼──▶ pi-project-coordinator
-   项目 C 主对话 ──┘    registry · 确定性路由 · 每项目单写队列
+ ═══════════ Cross-project coordination layer (optional) ═══════════
+  Project A primary ──┐
+  Project B primary ──┼──▶ pi-project-coordinator
+  Project C primary ──┘   registry · deterministic routing ·
+                          single-writer queue per project
 ```
 
-## 三步复现
+## Reproduction in three steps
 
-### 第一步：装引擎（约 2 分钟）
+### Step 1: Install the engine (~2 minutes)
 
-本仓库的运行引擎是 [pi](https://github.com/earendil-works/pi)（`@earendil-works/pi-coding-agent`，包名已核对 npm registry，bin 名为 `pi`）。按 pi 官方 README，首选安装方式（自动处理 Node 依赖，可用 `pi update` 升级）：
+The engine this repo runs on is [pi](https://github.com/earendil-works/pi) (`@earendil-works/pi-coding-agent`; package name verified against the npm registry, bin name `pi`). Per pi's official README, the preferred install method (handles Node dependencies automatically; upgrade later with `pi update`):
 
 ```bash
 curl -fsSL https://pi.dev/install.sh | sh
 ```
 
-或用 npm（注意官方命令带 `--ignore-scripts`；要求 Node.js ≥ 22.19）：
+Or via npm (note that the official command includes `--ignore-scripts`; requires Node.js ≥ 22.19):
 
 ```bash
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-**pi 本体不带子代理**——官方 README 原话："Pi ships with powerful defaults but skips features like sub-agents and plan mode"。本架构依赖的两个派生工具以 pi 包形式提供，本仓库内就带源码：
+**pi itself ships without subagents** — the official README says so verbatim: "Pi ships with powerful defaults but skips features like sub-agents and plan mode". The two derivation tools this architecture depends on are provided as pi packages, with their sources included in this repo:
 
-| 工具 | 作用 | 仓库内源码 | 上游安装命令 |
+| Tool | Purpose | In-repo source | Upstream install command |
 |---|---|---|---|
-| `fork` | 派生继承当前对话分支的子进程（上下文密集型探索） | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
-| `subagent` | 派生干净上下文的独立子代理 | `packages/pi-minimal-subagent/` | `pi install npm:pi-minimal-subagent` |
+| `fork` | Spawns a child process that inherits the current conversation branch (context-heavy exploration) | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
+| `subagent` | Spawns an independent clean-context subagent | `packages/pi-minimal-subagent/` | `pi install npm:pi-minimal-subagent` |
 
-两种装法任选：用上面的 `pi install` 命令装上游包，或把仓库内路径写进 `~/.pi/agent/settings.json` 的 `packages` 数组（本机即如此）。版本注记：写作时 pi 最新版 1.5.0，建议装最新版；本仓库验证环境为 1.3.0，fork/subagent 在 1.3.0 实测可用。
+Either install path works: install the upstream packages with the `pi install` commands above, or list the in-repo paths in the `packages` array of `~/.pi/agent/settings.json` (which is how this machine runs). Version note: pi's latest release at the time of writing is 1.5.0, and installing the latest is recommended; this repo was verified on 1.3.0, where fork/subagent were tested working.
 
-**理念可移植声明**：如果你用其他框架（Claude Code、自研 harness 等），跳过本步即可——下面两类资产是纯文本，不依赖 pi 的任何 API，只要你的框架能「派生一个带独立上下文、可用工具受限的子任务」就能套用。
+**Portability statement**: if you use a different framework (Claude Code, a self-built harness, etc.), just skip this step — the two asset categories below are plain text and depend on no pi API. As long as your framework can "spawn a subtask with an independent context and restricted tools", the ideas apply.
 
-### 第二步：拷贝三类文本资产
+### Step 2: Copy three categories of text assets
 
-这是「操作系统内核」的全部，每个路径都在本仓库真实存在：
+This is the entire "operating system kernel"; every path below really exists in this repo:
 
-| 资产 | 仓库内真实路径 | 装到哪 | 作用 |
+| Asset | Real path in this repo | Installed to | Purpose |
 |---|---|---|---|
-| ① 全局规则（主对话宪法） | `instructions/PROJECT-AGENTS.md` | `~/.pi/agent/AGENTS.md`（pi 的全局规则位，对所有会话生效） | 零内联执行、best-of-N 并行候选、验收门、委派路由 |
-| ② 9 角色模板 | `instructions/agents/`——scout / planner / coder / operator / reviewer / researcher / visualizer / writer / designer 各一个目录 | 任意目录，主对话按路径读取 | 每角色 = `AGENTS.md` 任务书模板 + `skills/` 方法论 + `records/experience.md` 经验 |
-| ③ 三个脚本 | `tools/delegation_gate.py`、`tools/git_guard.py`（经 `.githooks/pre-commit` 接线）、`knowledge-base/scripts/compile_kb.py` | 仓库内任意位置 | 路由校验（建议性）/ 暂存区守卫 / 知识库编译 + lint |
+| ① Global rules (the primary conversation's constitution) | `instructions/PROJECT-AGENTS.md` | `~/.pi/agent/AGENTS.md` (pi's global rules slot, applies to all sessions) | Zero inline execution, best-of-N parallel candidates, acceptance gates, delegation routing |
+| ② 9 role templates | `instructions/agents/` — one directory each for scout / planner / coder / operator / reviewer / researcher / visualizer / writer / designer | Any directory; the primary conversation reads them by path | Each role = `AGENTS.md` brief template + `skills/` methodology + `records/experience.md` lessons |
+| ③ Three scripts | `tools/delegation_gate.py`, `tools/git_guard.py` (wired via `.githooks/pre-commit`), `knowledge-base/scripts/compile_kb.py` | Anywhere in the repo | Routing validation (advisory) / staged-content guard / knowledge-base compile + lint |
 
-诚实条款：
+Honest clauses:
 
-- 角色模板里的 `records/experience.md` 是原作者跨项目攒的**个人经验**，复现者**清空即可**，角色运转只依赖 `AGENTS.md` 和 `skills/`。
-- `delegation_gate.py` 校验的是「声明的归属」是否合规，不是运行时拦截器，更不能证明子代理真的跑过（详见[委派体系](docs/delegation.md)）。
-- 暂存区守卫用 `git config core.hooksPath .githooks` 启用；它是尽力而为的扫描，不是 DLP（详见[安全边界](docs/security.md)）。
+- The `records/experience.md` files inside the role templates hold the original author's **personal** cross-project experience; a reproducer can simply **empty them** — the roles only depend on `AGENTS.md` and `skills/`.
+- `delegation_gate.py` validates whether the *declared* ownership complies with policy; it is not a runtime interceptor and cannot prove that a subagent actually ran (see [Delegation system](docs/delegation.md)).
+- The staged-content guard is enabled with `git config core.hooksPath .githooks`; it is a best-effort scan, not DLP (see [Security boundaries](docs/security.md)).
 
-可选资产：`packages/pi-project-coordinator/`（多项目协调器，单项目复现不需要）和 `knowledge-base/`（两层知识库，scope gate 规则文本在 `knowledge-base/AGENTS.md`）。
+Optional assets: `packages/pi-project-coordinator/` (multi-project coordinator; not needed for single-project reproduction) and `knowledge-base/` (two-layer knowledge base; the scope-gate rule text is in `knowledge-base/AGENTS.md`).
 
-### 第三步：走一个真实例子（给 coder 派工）
+### Step 3: Walk a real example (dispatching to coder)
 
-场景：给你的项目修一个小 bug。完整流程四步。
+Scenario: fix a small bug in your project. The full flow has four steps.
 
-**0. 路由声明**——动手前主对话先说清四件事（规则来自全局规则的「Mandatory routing decision」）：
+**0. Routing declaration** — before touching anything, the primary conversation states four things (per "Mandatory routing decision" in the global rules):
 
 ```text
-任务类别 = implementation；交付物 = 单文件修复 + 1 条回归测试；
-执行者 = subagent(coder)；验收 = pytest 全绿 + 主对话亲自看 diff
+task category = implementation; deliverable = single-file fix + 1 regression test;
+owner = subagent(coder); acceptance = pytest all green + primary inspects the diff itself
 ```
 
-**1. 建议性校验归属**（可选，用法来自 `instructions/DELEGATION-ROUTING.md`）：
+**1. Advisory ownership check** (optional; usage from `instructions/DELEGATION-ROUTING.md`):
 
 ```bash
 python3 tools/delegation_gate.py --category implementation --owner subagent
 # ALLOW: Declared ownership matches routing policy  (exit 0)
 ```
 
-**2. 发任务书**。字段固定，来自 `instructions/agents/coder/AGENTS.md` 的 Task Brief 段。一份填好的真实形态：
+**2. Send the brief**. The fields are fixed, from the Task Brief section of `instructions/agents/coder/AGENTS.md`. A filled-in example:
 
 ```markdown
 ## Task Brief (filled by the primary conversation)
 - Project root (cwd): /home/you/myapp
-- Goal and scope: utils/date.py 的 parse_date() 要拒绝非法月份（如 "2026-13-01"），
-  只改这一个文件；在 tests/test_date.py 补一条回归测试 test_rejects_invalid_month
-- Relevant paths / background facts: utils/date.py 现用 datetime.strptime；
-  tests/test_date.py 已有 12 个 pytest 函数式用例，新用例照此风格
-- Authorization and prohibitions: 只许改 utils/date.py 和 tests/test_date.py；
-  不装依赖、不联网；不得删除或放宽现有测试
-- Expected evidence and acceptance criteria: pytest -q 输出 13 passed；
-  报告按三态标注 implemented / tested / unverified，逐文件一句话说明改动
+- Goal and scope: parse_date() in utils/date.py must reject invalid months
+  (e.g. "2026-13-01"); change only this file; add a regression test
+  test_rejects_invalid_month in tests/test_date.py
+- Relevant paths / background facts: utils/date.py currently uses
+  datetime.strptime; tests/test_date.py already has 12 pytest-style
+  function-based cases — match that style for the new test
+- Authorization and prohibitions: only utils/date.py and tests/test_date.py
+  may be modified; no new dependencies, no network access; do not delete
+  or weaken existing tests
+- Expected evidence and acceptance criteria: pytest -q prints 13 passed;
+  report changes file by file in one line each, tagged implemented /
+  tested / unverified
 ```
 
-同时按 coder 模板的 Tools 段设工具白名单 `read, grep, find, ls, bash, edit, write`，把子代理 cwd 钉在项目根。coder 开工第一件事是读自己的 skill 文件（`instructions/agents/coder/skills/minimal-change.md`：最小改动 + 三态汇报）——方法论注入靠这一步，不靠微调模型。
+At the same time, set the tool allowlist from the coder template's Tools section — `read, grep, find, ls, bash, edit, write` — and pin the subagent's cwd to the project root. The coder's first action is to read its own skill file (`instructions/agents/coder/skills/minimal-change.md`: minimal changes + three-state reporting) — methodology is injected this way, not by fine-tuning the model.
 
-**3. 验收**。子代理报 PASS 不算数：主对话亲自跑 `pytest -q`、看实际 diff、核对三态报告。有界且可本地验证的任务默认走 best-of-N（N=3）：三个候选各在隔离的工作副本上用**同一份任务书**工作，主对话逐一验收、择优采纳，N 个结果全部如实上报（哪些过、哪些挂、挂在哪）。
+**3. Acceptance**. A subagent reporting PASS does not count: the primary runs `pytest -q` itself, inspects the actual diff, and checks the three-state report. Bounded, locally verifiable tasks default to best-of-N (N=3): three candidates each work on an isolated working copy against the **same brief**; the primary accepts each one and adopts the best, reporting all N outcomes honestly (which passed, which failed, and why).
 
-验证通过后，一条可迁移的教训按日期追加进 `knowledge-base/daily/YYYY-MM-DD.md`，反复出现再由 `compile_kb.py` 提升进 `knowledge/concepts/`。
+Once verified, one transferable lesson is appended by date to `knowledge-base/daily/YYYY-MM-DD.md`; recurring lessons are later promoted by `compile_kb.py` into `knowledge/concepts/`.
 
-## 设计原则（可移植内核，与 pi 解耦）
+## Design principles (a portable kernel, decoupled from pi)
 
-| # | 原则 | 内容 | 为什么 |
+| # | Principle | What it says | Why |
 |---|---|---|---|
-| 1 | 零内联执行 | 主对话不亲手干活——实现、测试、调研、评审全部派工；主对话只做沟通、拆解、决策、验收与集成 | 执行过程的海量读文件与试错噪音留在子进程里，主对话上下文留给决策 |
-| 2 | 干净上下文子代理 | 每个子代理从空白上下文开始，靠书面任务书获得全部输入；`fork`（继承对话）只留给真正依赖活对话状态的任务 | 干净上下文便宜且可并行；继承全量上下文的代价随主对话大小线性增长 |
-| 3 | 固定验收标准 | 验收标准写进任务书，派工后不可更改；绝不为了通过而删测试或放宽断言 | 让 best-of-N 候选可比较；杜绝「为了绿而绿」 |
-| 4 | 书面任务书 | 每次派工都是结构化 brief（cwd / 目标 / 路径 / 授权 / 验收），字段固定 | 上下文隔离后唯一的信息通道；任务书写不出来，说明需求还没想清楚 |
-| 5 | 证据驱动验收 | 子代理报 PASS ≠ 验收完成；主对话亲自跑测试、看 diff、核对证据；API 通 ≠ 浏览器可用 | 执行者与验收者必须分离，否则误报和美化无人纠正 |
-| 6 | 可证伪的经验入库 | 经验入库要带来源与证据指针；「verified」只有真打开过一手来源才能标；不可证伪的内容不入库 | 不可证伪的知识会污染后续所有决策；snippet 不是证据 |
-| 7 | 范围门控记忆 | `daily/` 教训默认只在本项目有效；升为全局需 ≥2 个不同项目的证据 + 用户显式批准（fail-closed） | 研究表明朴素的全局记忆池比没有记忆更差——先定范围，再持久化 |
-| 8 | Agent 间通信一律英文 | 操作者与主对话可用任意语言交流，但所有发往代理的文本——prompt、任务书、角色消息、子代理派发——一律用英文；面向人的交付物（聊天回复、用户报告）跟随人的语言 | 角色模板、skill 文件与工具链本身锁定英文；混合语言任务书会降低小参数开源模型的指令遵循质量（已固化为全局规则） |
+| 1 | Zero inline execution | The primary conversation never does the work with its own hands — implementation, testing, research, and review are all dispatched; the primary only communicates, decomposes, decides, accepts, and integrates | The massive file-reading and trial-and-error noise of execution stays inside child processes; the primary's context is reserved for decisions |
+| 2 | Clean-context subagents | Every subagent starts from a blank context and receives all input via a written brief; `fork` (context inheritance) is reserved for tasks that genuinely depend on live conversation state | Clean contexts are cheap and parallelizable; the cost of inheriting the full context grows linearly with the primary conversation's size |
+| 3 | Fixed acceptance criteria | Acceptance criteria are written into the brief and never changed after dispatch; never delete tests or weaken assertions to make something pass | Makes best-of-N candidates comparable; eliminates "green at any cost" |
+| 4 | Written briefs | Every dispatch is a structured brief (cwd / goal / paths / authorization / acceptance) with fixed fields | The only information channel after context isolation; if you cannot write the brief, the requirement is not yet clear |
+| 5 | Evidence-driven acceptance | A subagent reporting PASS ≠ acceptance done; the primary runs the tests, inspects the diff, and verifies evidence itself; a passing API ≠ a usable browser flow | Executor and acceptor must be separated, otherwise false positives and embellishment go uncorrected |
+| 6 | Falsifiable lessons only | Lessons enter the knowledge base with sources and evidence pointers; "verified" may only be tagged after the primary source was actually opened; unfalsifiable content does not enter | Unfalsifiable knowledge pollutes every subsequent decision; a snippet is not evidence |
+| 7 | Scope-gated memory | Lessons in `daily/` are project-scoped by default; promotion to global requires evidence from ≥2 distinct projects + explicit user approval (fail-closed) | Research suggests a naive global memory pool performs worse than no memory at all — scope first, persist second |
+| 8 | Agent-bound communication is English | The operator and the primary conversation may use any language, but all text sent to agents — prompts, task briefs, role messages, subagent dispatches — is written in English; human-facing deliverables (chat replies, user reports) follow the human's language | Role templates, skill files, and the toolchain are locked to English; mixed-language briefs degrade instruction-following in small-parameter open-weight models (now codified as a global rule) |
 
-## 文档导览
+## Document map
 
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [委派体系](docs/delegation.md) | 路由决策流程、best-of-N、验收门、zero inline execution 规则 |
-| [九个角色](docs/roles.md) | 每个角色的职责、工具白名单、何时用哪个（表格） |
-| [多项目协调器](docs/coordinator.md) | registry / 确定性路由 / 单写队列 / RPC 运行时 |
-| [知识库](docs/knowledge-base.md) | 两层结构、scope gate、卫生层、compile_kb |
-| [安全边界](docs/security.md) | 权限不因委派扩大、子代理加固、Git 与 secrets 规则 |
+| [Delegation system](docs/delegation.md) | Routing decision flow, best-of-N, acceptance gates, the zero inline execution rule |
+| [The nine roles](docs/roles.md) | Each role's responsibilities, tool allowlists, and when to use which (table) |
+| [Multi-project coordinator](docs/coordinator.md) | Registry / deterministic routing / single-writer queues / RPC runtime |
+| [Knowledge base](docs/knowledge-base.md) | Two-layer structure, scope gate, hygiene layer, compile_kb |
+| [Security boundaries](docs/security.md) | Delegation does not expand authorization, subagent hardening, Git and secrets rules |
 
-## 关键数字
+## Key numbers
 
-- **9 个预定义角色**：全部是任务书模板而非常驻进程，不加载扩展，靠「先读自己的 skill 文件」注入方法论——资产即 `instructions/agents/` 一个目录。
-- **2 个派生工具包**：`packages/pi-fork` 与 `packages/pi-minimal-subagent`，pi 本体不带子代理，装这两个包才有 `fork` / `subagent` 工具。
-- **3 个脚本**：`delegation_gate.py`（归属校验，建议性）、`git_guard.py`（暂存区守卫）、`compile_kb.py`（知识库编译 + lint）——纯本地、零依赖。
-- **1 个多项目协调器**（可选）：SQLite 持久化、每项目单写队列、全局并发上限 2、变更类任务崩溃后永不盲目重放。
-- **2 层知识库**：`wiki/`（外部一手经验，带置信度）+ `daily/` 与 `knowledge/concepts/`（内部工程日志），scope gate fail-closed。
+- **9 predefined roles**: all are brief templates, not resident processes; no extensions loaded; methodology is injected by "read your own skill file first" — the entire asset is the `instructions/agents/` directory.
+- **2 derivation tool packages**: `packages/pi-fork` and `packages/pi-minimal-subagent`; pi ships without subagents — these two packages provide the `fork` / `subagent` tools.
+- **3 scripts**: `delegation_gate.py` (ownership check, advisory), `git_guard.py` (staged-content guard), `compile_kb.py` (knowledge-base compile + lint) — purely local, zero dependencies.
+- **1 multi-project coordinator** (optional): SQLite persistence, single-writer queue per project, global concurrency cap of 2, crashed mutating tasks are never blindly replayed.
+- **2-layer knowledge base**: `wiki/` (curated first-hand external experience, with confidence levels) + `daily/` and `knowledge/concepts/` (internal engineering log), with a fail-closed scope gate.

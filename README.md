@@ -1,6 +1,6 @@
 # Project-first Pi
 
-> 📚 架构文档门户：[docs-site/](docs-site/README.md)（总览 + 委派体系 / 九个角色 / 多项目协调器 / 知识库 / 安全边界，含 [index.html](docs-site/index.html) 单页导览）
+> 📚 架构文档门户（英文为主）：[docs-site/](docs-site/README.md)（总览 + 委派体系 / 九个角色 / 多项目协调器 / 知识库 / 安全边界，含 [index.html](docs-site/index.html) 单页导览；中文版见 [zh/README.md](docs-site/zh/README.md)）
 
 Current architecture: **one project, one primary conversation**, with automatic bounded forks, independent advisor/reviewer subagents, and session-local observational memory. Intercom is removed. See [PROJECT-ARCHITECTURE.md](PROJECT-ARCHITECTURE.md) for source versions, local adaptations, setup, validation limits and rollback.
 

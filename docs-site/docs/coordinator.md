@@ -1,25 +1,25 @@
-# 多项目协调器 pi-project-coordinator
+# Multi-project coordinator: pi-project-coordinator
 
-> **复现要点**：源码与测试都在 `packages/pi-project-coordinator/`，零外部依赖（SQLite 用 Node 内置 `node:sqlite`）。离线测试：`node --test tools/test_project_coordinator.ts`（9 过 0 挂）；真实 CLI 冒烟是 opt-in 的 `PI_COORDINATOR_SMOKE=1`。这是**可选组件**——单项目复现不需要它，只有当你想让一个协调者对话路由多个项目时才装。文中列的安全门（模型调用默认关、接受 prompt ≠ 完成、变更类崩溃不重放）是包内代码实现的行为，不是配置开关。
+> **Reproduction notes**: source and tests live in `packages/pi-project-coordinator/`, with zero external dependencies (SQLite via Node's built-in `node:sqlite`). Offline tests: `node --test tools/test_project_coordinator.ts` (9 passed, 0 failed); the real-CLI smoke test is opt-in via `PI_COORDINATOR_SMOKE=1`. This is an **optional component** — single-project reproduction does not need it; install it only if you want one coordinator conversation to route multiple projects. The safety gates listed here (model calls off by default, prompt accepted ≠ done, crashed mutating tasks are not replayed) are behaviors implemented in the package's code, not configuration switches.
 
-## 定位
+## Positioning
 
-让一个长期协调者对话把用户请求路由给「每个项目一个主对话」的体系。核心原则：**什么都不会自动激活**——不改全局配置、不自动建会话、不自动注册项目。注册只是「提案」，项目根目录必须经用户明确确认后才生效。
+Lets one long-lived coordinator conversation route user requests to "one primary conversation per project". Core principle: **nothing activates automatically** — no global config changes, no automatic session creation, no automatic project registration. Registration is only a "proposal"; a project root takes effect only after explicit user confirmation.
 
-## 五个模块，各管一层
+## Five modules, one layer each
 
-- **registry**：项目持久身份——id、别名、realpath 强制的规范根目录、稳定 sessionId，原子保存。
-- **router**：只做确定性路由（精确 id / 别名 / 规范根目录），结果只有 `ok` / `ambiguous` / `unknown`——歧义时宁可问用户，绝不模糊猜测，绝不扫盘去「发现」项目。
-- **store**：SQLite 持久层（单 WAL 库，Node 内置 `node:sqlite`，零外部依赖）。`journal` 追加只写、按 `sha256(sourceMessageId:splitIndex)` 去重；旧的 JSON 文件一次性幂等导入后改名保留，不删除。
-- **engine**：每项目 FIFO 队列 + 单写者租约 + 全局并发上限（默认 2），状态跨重启持久。
-- **rpc-runtime**：以 RPC 模式拉起项目自己的 Pi 会话——按 id 精确恢复会话（绝不「continue 最近一个」）、cwd 钉在项目根、不带 `--model` 标志（保持当前模型），也不挂 Telegram 传输。
+- **registry**: persistent project identity — id, aliases, canonical root enforced via realpath, stable sessionId, saved atomically.
+- **router**: deterministic routing only (exact id / alias / canonical root); results are only `ok` / `ambiguous` / `unknown` — when ambiguous, ask the user rather than vaguely guess, and never scan the disk to "discover" projects.
+- **store**: SQLite persistence layer (a single WAL database, Node's built-in `node:sqlite`, zero external dependencies). The `journal` is append-only, deduplicated by `sha256(sourceMessageId:splitIndex)`; old JSON files are imported once, idempotently, then renamed and kept — never deleted.
+- **engine**: FIFO queue per project + single-writer lease + global concurrency cap (default 2); state persists across restarts.
+- **rpc-runtime**: launches the project's own Pi session in RPC mode — sessions are restored by exact id (never "continue the most recent one"), cwd is pinned to the project root, no `--model` flag is passed (keeps the current model), and no Telegram transport is attached.
 
-## 内置安全门
+## Built-in safety gates
 
-1. **模型调用默认关闭**：`allowModelCalls: false` 时仅用 `get_state` 探测身份（无模型往返），自动测试不可能烧 token 或改动项目。
-2. **接受 prompt ≠ 完成**：运行时区分 prompt 应答（disposition）与 `agent_settled`，结果一律标 `completed-unverified`——验收是主对话/用户的独立步骤。
-3. **崩溃规则**：变更类任务（mutating）崩溃一律记 `unknown-outcome`，引擎与 journal 重放都**不会**再执行它，只能显式 `reconciled` / `verified` / `cancelled` 收口。
+1. **Model calls off by default**: when `allowModelCalls: false`, only `get_state` probes identity (no model round-trips); automated tests cannot burn tokens or modify projects.
+2. **Prompt accepted ≠ done**: the runtime distinguishes a prompt response (disposition) from `agent_settled`; results are always tagged `completed-unverified` — acceptance is a separate step for the primary conversation/user.
+3. **Crash rule**: crashed mutating tasks are always recorded `unknown-outcome`; neither the engine nor journal replay will ever execute them again — they can only be closed out explicitly as `reconciled` / `verified` / `cancelled`.
 
-## 现状
+## Status
 
-离线测试套件 9 过 0 挂；真实 Pi CLI 冒烟验证过 spawn / 协议 / 会话身份（未跑真实 prompt）。尚未实现：接入活的协调者对话、注册真实项目、Telegram 分线程桥接、已运行会话的接管规则。
+The offline test suite is 9 passed, 0 failed; real Pi CLI smoke tests covered spawn / protocol / session identity (no real prompt was run). Not yet implemented: wiring into a live coordinator conversation, registering real projects, Telegram thread bridging, and takeover rules for already-running sessions.

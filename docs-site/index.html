@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pi Agent 架构：可复现指南</title>
+<title>Pi Agent Architecture: A Reproducible Guide</title>
 <style>
-  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1a1a2e;line-height:1.7}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1a1a2e;line-height:1.7}
   h1{font-size:1.6rem;border-bottom:3px solid #4a6cf7;padding-bottom:10px}
   h2{font-size:1.1rem;color:#4a6cf7}
   pre{background:#0f172a;color:#a5f3fc;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;line-height:1.5}
@@ -17,42 +17,46 @@
 </style>
 </head>
 <body>
-<h1>PiAgents：一套可复现的「代理操作系统」</h1>
-<p>纯文本规则 + 模板组织的代理操作系统：主对话只派工、决策、验收；干活的是干净上下文的子代理；全部内核是 Markdown 与三个脚本，引擎无关——装 pi 即用，理念可移植到任何 agent 框架。三步复现见 <a href="README.md">README</a>。</p>
+<h1>PiAgents: A Reproducible Agent Operating System</h1>
+<p>An agent operating system organized as plain-text rules + templates: the primary conversation only dispatches work, decides, and accepts deliverables; the actual work is done by clean-context subagents; the entire kernel is Markdown plus three scripts, engine-agnostic — install pi and it runs, and the ideas port to any agent framework. Three-step reproduction in the <a href="README.md">README</a>. Chinese edition: <a href="zh/README.md">zh/README.md</a>（中文版）.</p>
 
-<h2>三步复现（详见 README）</h2>
+<h2>Reproduction in three steps (details in the README)</h2>
 <ul>
-  <li>① 装 pi（或声明理念可移植）</li>
-  <li>② 拷贝三类文本资产：全局规则 / 9 角色模板 / 3 个脚本</li>
-  <li>③ 走一个真实例子：给 coder 发一份填好的任务书</li>
+  <li>① Install pi (or declare the ideas portable)</li>
+  <li>② Copy three categories of text assets: global rules / 9 role templates / 3 scripts</li>
+  <li>③ Walk a real example: send coder a filled-in task brief</li>
 </ul>
 
-<h2>一图流架构</h2>
+<h2>Architecture at a glance</h2>
 <pre>
-            用户（需求 · 决策 · 最终验收）
-                     │
-   ┌─────────────────▼──────────────────┐
-   │   主对话 primary（每项目一个）        │
-   │   只做：拆解派工 / 决策 / 验收 / 集成 │
-   └───┬──────────┬──────────┬─────────┘
-     fork      subagent   subagent    observational
-   （带上下文）（干净上下文）（干净上下文）   memory
-       ▼          ▼          ▼             ▼
-  实现调试    顾问/评审   9 类角色 worker   会话内记忆
+       User (requirements · decisions · final acceptance)
+                        │
+  ┌─────────────────────▼───────────────────┐
+  │  Primary conversation (one per project) │
+  │  Only: decompose & dispatch / decide /  │
+  │  accept / integrate                     │
+  └────┬──────────┬──────────┬──────────┬───┘
+    fork     subagent   subagent   observational
+ (inherits  (clean     (clean        memory
+  context)   context)   context)
+     ▼          ▼          ▼             ▼
+ implement   advisor /  9 role      in-session
+ & debug     review     workers     memory
 
-  项目A主对话 ─┐
-  项目B主对话 ─┼─▶ pi-project-coordinator
-  项目C主对话 ─┘   registry · 确定性路由 · 单写队列
+ Project A primary ─┐
+ Project B primary ─┼─▶ pi-project-coordinator
+ Project C primary ─┘  registry · deterministic routing ·
+                       single-writer queues
 </pre>
 
-<h2>文档导览</h2>
+<h2>Document map</h2>
 <ul>
-  <li><a href="README.md">总览 README.md</a><br><span class="desc">一句话定位、架构图、三步复现（装 pi → 拷资产 → 走例子）、7 条设计原则</span></li>
-  <li><a href="docs/delegation.md">委派体系 delegation.md</a><br><span class="desc">路由决策流程、best-of-N 并行候选、验收门、zero inline execution</span></li>
-  <li><a href="docs/roles.md">九个角色 roles.md</a><br><span class="desc">scout / planner / coder / operator / reviewer / researcher / visualizer / writer / designer 的职责、工具白名单与使用时机</span></li>
-  <li><a href="docs/coordinator.md">多项目协调器 coordinator.md</a><br><span class="desc">registry / 确定性路由 / 单写队列 / RPC 运行时 / 崩溃语义</span></li>
-  <li><a href="docs/knowledge-base.md">知识库 knowledge-base.md</a><br><span class="desc">两层结构、scope gate、卫生层、compile_kb 与 FTS5 检索</span></li>
-  <li><a href="docs/security.md">安全边界 security.md</a><br><span class="desc">权限不因委派扩大、子代理加固、Git 与 secrets 规则</span></li>
+  <li><a href="README.md">Overview — README.md</a><br><span class="desc">One-line positioning, architecture diagram, three-step reproduction (install pi → copy assets → walk an example), 8 design principles</span></li>
+  <li><a href="docs/delegation.md">Delegation system — delegation.md</a><br><span class="desc">Routing decision flow, best-of-N parallel candidates, acceptance gates, zero inline execution</span></li>
+  <li><a href="docs/roles.md">The nine roles — roles.md</a><br><span class="desc">Responsibilities, tool allowlists, and when to use scout / planner / coder / operator / reviewer / researcher / visualizer / writer / designer</span></li>
+  <li><a href="docs/coordinator.md">Multi-project coordinator — coordinator.md</a><br><span class="desc">Registry / deterministic routing / single-writer queues / RPC runtime / crash semantics</span></li>
+  <li><a href="docs/knowledge-base.md">Knowledge base — knowledge-base.md</a><br><span class="desc">Two-layer structure, scope gate, hygiene layer, compile_kb and FTS5 retrieval</span></li>
+  <li><a href="docs/security.md">Security boundaries — security.md</a><br><span class="desc">Delegation does not expand authorization, subagent hardening, Git and secrets rules</span></li>
 </ul>
 </body>
 </html>

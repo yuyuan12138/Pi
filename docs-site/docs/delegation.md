@@ -1,23 +1,23 @@
-# 委派体系：派工、路由与验收
+# Delegation system: dispatch, routing, and acceptance
 
-> **复现要点**：本篇规则文本在 `instructions/PROJECT-AGENTS.md`（零内联执行、best-of-N、验收门、Mandatory routing decision）和 `instructions/DELEGATION-ROUTING.md`（默认归属表 + 三类显式例外：unavailable-tools / integration-only / trivial-fix）。归属校验工具是 `tools/delegation_gate.py`（`--category --owner` 两个参数，exit 0 允许 / 1 违反策略 / 2 参数错误）。注意它是建议性检查，不是运行时拦截器——复现它拷文件即可，但「执行归执行、校验归校验」的性质要记住。全局规则文件（`~/.pi/agent/AGENTS.md`，源自 `instructions/PROJECT-AGENTS.md`）还固化了「Agent 间通信一律英文」：发往子代理的 prompt、任务书与角色消息一律用英文，面向人的交付物跟随人的语言。
+> **Reproduction notes**: the rule text for this page lives in `instructions/PROJECT-AGENTS.md` (zero inline execution, best-of-N, acceptance gates, Mandatory routing decision) and `instructions/DELEGATION-ROUTING.md` (default ownership table + three explicit exceptions: unavailable-tools / integration-only / trivial-fix). The ownership-check tool is `tools/delegation_gate.py` (two arguments, `--category --owner`; exit 0 = allowed / 1 = policy violation / 2 = bad arguments). Note that it is an advisory check, not a runtime interceptor — reproducing it is as simple as copying the file, but keep its nature in mind: "execution is execution, validation is validation". The global rules file (`~/.pi/agent/AGENTS.md`, sourced from `instructions/PROJECT-AGENTS.md`) also codifies "agent-bound communication is English": prompts, task briefs, and role messages sent to subagents are always written in English; human-facing deliverables follow the human's language.
 
-## 路由决策流程
+## Routing decision flow
 
-任何非琐碎工作动手之前，主对话先声明四件事：任务类别、有界交付物、执行者、验收证据。默认归属：公开调研 → researcher 子代理（只读）；实现与测试 → coder / operator 子代理（书面任务书），`fork` 只在有明确上下文依赖时使用并说明依赖什么；评审 → reviewer（只读，只提建议不动手）；部署 → operator（仅限已授权的目标与操作）；多日迭代战役 → 经协调器交给项目自己的主对话；需求理解、决策、任务书与集成验收 → 主对话自己。可选用 `tools/delegation_gate.py` 做归属校验。
+Before starting any nontrivial work, the primary conversation declares four things: task category, bounded deliverable, execution owner, and acceptance evidence. Default owners: public research → researcher subagent (read-only); implementation and testing → coder / operator subagents (written briefs), with `fork` used only when there is an explicit context dependency, stating what it depends on; review → reviewer (read-only, proposes findings but never edits); deployment → operator (only authorized targets and operations); multi-day iteration campaigns → handed via the coordinator to the project's own primary conversation; requirement understanding, decisions, task briefs, and integration acceptance → the primary conversation itself. Ownership can optionally be validated with `tools/delegation_gate.py`.
 
-## zero inline execution
+## Zero inline execution
 
-2026-11-05 起用户明确废止了「琐碎任务主对话顺手自己做」的例外：主对话能做的，子代理也能做。主对话的职责收敛为沟通、拆解、决策、验收与跨模块集成，不再吸收执行工作。
+As of 2026-11-05, the user explicitly revoked the "the primary can do trivial tasks itself while it's at it" exception: anything the primary conversation can do, a subagent can too. The primary's responsibilities narrow to communication, decomposition, decisions, acceptance, and cross-module integration; it no longer absorbs execution work.
 
-## fork 还是 subagent
+## fork or subagent
 
-`fork` 会复制主对话的全部上下文，代价高：上下文越大，每次 fork 都要重读一遍。默认用干净上下文的 `subagent`（任务能写成书面 brief 就够）；只有真正依赖活对话状态（如正在进行的调试现场）才用 `fork`，并说明依赖。
+`fork` copies the primary conversation's entire context — expensive: the larger the context, the more every forked turn has to re-read. Default to a clean-context `subagent` (sufficient whenever the task can be written as a brief); use `fork` only for tasks that genuinely depend on live conversation state (e.g. an in-progress debugging session), and state the dependency.
 
-## best-of-N 并行候选
+## best-of-N parallel candidates
 
-有界且可本地验证的任务，默认并行派 N 个子代理（默认 N=3，难任务可加到 5）：各自在隔离的工作副本上、用同一套固定验收测试工作，互不共享写入。全部完成后主对话逐一验收——跑测试、看 diff、核对交付物——择优采纳，N 个结果全部如实上报（哪些过、哪些挂、挂在哪）。验收标准对所有候选一致，绝不为了通过而删测试或放宽测试。
+For bounded, locally verifiable tasks, the default is to dispatch N subagents in parallel (N=3; may be raised to 5 for hard tasks): each works on an isolated working copy against the same fixed acceptance tests, with no shared writes. When all finish, the primary accepts each one — runs the tests, inspects the diff, checks the deliverable — and adopts the best, reporting all N outcomes honestly (which passed, which failed, and why). Acceptance criteria are identical for every candidate; never delete or weaken tests to make one pass.
 
-## 验收门
+## Acceptance gate
 
-子代理报 PASS 不等于验收完成：主对话要亲自检查实际 diff 和关键证据。API 通不等于浏览器可用，幂等重试的成功响应不等于流程真的重跑了一遍。`delegation_gate.py` 只是建议性检查（exit 0 允许 / 1 违反策略 / 2 参数错误），不是运行时拦截器，也不能证明子代理真的跑过——它校验的是「声明的归属」，不是事实本身。
+A subagent reporting PASS does not equal acceptance done: the primary must personally inspect the actual diff and key evidence. A passing API does not equal a usable browser flow, and a success response from an idempotent retry does not equal the flow having actually rerun. `delegation_gate.py` is only an advisory check (exit 0 = allowed / 1 = policy violation / 2 = bad arguments), not a runtime interceptor and no proof that a subagent actually ran — it validates the *declared* ownership, not the fact itself.
