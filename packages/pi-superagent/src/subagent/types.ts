@@ -8,6 +8,10 @@ export interface SpawnOptions {
   cwd?: string;
   /** Run inside a fresh git worktree + branch so parallel subagents never collide. */
   isolate?: boolean;
+  /** Run N (1-3) identical copies of this task in parallel (best-of-N). All N are tracked to a
+   *  terminal state and resolved together as a combined result; picking the best member is the
+   *  parent agent's job. A fanout of N counts as N against the spawn budget. */
+  fanout?: number;
   model?: string;
   label?: string;
   /** Exact tool-name allowlist for the child (workflow limit, not a sandbox). [] disables all built-in tools; omit for pi defaults. */
@@ -34,6 +38,26 @@ export interface SubagentInfo {
   startedAt?: string;
   endedAt?: string;
   toolCalls: number;
+  /** Chain of ancestor agent ids that produced this agent (root-first). [] = spawned by the root session. */
+  spawnedBy: string[];
+  /** Spawn depth: 1 = spawned by the root session; agents at MAX_SPAWN_DEPTH cannot spawn further. */
+  depth: number;
+  /** Present on members of a fanout group (fanout > 1): the group id and this member's position. */
+  fanout?: { groupId: string; total: number; index: number; memberIds: string[] };
+}
+
+/** One member of a fanout group, resolved once every member reached a terminal state. */
+export interface FanoutMemberResult {
+  id: string;
+  status: SubagentState;
+  /** Final assistant text of a done member. */
+  resultText?: string;
+  error?: string;
+  worktree?: string;
+  /** Lineage: chain of ancestor agent ids (root-first); [] = spawned by the root session. */
+  spawnedBy: string[];
+  /** Spawn depth: 1 = spawned by the root session. */
+  depth: number;
 }
 
 /** Minimal child-process surface so tests can mock pi. */

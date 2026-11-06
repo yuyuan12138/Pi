@@ -14,6 +14,7 @@ const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], de
 export const CHILD_GUIDE = `You are a background subagent working for a main agent. The main agent does NOT see your transcript, tool calls or intermediate output — only what you send with ${REPORT_TOOL} and your final message.
 - Call ${REPORT_TOOL} at milestones only: status "progress" after a meaningful step (not every tool call), "blocked" with a concrete question when you cannot continue without a decision, "ready" when the task is done, "failed" or "dropped" if it cannot or need not be done. Keep summaries to 1-3 sentences.
 - Never ask the user questions directly; nobody is watching your session.
+- You may delegate bounded sub-tasks with subagent_spawn when that helps (depth and budget limits apply; a refusal error means stop nesting, not retry).
 - Finish with a concise final answer (what you did, key findings, file paths). That final message is the result the main agent receives.`;
 
 /** Inside a subagent process: report tool + reporting rules. */
@@ -35,7 +36,7 @@ export function registerSubagentChild(pi: ExtensionAPI) {
 
 const fmt = (i: SubagentInfo) => {
   const last = i.reports.at(-1);
-  return `${i.id} [${i.state}] ${i.label}${i.model ? ` (${i.model})` : ""} · tools:${i.toolCalls}${last ? ` · last report ${last.status}: ${last.summary}` : ""}${i.worktree ? ` · worktree ${i.worktree}` : ""}${i.session ? ` · session ${i.session}` : ""}`;
+  return `${i.id} [${i.state}] ${i.label}${i.model ? ` (${i.model})` : ""} · tools:${i.toolCalls}${last ? ` · last report ${last.status}: ${last.summary}` : ""}${i.worktree ? ` · worktree ${i.worktree}` : ""}${i.session ? ` · session ${i.session}` : ""} · depth ${i.depth}${i.spawnedBy.length ? ` · spawned_by ${i.spawnedBy.join(" > ")}` : ""}`;
 };
 
 /** In the user's interactive session: spawn/steer/stop/read background subagents. */
@@ -59,7 +60,10 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
       exec, extensionPath, baseDir: join(ctx.cwd, ".pi", "subagents"),
       maxConcurrent: opts.maxConcurrent ?? Number(process.env.PI_SUBAGENT_MAX ?? 3),
     }, {
-      deliver: (t, { wake }) => pi.sendMessage({ customType: "subagent-report", content: t, display: true }, wake ? { triggerTurn: true, deliverAs: "followUp" } : { deliverAs: "followUp" }),
+      deliver: (t, { wake }) => {
+        // Fire-and-forget: delivery must never crash the manager (child sessions may be shutting down).
+        void Promise.resolve(pi.sendMessage({ customType: "subagent-report", content: t, display: true }, wake ? { triggerTurn: true, deliverAs: "followUp" } : { deliverAs: "followUp" })).catch(() => { /* ignore */ });
+      },
       onChange: render,
     });
     return mgr;
@@ -71,13 +75,14 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
   pi.registerTool({
     name: "subagent_spawn",
     label: "Spawn subagent",
-    description: "Start a subagent (a separate headless pi session) on a self-contained task. By default it runs in the background: returns 'spawned <id>' immediately and its milestone reports and final result arrive later as messages — do not poll or wait. Options: tools = exact tool-name allowlist for the child (a workflow limit, not a sandbox; built-in child tools only, [] disables all built-in tools; the child always keeps its report tool); session = named child session id that is created on first use and resumed on later spawns with the same id (use distinct ids for parallel tasks); wait=true = block until the subagent finishes and return its final result text as this tool's result (sync semantics, for short bounded tasks).",
-    promptSnippet: "Delegate a self-contained task to a subagent (background by default, or synchronous with wait=true)",
+    description: "Start a subagent (a separate headless pi session) on a self-contained task. By default it runs in the background: returns 'spawned <id>' immediately and its milestone reports and final result arrive later as messages — do not poll or wait. Options: tools = exact tool-name allowlist for the child (a workflow limit, not a sandbox; built-in child tools only, [] disables all built-in tools; the child always keeps its report tool); session = named child session id that is created on first use and resumed on later spawns with the same id (use distinct ids for parallel tasks); wait=true = block until the subagent finishes and return its final result text as this tool's result (sync semantics, for short bounded tasks); fanout = N (1-3) = run N identical copies of the task in parallel (best-of-N): all N are tracked to a terminal state, each reports independently, and one combined result — an array of {id, status, resultText, worktree, spawned_by, depth} per member — arrives when all are terminal; with wait=true that combined array is returned directly. Selecting the best member is YOUR job, never automatic. Subagents may spawn their own subagents while the spawn depth is below 3 and the per-agent budget (PI_SPAWN_BUDGET, default 3; a fanout of N counts as N) lasts; exceeding either returns a clear error.",
+    promptSnippet: "Delegate a self-contained task to a subagent (background by default, or synchronous with wait=true; fanout=N for best-of-N)",
     promptGuidelines: [
       "Use subagent_spawn for independent, long or parallelizable tasks; write a complete task prompt (the subagent sees none of this conversation).",
       "Use wait=true only for short, bounded tasks whose result you need immediately; keep background spawning (wait omitted) for long or parallelizable work.",
       "After a background subagent_spawn, do not poll subagent_list in a loop; subagent results are delivered to you automatically.",
       "Use isolate=true in subagent_spawn when several subagents may edit the same git repo.",
+      "Use fanout=2..3 for best-of-N candidate generation on bounded, verifiable tasks (e.g. parallel attempts at the same fix); verify each member's result and keep the best — the combined result makes selection your responsibility.",
     ],
     parameters: Type.Object({
       task: Type.String({ description: "Complete, self-contained instructions" }),
@@ -90,6 +95,7 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
       })),
       session: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$", description: "Named child session id: created on first spawn, resumed on later spawns with the same id. Use distinct ids for parallel tasks. Omit for a fresh ephemeral session (default)." })),
       wait: Type.Optional(Type.Boolean({ description: "Block until the subagent finishes and return its final result text as this tool's result, instead of returning 'spawned <id>' immediately." })),
+      fanout: Type.Optional(Type.Integer({ minimum: 1, maximum: 3, description: "Run N (1-3) identical copies of this task in parallel (best-of-N). All N are tracked; one combined result (array with one entry per member) arrives when all are terminal — you pick the winner. A fanout of N counts as N against the spawn budget." })),
     }),
     async execute(_id, p, _s, _u, ctx) {
       // Hardening (localization): confine the worker cwd to the current project so a
@@ -103,6 +109,12 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
       const { wait, ...rest } = p;
       const mgr = manager(ctx);
       const i = await mgr.spawn({ ...rest, cwd });
+      const fo = i.fanout;
+      if (fo && fo.total > 1) {
+        if (!wait) return text(`Spawned fanout ${fo.groupId} with ${fo.total} members (${fo.memberIds.join(", ")})${rest.isolate ? ", each in its own git worktree" : ""}. Each member runs the identical task and reports independently; one combined result arrives when all are terminal. Do not poll.`);
+        const combined = await mgr.waitForAll(fo.groupId);
+        return text(`Fanout ${fo.groupId}: ${combined.length} results — select the best member yourself:\n${JSON.stringify(combined, null, 2)}`);
+      }
       if (!wait) return text(`Spawned ${i.id} (${i.state}). Logs: ${i.logDir}. Its reports and result will arrive automatically.`);
       const fin = await mgr.waitFor(i.id);
       if (fin.state === "done") return text(fin.result || "(no final text)");
