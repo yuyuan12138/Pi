@@ -21,7 +21,15 @@ export default function superagent(pi: ExtensionAPI) {
     }
   });
 
-  if (isSubagent) { registerSubagentChild(pi); return; }
+  if (isSubagent) {
+    registerSubagentChild(pi);
+    // Recursion: subagents may spawn their own sub-subagents. SubagentManager enforces the
+    // depth cap (clear refusal once PI_SPAWN_DEPTH >= 3) and the per-agent spawn budget
+    // (PI_SPAWN_BUDGET, default 3; a fanout of N counts as N), so this registration is safe
+    // at every depth and refusals stay observable errors instead of missing tools.
+    registerSubagentParent(pi);
+    return;
+  }
   if (isWorker) return;
 
   registerSubagentParent(pi);
