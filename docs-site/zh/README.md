@@ -52,12 +52,13 @@ curl -fsSL https://pi.dev/install.sh | sh
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-**pi 本体不带子代理**——官方 README 原话："Pi ships with powerful defaults but skips features like sub-agents and plan mode"。本架构依赖的两个派生工具以 pi 包形式提供，本仓库内就带源码：
+**pi 本体不带子代理**——官方 README 原话："Pi ships with powerful defaults but skips features like sub-agents and plan mode"。本架构依赖的三个派生工具以 pi 包形式提供，本仓库内就带源码：
 
 | 工具 | 作用 | 仓库内源码 | 上游安装命令 |
 |---|---|---|---|
 | `fork` | 派生继承当前对话分支的子进程（上下文密集型探索） | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
 | `subagent` | 派生干净上下文的独立子代理 | `packages/pi-minimal-subagent/` | `pi install npm:pi-minimal-subagent` |
+| `subagent_spawn` | 派生后台干净上下文子代理（默认派工方式；`tools` 白名单 / 持久 `session` / 同步 `wait`） | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
 
 两种装法任选：用上面的 `pi install` 命令装上游包，或把仓库内路径写进 `~/.pi/agent/settings.json` 的 `packages` 数组（本机即如此）。版本注记：写作时 pi 最新版 1.5.0，建议装最新版；本仓库验证环境为 1.3.0，fork/subagent 在 1.3.0 实测可用。
 
@@ -146,7 +147,7 @@ python3 tools/delegation_gate.py --category implementation --owner subagent
 ## 关键数字
 
 - **9 个预定义角色**：全部是任务书模板而非常驻进程，不加载扩展，靠「先读自己的 skill 文件」注入方法论——资产即 `instructions/agents/` 一个目录。
-- **2 个派生工具包**：`packages/pi-fork` 与 `packages/pi-minimal-subagent`，pi 本体不带子代理，装这两个包才有 `fork` / `subagent` 工具。
+- **3 个派生工具包**：`packages/pi-fork`、`packages/pi-minimal-subagent` 与 `packages/pi-superagent`，pi 本体不带子代理，装这些包才有 `fork` / `subagent` / `subagent_spawn` 工具。
 - **3 个脚本**：`delegation_gate.py`（归属校验，建议性）、`git_guard.py`（暂存区守卫）、`compile_kb.py`（知识库编译 + lint）——纯本地、零依赖。
 - **1 个多项目协调器**（可选）：SQLite 持久化、每项目单写队列、全局并发上限 2、变更类任务崩溃后永不盲目重放。
 - **2 层知识库**：`wiki/`（外部一手经验，带置信度）+ `daily/` 与 `knowledge/concepts/`（内部工程日志），scope gate fail-closed。

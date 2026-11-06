@@ -12,7 +12,26 @@ As of 2026-11-05, the user explicitly revoked the "the primary can do trivial ta
 
 ## fork or subagent
 
-`fork` copies the primary conversation's entire context — expensive: the larger the context, the more every forked turn has to re-read. Default to a clean-context `subagent` (sufficient whenever the task can be written as a brief); use `fork` only for tasks that genuinely depend on live conversation state (e.g. an in-progress debugging session), and state the dependency.
+`fork` copies the primary conversation's entire context — expensive: the larger the context, the more every forked turn has to re-read. Use `fork` only for tasks that genuinely depend on live conversation state (e.g. an in-progress debugging session), and state the dependency.
+
+## Spawn-first dispatch: subagent_spawn
+
+Since 2026-11-06 the default dispatch is **background `subagent_spawn`** (shipped in `packages/pi-superagent/src/subagent/`): long-running or multi-step operator/coder chains run as background tasks so the primary conversation never blocks on them; the synchronous `subagent` tool (or `subagent_spawn` with `wait=true`) is reserved for short advisor/reviewer opinions or quick bounded checks. By default `subagent_spawn` returns `spawned <id>` immediately and the subagent's milestone reports and final result arrive later as messages — dispatch, release attention, do not poll.
+
+Three optional parameters (commit `0d80c87`):
+
+- **`tools`** — exact tool-name allowlist for the child, validated against the built-in child tools (`read`, `grep`, `find`, `ls`, `bash`, `edit`, `write`); `report_to_parent` is force-appended so background reporting survives any allowlist; `[]` disables all built-in tools (the report tool still stays). A workflow limit, not a sandbox.
+- **`session`** — named persistent child session, stored gitignored under `.pi/subagents/sessions/`: created on the first spawn, resumed on later spawns with the same id (use distinct ids for parallel tasks).
+- **`wait`** — `wait=true` blocks until the subagent reaches a terminal state and returns its final result text (sync semantics, for short bounded tasks only).
+
+```
+subagent_spawn(task="fix the flaky auth test; verify with pytest -q", tools=["read","bash","edit"], session="fix-auth")
+# → "Spawned sa7 …" — keep dispatching; reports and the final result arrive as messages.
+subagent_spawn(task="one-line check: does settings.json still pin the model?", wait=true)
+# → blocks and returns the final text now.
+```
+
+**Liveness caveat**: after a background spawn, verify the dispatch is actually live before trusting it — check that the subagent's `events.jsonl` mtime keeps moving and task-specific tokens appear in its log dir (`.pi/subagents/<id>/`) — because spawned ids can collide with stale directories left on disk. Tests: `packages/pi-superagent/tests/subagent.test.ts`.
 
 ## best-of-N parallel candidates
 

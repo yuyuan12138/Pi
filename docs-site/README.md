@@ -58,12 +58,13 @@ Or via npm (note that the official command includes `--ignore-scripts`; requires
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-**pi itself ships without subagents** — the official README says so verbatim: "Pi ships with powerful defaults but skips features like sub-agents and plan mode". The two derivation tools this architecture depends on are provided as pi packages, with their sources included in this repo:
+**pi itself ships without subagents** — the official README says so verbatim: "Pi ships with powerful defaults but skips features like sub-agents and plan mode". The three derivation tools this architecture depends on are provided as pi packages, with their sources included in this repo:
 
 | Tool | Purpose | In-repo source | Upstream install command |
 |---|---|---|---|
 | `fork` | Spawns a child process that inherits the current conversation branch (context-heavy exploration) | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
 | `subagent` | Spawns an independent clean-context subagent | `packages/pi-minimal-subagent/` | `pi install npm:pi-minimal-subagent` |
+| `subagent_spawn` | Spawns a background clean-context subagent (the default dispatch; `tools` allowlist / persistent `session` / synchronous `wait`) | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
 
 Either install path works: install the upstream packages with the `pi install` commands above, or list the in-repo paths in the `packages` array of `~/.pi/agent/settings.json` (which is how this machine runs). Version note: pi's latest release at the time of writing is 1.5.0, and installing the latest is recommended; this repo was verified on 1.3.0, where fork/subagent were tested working.
 
@@ -156,7 +157,7 @@ Once verified, one transferable lesson is appended by date to `knowledge-base/da
 ## Key numbers
 
 - **9 predefined roles**: all are brief templates, not resident processes; no extensions loaded; methodology is injected by "read your own skill file first" — the entire asset is the `instructions/agents/` directory.
-- **2 derivation tool packages**: `packages/pi-fork` and `packages/pi-minimal-subagent`; pi ships without subagents — these two packages provide the `fork` / `subagent` tools.
+- **3 derivation tool packages**: `packages/pi-fork`, `packages/pi-minimal-subagent`, and `packages/pi-superagent`; pi ships without subagents — these packages provide the `fork` / `subagent` / `subagent_spawn` tools.
 - **3 scripts**: `delegation_gate.py` (ownership check, advisory), `git_guard.py` (staged-content guard), `compile_kb.py` (knowledge-base compile + lint) — purely local, zero dependencies.
 - **1 multi-project coordinator** (optional): SQLite persistence, single-writer queue per project, global concurrency cap of 2, crashed mutating tasks are never blindly replayed.
 - **2-layer knowledge base**: `wiki/` (curated first-hand external experience, with confidence levels) + `daily/` and `knowledge/concepts/` (internal engineering log), with a fail-closed scope gate.

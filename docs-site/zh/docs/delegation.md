@@ -12,7 +12,26 @@
 
 ## fork 还是 subagent
 
-`fork` 会复制主对话的全部上下文，代价高：上下文越大，每次 fork 都要重读一遍。默认用干净上下文的 `subagent`（任务能写成书面 brief 就够）；只有真正依赖活对话状态（如正在进行的调试现场）才用 `fork`，并说明依赖。
+`fork` 会复制主对话的全部上下文，代价高：上下文越大，每次 fork 都要重读一遍。只有真正依赖活对话状态（如正在进行的调试现场）才用 `fork`，并说明依赖。
+
+## spawn 优先派工：subagent_spawn
+
+2026-11-06 起默认派工方式是**后台 `subagent_spawn`**（由 `packages/pi-superagent/src/subagent/` 提供）：长任务或多步 operator/coder 链一律作为后台任务运行，主对话不再阻塞等待；同步 `subagent` 工具（或 `subagent_spawn` 的 `wait=true`）只留给短小的 advisor/reviewer 意见或快速有界检查。默认情况下 `subagent_spawn` 立即返回 `spawned <id>`，子代理的里程碑报告和最终结果之后以消息形式送达——派发、释放注意力、不要轮询。
+
+三个可选参数（commit `0d80c87`）：
+
+- **`tools`** —— 子代理工具白名单，按内置子工具（`read`、`grep`、`find`、`ls`、`bash`、`edit`、`write`）校验；`report_to_parent` 会被强制追加，后台汇报在任何白名单下都可用；`[]` 禁用全部内置工具（汇报工具仍在）。这是工作流约束，不是沙箱。
+- **`session`** —— 命名持久子会话，存放在 gitignore 的 `.pi/subagents/sessions/` 下：首次 spawn 创建，之后用同一 id 的 spawn 续用（并行任务用不同 id）。
+- **`wait`** —— `wait=true` 阻塞到子代理到达终态并返回最终结果文本（同步语义，仅用于短小有界任务）。
+
+```
+subagent_spawn(task="fix the flaky auth test; verify with pytest -q", tools=["read","bash","edit"], session="fix-auth")
+# → "Spawned sa7 …" — 继续派工；报告和最终结果以消息送达。
+subagent_spawn(task="one-line check: does settings.json still pin the model?", wait=true)
+# → 阻塞并立即返回最终文本。
+```
+
+**存活校验**：后台 spawn 之后、采信之前先确认派发真的存活——查看该子代理的 `events.jsonl` mtime 是否在移动、日志目录（`.pi/subagents/<id>/`）里是否出现任务专属 token——因为 spawn 出的 id 可能与磁盘上的陈旧目录撞号。测试：`packages/pi-superagent/tests/subagent.test.ts`。
 
 ## best-of-N 并行候选
 
