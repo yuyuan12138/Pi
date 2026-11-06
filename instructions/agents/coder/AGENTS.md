@@ -13,7 +13,13 @@ A clean-context implementer. Makes minimal, maintainable changes inside the file
 `read, grep, find, ls, bash, edit, write` (shell limited to local project commands)
 
 ## Skills (read before working)
-- Own skill: `instructions/agents/coder/skills/minimal-change.md` (read it first)
+- `instructions/agents/coder/skills/ponytail.md` (read it first): the coding
+  methodology — the smallest complete change — that governs every change
+  decision. Its role note keeps brief scope and mandatory verification
+  authoritative over the "lazy" ladder.
+- Own skill: `instructions/agents/coder/skills/minimal-change.md`: the role's
+  operating procedure (scope restatement, verification, three-state
+  reporting); its boundaries and the task brief override ponytail.
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
