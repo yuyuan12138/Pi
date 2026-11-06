@@ -35,7 +35,7 @@ export function registerSubagentChild(pi: ExtensionAPI) {
 
 const fmt = (i: SubagentInfo) => {
   const last = i.reports.at(-1);
-  return `${i.id} [${i.state}] ${i.label}${i.model ? ` (${i.model})` : ""} · tools:${i.toolCalls}${last ? ` · last report ${last.status}: ${last.summary}` : ""}${i.worktree ? ` · worktree ${i.worktree}` : ""}`;
+  return `${i.id} [${i.state}] ${i.label}${i.model ? ` (${i.model})` : ""} · tools:${i.toolCalls}${last ? ` · last report ${last.status}: ${last.summary}` : ""}${i.worktree ? ` · worktree ${i.worktree}` : ""}${i.session ? ` · session ${i.session}` : ""}`;
 };
 
 /** In the user's interactive session: spawn/steer/stop/read background subagents. */
@@ -71,11 +71,12 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
   pi.registerTool({
     name: "subagent_spawn",
     label: "Spawn subagent",
-    description: "Start a background subagent (a separate headless pi session) on a self-contained task. Returns immediately; you keep working/chatting. Its milestone reports and final result arrive later as messages — do not poll or wait.",
-    promptSnippet: "Delegate a self-contained task to a background subagent",
+    description: "Start a subagent (a separate headless pi session) on a self-contained task. By default it runs in the background: returns 'spawned <id>' immediately and its milestone reports and final result arrive later as messages — do not poll or wait. Options: tools = exact tool-name allowlist for the child (a workflow limit, not a sandbox; built-in child tools only, [] disables all built-in tools; the child always keeps its report tool); session = named child session id that is created on first use and resumed on later spawns with the same id (use distinct ids for parallel tasks); wait=true = block until the subagent finishes and return its final result text as this tool's result (sync semantics, for short bounded tasks).",
+    promptSnippet: "Delegate a self-contained task to a subagent (background by default, or synchronous with wait=true)",
     promptGuidelines: [
       "Use subagent_spawn for independent, long or parallelizable tasks; write a complete task prompt (the subagent sees none of this conversation).",
-      "After subagent_spawn, do not poll subagent_list in a loop; subagent results are delivered to you automatically.",
+      "Use wait=true only for short, bounded tasks whose result you need immediately; keep background spawning (wait omitted) for long or parallelizable work.",
+      "After a background subagent_spawn, do not poll subagent_list in a loop; subagent results are delivered to you automatically.",
       "Use isolate=true in subagent_spawn when several subagents may edit the same git repo.",
     ],
     parameters: Type.Object({
@@ -84,6 +85,11 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
       cwd: Type.Optional(Type.String()),
       isolate: Type.Optional(Type.Boolean({ description: "Run in a new git worktree + branch" })),
       model: Type.Optional(Type.String({ description: "pi --model pattern, e.g. deepseek/deepseek-flash" })),
+      tools: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_.-]*$" }), {
+        description: "Exact tool-name allowlist for the child: a workflow limit, not a sandbox. Built-in child tools only (read, grep, find, ls, bash, edit, write); [] disables all built-in tools (the report tool always stays); omit for pi defaults.",
+      })),
+      session: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$", description: "Named child session id: created on first spawn, resumed on later spawns with the same id. Use distinct ids for parallel tasks. Omit for a fresh ephemeral session (default)." })),
+      wait: Type.Optional(Type.Boolean({ description: "Block until the subagent finishes and return its final result text as this tool's result, instead of returning 'spawned <id>' immediately." })),
     }),
     async execute(_id, p, _s, _u, ctx) {
       // Hardening (localization): confine the worker cwd to the current project so a
@@ -94,8 +100,13 @@ export function registerSubagentParent(pi: ExtensionAPI, opts: { spawn?: SpawnFn
       let target: string;
       try { target = realpathSync(cwd); } catch { throw new Error(`subagent cwd does not exist: ${cwd}`); }
       if (target !== base && !target.startsWith(base + "/")) throw new Error(`subagent cwd must stay inside the current project (${ctx.cwd})`);
-      const i = await manager(ctx).spawn({ ...p, cwd });
-      return text(`Spawned ${i.id} (${i.state}). Logs: ${i.logDir}. Its reports and result will arrive automatically.`);
+      const { wait, ...rest } = p;
+      const mgr = manager(ctx);
+      const i = await mgr.spawn({ ...rest, cwd });
+      if (!wait) return text(`Spawned ${i.id} (${i.state}). Logs: ${i.logDir}. Its reports and result will arrive automatically.`);
+      const fin = await mgr.waitFor(i.id);
+      if (fin.state === "done") return text(fin.result || "(no final text)");
+      return text(`subagent ${fin.id} ${fin.state}${fin.error ? `: ${fin.error}` : ""}${fin.result ? `\n${fin.result}` : ""}`);
     },
   });
 

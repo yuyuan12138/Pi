@@ -5,6 +5,11 @@ import type { Exec } from "../types.ts";
 
 export const REPORT_TOOL = "report_to_parent";
 
+/** Built-in tools a spawned child may be given (matches pi-minimal-subagent's child-allowed set). */
+export const CHILD_BUILTIN_TOOLS = ["read", "grep", "find", "ls", "bash", "edit", "write"];
+/** Named child session ids must match this (same pattern as pi-minimal-subagent). */
+const SESSION_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
 export interface Delivery {
   /** Short text for the main session. `wake` = start a main-agent turn if idle. */
   deliver(text: string, opts: { wake: boolean; id: string }): void;
@@ -28,7 +33,7 @@ export function truncate(s: string, n: number): string {
   return s.slice(0, n) + `\n…[truncated ${s.length - n} chars]`;
 }
 
-interface Live { info: SubagentInfo; child?: ChildLike; buf: string; pending: Map<string, (d: any) => void>; seq: number; lastProgressAt: number; heldProgress?: Report; throttleTimer?: ReturnType<typeof setTimeout>; finished: boolean }
+interface Live { info: SubagentInfo; child?: ChildLike; buf: string; pending: Map<string, (d: any) => void>; seq: number; lastProgressAt: number; heldProgress?: Report; throttleTimer?: ReturnType<typeof setTimeout>; finished: boolean; waiters: ((i: SubagentInfo) => void)[] }
 
 export class SubagentManager {
   private subs = new Map<string, Live>();
@@ -50,11 +55,23 @@ export class SubagentManager {
   get(id: string): SubagentInfo | undefined { return this.subs.get(id)?.info; }
   running(): number { return this.list().filter((i) => i.state === "running").length; }
 
+  /** Resolves when the subagent reaches a terminal state (done/failed/stopped); queued subagents are waited out too. */
+  waitFor(id: string): Promise<SubagentInfo> {
+    const l = this.need(id);
+    if (l.finished) return Promise.resolve(l.info);
+    return new Promise((res) => { l.waiters.push(res); });
+  }
+
   async spawn(opts: SpawnOptions): Promise<SubagentInfo> {
+    if (opts.session !== undefined && !SESSION_ID_RE.test(opts.session)) throw new Error(`invalid subagent session id: ${opts.session}`);
+    if (opts.tools) {
+      const bad = opts.tools.find((t) => !CHILD_BUILTIN_TOOLS.includes(t));
+      if (bad) throw new Error(`Only built-in child tools are enabled (got "${bad}"; allowed: ${CHILD_BUILTIN_TOOLS.join(", ")})`);
+    }
     const id = `sa${++this.n}`;
     const logDir = join(this.o.baseDir, id);
     mkdirSync(logDir, { recursive: true });
-    const info: SubagentInfo = { id, label: opts.label ?? opts.task.slice(0, 40), task: opts.task, state: "queued", cwd: opts.cwd ?? this.o.baseDir, model: opts.model, reports: [], logDir, toolCalls: 0 };
+    const info: SubagentInfo = { id, label: opts.label ?? opts.task.slice(0, 40), task: opts.task, state: "queued", cwd: opts.cwd ?? this.o.baseDir, model: opts.model, tools: opts.tools, session: opts.session, reports: [], logDir, toolCalls: 0 };
     if (opts.isolate) {
       if (!this.o.exec) throw new Error("isolate requires git exec");
       const branch = `subagent/${id}-${Date.now().toString(36)}`;
@@ -63,7 +80,7 @@ export class SubagentManager {
       if (r.code !== 0) throw new Error(`git worktree add failed: ${r.stderr.trim()}`);
       Object.assign(info, { worktree: wt, branch, cwd: wt });
     }
-    this.subs.set(id, { info, buf: "", pending: new Map(), seq: 0, lastProgressAt: 0, finished: false });
+    this.subs.set(id, { info, buf: "", pending: new Map(), seq: 0, lastProgressAt: 0, finished: false, waiters: [] });
     this.queue.push(id);
     this.pump();
     return info;
@@ -84,7 +101,22 @@ export class SubagentManager {
     // extension (Telegram/fork/memory), --no-mcp blocks MCP servers, --no-approve
     // refuses silent tool approval, --offline blocks non-model network. The model API
     // still works (--offline does not gate provider calls, matching pi-minimal-subagent).
-    const args = ["--mode", "rpc", "--no-session", "--no-extensions", "--no-mcp", "--no-approve", "--offline", "-e", this.o.extensionPath];
+    const args = ["--mode", "rpc", "--no-extensions", "--no-mcp", "--no-approve", "--offline", "-e", this.o.extensionPath];
+    if (l.info.session) {
+      // Named persistent session: created on first spawn, resumed by later spawns with the same id.
+      // Kept under .pi/subagents/sessions (gitignored) instead of the global agent dir.
+      args.push("--session-dir", join(this.o.baseDir, "sessions"), "--session-id", l.info.session);
+    } else {
+      args.push("--no-session");
+    }
+    if (l.info.tools !== undefined) {
+      // Exact allowlist (workflow limit, not a sandbox): [] maps to --no-tools, names map to --tools.
+      // The child's report tool is registered by the -e extension, and a --tools allowlist only
+      // activates tools it names — so it must be appended explicitly (same as pi-minimal-subagent
+      // re-adding its own subagent tool). With --no-tools, extension tools stay active on registration.
+      if (l.info.tools.length === 0) args.push("--no-tools");
+      else args.push("--tools", [...l.info.tools, REPORT_TOOL].join(","));
+    }
     // Localization: always pass a model so the worker never falls back to Pi's
     // default (which 401s on this host). Precedence: explicit subagent_spawn model
     // > PI_SUBAGENT_MODEL env > self-hosted training-coder/Qwen3-5 default.
@@ -178,6 +210,8 @@ export class SubagentManager {
     if (l.throttleTimer) clearTimeout(l.throttleTimer);
     l.info.state = state; l.info.result = result; l.info.error = error;
     l.info.endedAt = new Date(this.now()).toISOString();
+    const waiters = l.waiters; l.waiters = [];
+    for (const w of waiters) w(l.info);
     try { l.child?.stdin?.end(); l.child?.kill("SIGTERM"); } catch { /* ignore */ }
     this.log(l, "result.md", result ?? error ?? state);
     const head = `[subagent ${l.info.id} · ${l.info.label}] ${state}`;

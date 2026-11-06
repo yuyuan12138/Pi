@@ -10,6 +10,10 @@ export interface SpawnOptions {
   isolate?: boolean;
   model?: string;
   label?: string;
+  /** Exact tool-name allowlist for the child (workflow limit, not a sandbox). [] disables all built-in tools; omit for pi defaults. */
+  tools?: string[];
+  /** Named child session id: created on first spawn, resumed on later spawns with the same id. */
+  session?: string;
 }
 
 export interface SubagentInfo {
@@ -21,6 +25,8 @@ export interface SubagentInfo {
   worktree?: string;
   branch?: string;
   model?: string;
+  tools?: string[];
+  session?: string;
   reports: Report[];
   result?: string;
   error?: string;

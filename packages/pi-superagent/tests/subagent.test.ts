@@ -43,7 +43,65 @@ describe("subagent manager", () => {
   it("spawns headless pi in rpc mode with this extension and the guard env", async () => {
     const { m, spawned } = await setup(happy("done"));
     await m.spawn({ task: "do x", model: "deepseek/deepseek-flash" });
-    expect(spawned[0]).toEqual(["pi", "--mode", "rpc", "--no-session", "-ne", "-e", "/ext/index.ts", "--model", "deepseek/deepseek-flash"]);
+    expect(spawned[0]).toEqual(["pi", "--mode", "rpc", "--no-extensions", "--no-mcp", "--no-approve", "--offline", "-e", "/ext/index.ts", "--no-session", "--model", "deepseek/deepseek-flash"]);
+  });
+
+  it("passes tools and session through to the child CLI args", async () => {
+    const { m, spawned, dir } = await setup(happy("done"));
+    await m.spawn({ task: "fix auth", tools: ["read", "bash"], session: "fix-auth" });
+    const args = spawned[0];
+    expect(args).not.toContain("--no-session");
+    expect(args).toContain("--tools");
+    // The child's report tool must be named explicitly or the allowlist would deactivate it.
+    expect(args[args.indexOf("--tools") + 1]).toBe("read,bash,report_to_parent");
+    expect(args).toContain("--session-dir");
+    expect(args[args.indexOf("--session-dir") + 1]).toBe(join(dir, "sessions"));
+    expect(args).toContain("--session-id");
+    expect(args[args.indexOf("--session-id") + 1]).toBe("fix-auth");
+  });
+
+  it("maps an empty tools list to --no-tools (report tool stays active via the extension)", async () => {
+    const { m, spawned } = await setup(happy("done"));
+    await m.spawn({ task: "think only", tools: [] });
+    expect(spawned[0]).toContain("--no-tools");
+    expect(spawned[0]).not.toContain("--tools");
+  });
+
+  it("rejects tool names outside the built-in child tools and invalid session ids", async () => {
+    const { m } = await setup(happy("done"));
+    await expect(m.spawn({ task: "x", tools: ["subagent"] })).rejects.toThrow("Only built-in child tools are enabled");
+    await expect(m.spawn({ task: "x", tools: ["+bash"] })).rejects.toThrow("Only built-in child tools are enabled");
+    await expect(m.spawn({ task: "x", session: "bad id!" })).rejects.toThrow("invalid subagent session id");
+    expect(m.list()).toHaveLength(0);
+  });
+
+  it("waitFor resolves with the final result once the subagent finishes", async () => {
+    const { m } = await setup(happy("FINAL ANSWER"));
+    const i = await m.spawn({ task: "compute" });
+    const fin = await m.waitFor(i.id);
+    expect(fin.state).toBe("done");
+    expect(fin.result).toBe("FINAL ANSWER");
+  });
+
+  it("waitFor resolves immediately for an already-finished subagent and for queued ones", async () => {
+    const { m } = await setup(happy("ok"), { maxConcurrent: 1 });
+    const a = await m.spawn({ task: "a" });
+    const b = await m.spawn({ task: "b" });
+    expect(b.state).toBe("queued");
+    const doneA = await m.waitFor(a.id);
+    expect(doneA.result).toBe("ok");
+    const doneB = await m.waitFor(b.id); // queued: resolves only after it runs and finishes
+    expect(doneB.state).toBe("done");
+    expect(await m.waitFor(a.id)).toBe(doneA); // terminal state: resolves at once
+  });
+
+  it("waitFor surfaces failure", async () => {
+    const { m, kids } = await setup(() => {});
+    const i = await m.spawn({ task: "x" });
+    kids[0].emit("exit", 1);
+    const fin = await m.waitFor(i.id);
+    expect(fin.state).toBe("failed");
+    expect(fin.error).toContain("pi exited");
   });
 
   it("keeps main context clean: only throttled reports + truncated final result, full log on disk", async () => {
