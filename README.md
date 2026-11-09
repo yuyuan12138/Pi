@@ -20,13 +20,13 @@ Verified running on [pi](https://github.com/earendil-works/pi) 1.3.0, but not bo
  │ only does: requirements · written briefs · decisions · acceptance ·  │
  │            cross-module integration          (zero inline execution) │
  └──────────────────────────────┬────────────────────────────────────┘
-                                │ dispatch via three channels
+                                │ dispatch via two channels
           ┌─────────────────────┼─────────────────────┐
-          ▼                     ▼                     ▼
-   subagent_spawn         fork (by exception)    sync subagent
-   background headless    copies the active      short opinions only
-   workers — the default; session branch into    (depth-3 nesting;
-   report_to_parent       an isolated worktree;  pending retirement)
+          ▼                     ▼
+   subagent_spawn         fork (by exception)
+   background headless    copies the active
+   workers — the default; session branch into
+   report_to_parent       an isolated worktree;
    milestone reports      context-inherit
    arrive as messages,
    never polling
@@ -71,7 +71,7 @@ Three channels, chosen per task; the router dispatches and releases attention in
 
 - **Background `subagent_spawn` (default since 2026-11-06).** Headless `pi` workers with a `report_to_parent` protocol — `progress` / `blocked` / `ready` arrive as messages, the main context never sees a worker transcript, and full logs stay on disk for on-demand `subagent_result log=true`. Supports `fanout`, `isolate` worktrees, tool allowlists, persistent named sessions, depth-3 recursion and a per-agent spawn budget. The router never holds a turn open on long work.
 - **`fork` — context inheritance, by exception only.** It copies the whole primary conversation into the child, so every forked turn re-reads the context. Requires a stated `[fork-context: …]` dependency, enforced by a real tool-call gate (`pi-delegation-gate`), not just policy text.
-- **Sync `subagent` — being retired.** Its remaining capabilities (allowlists, sessions, wait) were absorbed into `subagent_spawn` (commit `0d80c87`); it survives only for short advisor/reviewer opinions and quick bounded checks.
+- **Sync `subagent` — retired 2026-11-09.** Its remaining capabilities (allowlists, sessions, wait) were absorbed into `subagent_spawn` (commit `0d80c87`); the package was removed from the live `settings.json`, making `subagent_spawn` the only dispatch tool.
 
 **Best-of-N parallel candidates** is the default for bounded, locally verifiable work: N=3 (up to 5 for hard tasks) subagents run the same task in isolated working copies against identical, fixed acceptance tests, no shared writes; the primary verifies each candidate — runs the tests, inspects the diff, checks the deliverable — and accepts the best, reporting all N outcomes. Acceptance criteria are never weakened to make a candidate pass. For interactive work too long to run N times end-to-end, a turn-level variant (Turn-BoN, [instructions/TURN-BON-DISPATCH.md](instructions/TURN-BON-DISPATCH.md)) samples N candidates for the next step only and executes one.
 
@@ -143,7 +143,7 @@ One npm package plus seven locally vendored/local extensions (loaded directly fr
 | `pi-telegram` | npm:`@llblab/pi-telegram` | Telegram bridge with source-gated delivery and a FIFO queue. |
 | `pi-superagent` | vendored (DeepSeek `dsh-superagent` port), security-adapted | **Primary dispatch layer**: `subagent_spawn` headless workers + `report_to_parent` milestone protocol; `fanout` (1–3) best-of-N, `isolate` worktrees, tool allowlists, depth-3 recursion, per-agent budget, lineage; worker hardening (`--no-extensions --no-mcp --no-approve --offline`, credential denylist blocking `auth.json`/`models.json`, cwd confinement). Worker model = the session model (currently **GLM-5.3-Flash via a local vLLM tunnel**; `PI_SUBAGENT_MODEL` overrides). |
 | `pi-fork` | vendored (`elpapi42/pi-fork`) | `fork` tool: context-heavy delegated work in an isolated worktree; children get no MCP/extra extensions. |
-| `pi-minimal-subagent` | vendored (npm 0.1.0, adapted) | Sync `subagent` tool — **pending retirement**; capabilities absorbed into `subagent_spawn`. |
+| `pi-minimal-subagent` | vendored (npm 0.1.0, adapted) | Sync `subagent` tool — **removed from live config 2026-11-09** (kept in-repo for reference); capabilities absorbed into `subagent_spawn`. |
 | `pi-observational-memory` | vendored (npm 3.1.4, V3) | Session observations/reflections/compaction memory. |
 | `pi-usage-log` | local | Per-turn token/cost JSONL + `/usage` command; offline, write failures never break a session. |
 | `pi-delegation-gate` | local | Real `tool_call` interception: `fork` without a stated context dependency is blocked; allowed forks are logged. |

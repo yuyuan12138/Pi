@@ -63,7 +63,7 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 | Tool | Purpose | In-repo source | Upstream install command |
 |---|---|---|---|
 | `fork` | Spawns a child process that inherits the current conversation branch (context-heavy exploration) | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
-| `subagent` | Spawns an independent clean-context subagent | `packages/pi-minimal-subagent/` | `pi install npm:pi-minimal-subagent` |
+| `subagent` | Spawns an independent clean-context subagent — **retired 2026-11-09, removed from live config; use `subagent_spawn`** | `packages/pi-minimal-subagent/` | — |
 | `subagent_spawn` | Spawns a background clean-context subagent (the default dispatch; `tools` allowlist / persistent `session` / synchronous `wait`) | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
 
 Either install path works: install the upstream packages with the `pi install` commands above, or list the in-repo paths in the `packages` array of `~/.pi/agent/settings.json` (which is how this machine runs). Version note: pi's latest release at the time of writing is 1.5.0, and installing the latest is recommended; this repo was verified on 1.3.0, where fork/subagent were tested working.

@@ -44,9 +44,11 @@ REQUIRED for a first run:
 
 - `instructions/PROJECT-AGENTS.md` → `~/.pi/agent/AGENTS.md` — the router constitution: zero inline execution, best-of-N, acceptance gates. (Details: [docs-site/docs/delegation.md](docs-site/docs/delegation.md).)
 - `instructions/agents/` — nine role folders, each `AGENTS.md` brief + `skills/` method. Copy anywhere; you may empty each `records/experience.md` (the author's personal lessons — roles only need the first two).
-- One dispatch extension — pi ships **without** subagents. Either `pi install git:github.com/aicodewith-team/pi-superagent` (upstream of `packages/pi-superagent/`), or list the in-repo package paths in the `packages` array of `~/.pi/agent/settings.json` (how this machine runs).
+- One dispatch extension — pi ships **without** subagents. Either `pi install git:github.com/aicodewith-team/pi-superagent` (upstream of `packages/pi-superagent/`), or list the in-repo package paths in the `packages` array of `~/.pi/agent/settings.json` (how this machine runs). Set `PI_SPAWN_BUDGET` in your shell before launching pi — the per-session spawn budget defaults to 3 (too low for heavy dispatch days; there is no unlimited value, so export e.g. 999).
 
 OPTIONAL, add when you feel the need:
+
+- MCP servers in `~/.pi/agent/mcp.json` — e.g. the official Notion server (`npx -y @notionhq/notion-mcp-server`, token in the `OPENAPI_MCP_HEADERS` env entry, never committed) or a Feishu user plugin. Keys live in the config file at mode 0600 or referenced by path.
 
 - `packages/pi-fork/` — context-inheriting `fork` (pairs with the `pi-delegation-gate` interception).
 - `tools/delegation_gate.py` — advisory routing/ownership check.
