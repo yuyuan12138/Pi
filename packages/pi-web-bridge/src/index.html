@@ -1085,6 +1085,9 @@
     const sync = () => { btn.disabled = inputEl.value.trim().length === 0; };
     inputEl.addEventListener("input", () => { sync(); autosize(inputEl); });
     inputEl.addEventListener("keydown", (e) => {
+      // isComposing/229: the Enter that confirms an IME candidate must not submit,
+      // or compositionend re-fills the box right after the handler clears it.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); inputEl.form.requestSubmit(); }
     });
     sync();
