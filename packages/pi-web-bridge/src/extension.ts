@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, MessageEndEvent, MessageStartEvent, MessageUpdateEvent } from "@earendil-works/pi-coding-agent";
 import { createBridgeServer, type BridgeServer } from "./server.ts";
+import { StreamBuffer } from "./stream.ts";
 
 /** Which surface POST /message routed to (drives the delivery decision). */
 export type InjectKind = "main" | "subagent";
@@ -92,9 +93,24 @@ export default function webBridge(pi: ExtensionAPI) {
   // pi exposes no streaming query to a plain HTTP-server closure, so track the
   // run lifecycle. A missed event is harmless: sendCustomMessage re-checks the
   // real state and the stale flag merely degrades to the previous behavior.
+  const stream = new StreamBuffer();
   let streaming = false;
-  pi.on("agent_start", () => { streaming = true; });
-  pi.on("agent_settled", () => { streaming = false; });
+  pi.on("agent_start", () => { streaming = true; stream.reset(); });
+  pi.on("agent_settled", () => { streaming = false; stream.settle(); });
+
+  // Live streaming buffer for GET /stream: pi emits message_update per provider
+  // delta with the partial assistant message, so the web UI can grow the reply
+  // text live (terminal parity). Handlers are pure in-memory updates and must
+  // never disturb the run — hence the catch-alls.
+  pi.on("message_start", (event: MessageStartEvent) => {
+    try { if (event.message?.role === "assistant") stream.startAssistant(); } catch { /* observation only */ }
+  });
+  pi.on("message_update", (event: MessageUpdateEvent) => {
+    try { if (event.message?.role === "assistant") stream.update(event.message); } catch { /* observation only */ }
+  });
+  pi.on("message_end", (event: MessageEndEvent) => {
+    try { if (event.message?.role === "assistant") stream.endAssistant(event.message); } catch { /* observation only */ }
+  });
 
   // Displayable web-chat custom message: wake the idle agent exactly as before;
   // while a turn streams, main-target messages steer into it instead of waiting.
@@ -111,6 +127,7 @@ export default function webBridge(pi: ExtensionAPI) {
       sessionFile: () => sessionFile,
       subagentsDir,
       indexHtml: () => readFileSync(new URL("./index.html", import.meta.url), "utf8"),
+      stream: () => stream.snapshot(),
       log,
     });
     server.on("error", (e: Error) => log(`server error: ${e.message} (bridge inactive)`));

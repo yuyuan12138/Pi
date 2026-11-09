@@ -90,7 +90,8 @@ subagent's window; routing metadata travels in the request, never in the text.
 |---|---|
 | `GET /` | the single-file UI |
 | `GET /state` | `{project, now, mainSessionAlive, main:{sessionFile, sessionMtime, alive}, subagents:[{id,label,session,model,status,lastActivity,lastExcerpt,result}]}` — status is `running` / `blocked` (last `report_to_parent` status) / `done` (`result.md` present) |
-| `GET /main-log?after=<byteCursor>` | incremental conversation items parsed from the session JSONL: `web-chat` custom messages (user) + assistant text entries; `{file, cursor, reset, items:[{kind,text,ts,id,offset}]}` |
+| `GET /main-log?after=<byteCursor>` | incremental conversation items parsed from the session JSONL: `web-chat` custom messages (user) + assistant text entries + one compact line per `toolCall` block (terminal-like activity flow); `{file, cursor, reset, items:[{kind:"user"|"assistant"|"tool",name?,text,ts,id,offset}]}` |
+| `GET /stream` | live in-flight assistant view fed by the pi `message_start`/`message_update`/`message_end` hooks (the session JSONL only persists complete messages, so this is the only true streaming source): `{streaming, text, turnStartedAt, tool:{name,summary}|null}` — `text` is bounded to the last 8000 chars of the growing reply |
 | `GET /sub-log?id=<id>&after=<byteCursor>` | compact events.jsonl tail (`tool` / `assistant` / `report` / `event` lines) + `result` (tail of result.md); `{id, cursor, reset, lines, result, done}` |
 | `POST /message` | body `{target:"main"|"subagent:<id>", text}` → injects `[web-chat · project:<cwd-basename>] <text>` (or `[web-chat · for-subagent:<id>] <text>`); responds `{ok:true, routed:"main"|"main-for-subagent", id?}` |
 

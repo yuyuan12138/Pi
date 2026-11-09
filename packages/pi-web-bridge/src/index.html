@@ -111,6 +111,16 @@
   .meta { font-size: 11px; color: var(--dim); }
   .msg.assistant .meta { text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; margin-bottom: 4px; }
   .atext { white-space: pre-wrap; overflow-wrap: break-word; }
+  /* live streaming bubble (GET /stream): grows with the coordinator's reply */
+  .msg.assistant.live .atext { min-height: 1.2em; }
+  .msg.assistant.live.streaming .atext::after {
+    content: "\258D";
+    margin-left: 2px;
+    color: var(--muted);
+    animation: cursor-blink 1.1s steps(1) infinite;
+  }
+  @keyframes cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  .msg.assistant.live .evt.tool { margin-top: 6px; }
 
   .evt { border-left: 2px solid var(--border); padding: 2px 0 2px 12px; overflow-wrap: break-word; font-size: 13px; color: var(--body-2); }
   .evt.tool { display: flex; gap: 8px; min-width: 0; border-left-color: var(--border-soft); font-family: var(--mono); font-size: 12px; color: var(--dim); }
@@ -439,6 +449,19 @@
   };
   const logOkAt = new Map();  // id -> epoch ms of last successful sub-log poll
   const cardEls = new Map();  // id -> card element record
+
+  // ---------- live streaming (GET /stream) ----------
+  // The live bubble is NOT part of w.items: it renders the in-flight assistant
+  // text from /stream and is replaced by the completed /main-log item (dedupe
+  // by content) once the run settles.
+  const live = { el: null, text: null, streaming: false, settledAt: 0, consumed: null };
+  let lastStream = { streaming: false, text: "", turnStartedAt: null, tool: null };
+  let mainLogSeen = false;    // suppress settled-bubble flash before the first main-log snapshot
+  function mainItemEls() {
+    // #logcol children minus the live bubble: keeps the index-based item lookups
+    // (pending-user replace/fail) aligned with w.items.
+    return [...$("#logcol").children].filter((el) => el !== live.el);
+  }
 
   const win = (id) => {
     let w = state.wins.get(id);
@@ -839,6 +862,18 @@
 
   // ---------- transcript rendering ----------
   function renderMainItem(item) {
+    if (item.kind === "tool") {
+      const d = document.createElement("div");
+      d.className = "evt tool";
+      const n = document.createElement("span");
+      n.className = "tname";
+      n.textContent = "\u203a " + item.name;
+      const a = document.createElement("span");
+      a.className = "targs";
+      a.textContent = item.text || "";
+      d.append(n, a);
+      return d;
+    }
     const d = document.createElement("div");
     d.className = "msg " + item.kind + (item.pending ? " pending" : "") + (item.failed ? " failed" : "");
     if (item.kind === "user") {
@@ -908,9 +943,9 @@
     const w = win("main");
     const idx = w.items.indexOf(it);
     if (idx < 0) return;
-    const el = $("#logcol").children[idx];
+    const el = mainItemEls()[idx];
     if (el) {
-      $("#logcol").replaceChild(renderMainItem(it), el);
+      el.replaceWith(renderMainItem(it));
       if (mainSc.stick) $("#log").scrollTop = $("#log").scrollHeight;
     }
   }
@@ -933,6 +968,12 @@
 
   function rebuildMain() {
     const w = win("main");
+    // The rebuild wipes the live bubble with the column; a settled snapshot is
+    // already covered by the rebuilt items, so don't let it resurrect.
+    if (live.el) {
+      live.el = null; live.text = null; live.streaming = false; live.settledAt = 0;
+      if (!lastStream.streaming) live.consumed = lastStream.text || null;
+    }
     mainSc.reset();
     if (!w.items.length) {
       const e = document.createElement("div");
@@ -943,6 +984,83 @@
       for (const it of w.items) $("#logcol").append(renderMainItem(it));
     }
     mainSc.toBottom();
+  }
+
+  // ---------- live streaming bubble ----------
+  function liveRemove() {
+    live.el?.remove();
+    live.el = null; live.text = null; live.streaming = false; live.settledAt = 0;
+  }
+  /** Drop the live bubble when a completed /main-log item IS this text (dedupe by content). */
+  function liveConsume(fullText) {
+    if (!live.el || !live.text) return;
+    if (fullText === live.text || fullText.endsWith(live.text)) {
+      live.consumed = live.text;
+      liveRemove();
+    }
+  }
+  function liveSync(snap) {
+    if (!snap.streaming && !snap.text && !snap.tool) { if (live.el) liveRemove(); return; }
+    // Settled text needs the main-log view to exist first (no flash on reload);
+    // and once consumed into a real item, never resurrect the same text.
+    if (!snap.streaming && (!mainLogSeen || live.consumed === snap.text)) { if (live.el) liveRemove(); return; }
+    const col = $("#logcol");
+    let created = false;
+    if (!live.el) {
+      col.querySelector(".empty")?.remove();
+      const d = document.createElement("div");
+      d.className = "msg assistant live";
+      d.dataset.live = "1";
+      const m = document.createElement("div");
+      m.className = "meta";
+      const t = document.createElement("div");
+      t.className = "atext";
+      const tl = document.createElement("div");
+      tl.className = "evt tool";
+      const tn = document.createElement("span");
+      tn.className = "tname";
+      const ta = document.createElement("span");
+      ta.className = "targs";
+      tl.append(tn, ta);
+      d.append(m, t, tl);
+      live.el = d; live.text = null; created = true;
+    }
+    const wasStreaming = live.streaming;
+    live.streaming = snap.streaming;
+    if (snap.streaming) live.settledAt = 0;
+    else if (wasStreaming) live.settledAt = Date.now();
+    const changed = live.text !== snap.text;
+    if (changed) {
+      live.text = snap.text;
+      live.el.querySelector(".atext").textContent = snap.text;
+    }
+    live.el.classList.toggle("streaming", !!snap.streaming);
+    live.el.querySelector(".meta").textContent = "coordinator" + (snap.streaming ? " \u00b7 streaming" : "");
+    const tl = live.el.querySelector(".evt.tool");
+    if (snap.tool && snap.streaming) {
+      tl.querySelector(".tname").textContent = "\u203a " + snap.tool.name;
+      tl.querySelector(".targs").textContent = snap.tool.summary || "";
+      tl.hidden = false;
+    } else {
+      tl.hidden = true;
+    }
+    // The bubble always trails the conversation; re-move it when it changed.
+    if (created || changed) {
+      col.append(live.el);
+      if (mainSc.stick) $("#log").scrollTop = $("#log").scrollHeight;
+    }
+    // Janitor: a settled bubble no /main-log item ever matched (reply longer
+    // than the item cap) must not sit forever.
+    if (!snap.streaming && live.settledAt && Date.now() - live.settledAt > 16000) {
+      live.consumed = live.text;
+      liveRemove();
+    }
+  }
+  async function pollStream() {
+    const r = await api("/stream");
+    if (!r.ok || !r.body) return; // transient failure: keep the current view
+    lastStream = r.body;
+    liveSync(lastStream);
   }
   function placeResult() {
     $("#slogcol").querySelector(".result-block")?.remove();
@@ -1072,6 +1190,7 @@
     w.cursor = b.cursor;
 
     if (id === "main") {
+      mainLogSeen = true;
       if (b.reset) {
         w.items = (b.items ?? []).slice();
         rebuildMain();
@@ -1083,9 +1202,9 @@
           const idx = w.items.findIndex((x) => x.pending && x.kind === "user" && x.text === item.text);
           if (idx >= 0) {
             w.items.splice(idx, 1);
-            $("#logcol").children[idx]?.remove();
+            mainItemEls()[idx]?.remove();
             w.items.splice(idx, 0, item);
-            const ref = $("#logcol").children[idx];
+            const ref = mainItemEls()[idx];
             const node = renderMainItem(item);
             if (ref) $("#logcol").insertBefore(node, ref); else $("#logcol").append(node);
           } else {
@@ -1095,7 +1214,10 @@
         }
         if (w.items.length) $("#logcol").querySelector(".empty")?.remove();
         if (fresh.length) {
-          for (const it of fresh) $("#logcol").append(renderMainItem(it));
+          for (const it of fresh) {
+            if (it.kind === "assistant") liveConsume(it.text);
+            $("#logcol").append(renderMainItem(it));
+          }
           if (mainSc.stick) $("#log").scrollTop = $("#log").scrollHeight;
         }
       }
@@ -1268,8 +1390,10 @@
 
   // ---------- boot ----------
   pollState().then(pollLogs);
+  pollStream();
   setInterval(pollState, 3000);
   setInterval(pollLogs, 2000);
+  setInterval(pollStream, 600);
 })();
 </script>
 </body>

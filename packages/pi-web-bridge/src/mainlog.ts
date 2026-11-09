@@ -14,11 +14,13 @@ import { usageStats, type UsageStats } from "./usage.ts";
  */
 
 export interface MainLogItem {
-  kind: "user" | "assistant";
+  kind: "user" | "assistant" | "tool";
+  /** Tool name (kind "tool" only). */
+  name?: string;
   text: string;
   /** Epoch ms from the entry timestamp, when present. */
   ts: number | null;
-  /** Session entry id (dedupe key for the UI). */
+  /** Session entry id (dedupe key for the UI); tool items use "<entryId>:t<blockIndex>". */
   id: string;
   /** Byte offset of the line this item came from (client resume cursor). */
   offset: number;
@@ -36,20 +38,48 @@ export interface MainLogSnapshot {
 }
 
 const MAX_ITEM_CHARS = 16_000;
+const MAX_TOOL_PREVIEW_CHARS = 200;
 
-function parseEntry(line: string): MainLogItem | null {
+function toolPreview(args: unknown): string {
+  try { return (JSON.stringify(args) ?? "").slice(0, MAX_TOOL_PREVIEW_CHARS); } catch { return ""; }
+}
+
+/**
+ * Parse one session-JSONL line into displayable items, in message order:
+ * a web-chat custom message becomes the user item; an assistant entry yields
+ * its text as one item plus one compact line per toolCall block, interleaved
+ * in content-array order (terminal-like activity flow). toolResult entries are
+ * intentionally skipped — the call line plus the next assistant text is the
+ * same information flow the terminal shows.
+ */
+function parseMainLine(line: string): MainLogItem[] {
   let ev: any;
-  try { ev = JSON.parse(line); } catch { return null; }
+  try { ev = JSON.parse(line); } catch { return []; }
   if (ev?.type === "custom_message" && ev.customType === "web-chat" && typeof ev.content === "string") {
-    return { kind: "user", text: ev.content.slice(0, MAX_ITEM_CHARS), ts: numOr(ev.timestamp), id: String(ev.id ?? ""), offset: -1 };
+    return [{ kind: "user", text: ev.content.slice(0, MAX_ITEM_CHARS), ts: numOr(ev.timestamp), id: String(ev.id ?? ""), offset: -1 }];
   }
   if (ev?.type === "message" && ev.message?.role === "assistant") {
-    const parts = (ev.message.content ?? []).filter((c: any) => c?.type === "text" && typeof c.text === "string").map((c: any) => c.text);
-    const text = parts.join("\n").trim();
-    if (!text) return null; // toolCall-only assistant messages carry no visible text
-    return { kind: "assistant", text: text.slice(0, MAX_ITEM_CHARS), ts: numOr(ev.timestamp), id: String(ev.id ?? ""), offset: -1 };
+    const content: any[] = Array.isArray(ev.message.content) ? ev.message.content : [];
+    const id = String(ev.id ?? "");
+    const ts = numOr(ev.timestamp);
+    const items: MainLogItem[] = [];
+    let textParts: string[] = [];
+    const flushText = () => {
+      const text = textParts.join("\n").trim();
+      if (text) items.push({ kind: "assistant", text: text.slice(0, MAX_ITEM_CHARS), ts, id, offset: -1 });
+      textParts = [];
+    };
+    content.forEach((c: any, i: number) => {
+      if (c?.type === "text" && typeof c.text === "string") { textParts.push(c.text); return; }
+      if (c?.type === "toolCall" && typeof c.name === "string") {
+        flushText();
+        items.push({ kind: "tool", name: c.name, text: toolPreview(c.arguments), ts, id: `${id}:t${i}`, offset: -1 });
+      }
+    });
+    flushText();
+    return items;
   }
-  return null;
+  return [];
 }
 
 function numOr(v: unknown): number | null {
@@ -64,9 +94,9 @@ function numOr(v: unknown): number | null {
  */
 export function readHistoryBefore(file: string, before: number | null, limit = 200): HistoryPage<MainLogItem> {
   return readJsonlHistory<MainLogItem>(file, before, limit, (line, offset) => {
-    const item = parseEntry(line);
-    if (item) item.offset = offset;
-    return item;
+    const items = parseMainLine(line);
+    for (const item of items) item.offset = offset;
+    return items;
   });
 }
 
@@ -181,8 +211,7 @@ export class MainLogReader {
       const lineOffset = off;
       off += lineBytes;
       if (!line.trim()) continue;
-      const item = parseEntry(line);
-      if (item) {
+      for (const item of parseMainLine(line)) {
         item.offset = lineOffset;
         this.items.push(item);
       }

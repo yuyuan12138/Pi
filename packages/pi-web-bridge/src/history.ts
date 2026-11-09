@@ -26,7 +26,7 @@ export function readJsonlHistory<T>(
   file: string,
   before: number | null,
   limit: number,
-  parse: (line: string, offset: number) => T | null,
+  parse: (line: string, offset: number) => T | T[] | null,
 ): HistoryPage<T> {
   let st;
   try { st = statSync(file); } catch { return { items: [], oldest: null }; }
@@ -71,7 +71,12 @@ export function readJsonlHistory<T>(
       const line = raw.subarray(0, n).toString("utf8");
       if (!line.trim()) continue;
       const item = parse(line, start);
-      if (item) items.push(item);
+      if (item) {
+        // Lines are collected newest-first and reversed once at the end, so a
+        // line yielding several items must contribute them reversed to keep
+        // its internal order chronological after the global reverse.
+        items.push(...(Array.isArray(item) ? [...item].reverse() : [item]));
+      }
     }
   } catch {
     // Degrade gracefully: return whatever was collected (oldest may stay null).

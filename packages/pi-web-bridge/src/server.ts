@@ -4,6 +4,7 @@ import { routeMessage, type RoutedMessage } from "./routing.ts";
 import { SubagentScanner } from "./state.ts";
 import { MainLogReader, readHistoryBefore } from "./mainlog.ts";
 import { readSubLog, readSubHistory } from "./sublog.ts";
+import { EMPTY_STREAM, type StreamSnapshot } from "./stream.ts";
 
 /** Hard cap on request body size (brief: 32KB). */
 export const MAX_BODY_BYTES = 32 * 1024;
@@ -23,6 +24,8 @@ export interface BridgeDeps {
   subagentsDir: () => string;
   /** The single-file web UI source. */
   indexHtml: () => string;
+  /** Live in-flight assistant snapshot for GET /stream (defaults to a neutral idle snapshot). */
+  stream?: () => StreamSnapshot;
   /** Subagent scanner (defaults to a fresh one). */
   scanner?: SubagentScanner;
   /** Main session log reader (defaults to a fresh one). */
@@ -119,6 +122,10 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
         main: { sessionFile: sf ?? null, sessionMtime, alive: true },
         subagents: subs,
       });
+    }
+    if (method === "GET" && path === "/stream") {
+      // Live in-flight assistant view; additive — existing routes/shapes unchanged.
+      return sendJson(res, 200, deps.stream?.() ?? EMPTY_STREAM);
     }
     if (method === "GET" && path === "/main-log") {
       const after = url.searchParams.get("after");
