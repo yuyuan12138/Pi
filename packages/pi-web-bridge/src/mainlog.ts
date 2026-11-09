@@ -39,9 +39,21 @@ export interface MainLogSnapshot {
 
 const MAX_ITEM_CHARS = 16_000;
 const MAX_TOOL_PREVIEW_CHARS = 200;
+/** Deep-read catch-up chunk when a client cursor has fallen behind the ring. */
+const DEEP_READ_MAX_BYTES = 512 * 1024;
+/** A single log line longer than this is skipped via the old reset path. */
+const DEEP_LINE_HARD_CAP = 8 * 1024 * 1024;
+/** Item bound for one deep-read response (the client walks forward over polls). */
+const MAX_DEEP_ITEMS = 2000;
 
 function toolPreview(args: unknown): string {
   try { return (JSON.stringify(args) ?? "").slice(0, MAX_TOOL_PREVIEW_CHARS); } catch { return ""; }
+}
+
+function readSlice(fd: number, start: number, len: number): string {
+  const buf = Buffer.alloc(len);
+  const n = readSync(fd, buf, 0, len, start);
+  return buf.subarray(0, n).toString("utf8");
 }
 
 /**
@@ -127,18 +139,100 @@ export class MainLogReader {
   /**
    * Ingest any newly appended data, then answer a client polling with ?after=<cursor>.
    * after=null (first poll) always yields a reset snapshot with the current ring.
+   *
+   * `clientFile` (additive ?file= query param) is the session path the client's
+   * cursor was minted against; the deep-read below only fires when it matches
+   * the currently attached file, so a cursor carried across a session switch
+   * can never be applied as byte math to another file.
    */
-  consume(after: number | null): MainLogSnapshot {
+  consume(after: number | null, clientFile?: string): MainLogSnapshot {
     this.ingest();
     const file = this.file ?? null;
     // Additive whole-run aggregates, independent of the item ring; null while a large
     // cold session file is still warming in the background.
     const stats = file ? usageStats(file) ?? undefined : undefined;
+    // Deep-read: when the client's cursor has fallen behind the ring start (a
+    // busy turn outpacing the item ring, a suspended tab), the old ring-tail
+    // reset opened a silent hole — mergeReset kept the client's older items
+    // plus the newest ring items and dropped everything in between, so
+    // assistant messages vanished from the middle of the view. The ring is
+    // only a cache over the append-only log: serve the contiguous byte range
+    // straight from the client's cursor instead (reset=false — the client
+    // appends and keeps walking forward on later polls).
+    if (
+      file && after !== null && Number.isFinite(after) && after >= 0 &&
+      after < this.ringStart() && clientFile === this.file
+    ) {
+      const deep = this.deepRead(after);
+      if (deep) return { ...deep, stats };
+    }
     if (after === null || !Number.isFinite(after) || after > this.cursor || after < this.ringStart()) {
       return { file, cursor: this.cursor, reset: true, items: [...this.items], stats };
     }
     if (after === this.cursor) return { file, cursor: this.cursor, reset: false, items: [], stats };
-    return { file, cursor: this.cursor, reset: false, items: this.items.filter((i) => i.offset > after), stats };
+    // The client cursor is the byte offset where its UNDELIVERED data begins,
+    // and the next log line starts exactly there — so the boundary item must
+    // be INCLUDED (offset >= after). The old `>` comparison dropped the first
+    // new line of every incremental batch: during a live turn, whichever
+    // entry was written right after a poll (often the assistant reply text,
+    // sometimes a tool line) silently never rendered — messages appearing to
+    // vanish / be pushed out mid-turn.
+    return { file, cursor: this.cursor, reset: false, items: this.items.filter((i) => i.offset >= after), stats };
+  }
+
+  /**
+   * Contiguous catch-up read from a client byte cursor that has fallen behind
+   * the ring. Bounded per response; the client keeps polling and walks forward.
+   * Returns null when no progress is possible (a single line beyond the hard
+   * cap) so the caller falls back to the ring-tail reset.
+   */
+  private deepRead(from: number): MainLogSnapshot | null {
+    const file = this.file;
+    if (!file) return null;
+    let size: number;
+    try { size = statSync(file).size; } catch { return null; }
+    const limit = Math.min(this.cursor, size);
+    if (from >= limit) return null;
+    let fd: number | undefined;
+    let chunk = "";
+    let end = Math.min(limit, from + DEEP_READ_MAX_BYTES);
+    try {
+      fd = openSync(file, "r");
+      chunk = readSlice(fd, from, end - from);
+      // A single line longer than the chunk (a huge toolResult, say): keep
+      // reading until a newline shows up so the cursor can jump past it —
+      // otherwise the client would poll the same offset forever.
+      let guard = 0;
+      while (!chunk.includes("\n") && end < limit && guard++ < 16 && end - from <= DEEP_LINE_HARD_CAP) {
+        const next = Math.min(limit, end + DEEP_READ_MAX_BYTES);
+        chunk += readSlice(fd, end, next - end);
+        end = next;
+      }
+    } catch {
+      return null;
+    } finally {
+      if (fd !== undefined) try { closeSync(fd); } catch { /* ignore */ }
+    }
+    const lastNl = chunk.lastIndexOf("\n");
+    if (lastNl < 0) return null; // one giant line beyond the hard cap: old reset behavior
+    const complete = chunk.slice(0, lastNl + 1);
+    const lines = complete.split("\n");
+    if (lines[lines.length - 1] === "") lines.pop(); // split artifact of the trailing newline
+    const items: MainLogItem[] = [];
+    let off = from;
+    let consumed = from;
+    for (const line of lines) {
+      const lineOffset = off;
+      off += Buffer.byteLength(line + "\n", "utf8");
+      consumed = off;
+      if (!line.trim()) continue;
+      for (const item of parseMainLine(line)) {
+        item.offset = lineOffset;
+        items.push(item);
+      }
+      if (items.length >= MAX_DEEP_ITEMS) break;
+    }
+    return { file, cursor: consumed, reset: false, items };
   }
 
   private ringStart(): number {

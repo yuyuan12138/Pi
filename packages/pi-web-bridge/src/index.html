@@ -138,7 +138,9 @@
   @keyframes cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
   .msg.assistant.live.streaming .meta { animation: metapulse 2.4s ease-in-out infinite; }
   @keyframes metapulse { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
-  .msg.assistant.live .evt.tool { margin-top: 6px; }
+  /* cumulative in-flight tool lines: one keyed line per run tool call */
+  .msg.assistant.live .live-tools { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  .msg.assistant.live .live-tools:empty { display: none; }
 
   .evt { border-left: 2px solid var(--border); padding: 2px 0 2px 12px; overflow-wrap: break-word; font-size: 13px; color: var(--body-2); }
   .evt.tool { display: flex; gap: 8px; min-width: 0; border-left-color: var(--border-soft); font-family: var(--mono); font-size: 12px; color: var(--dim); }
@@ -516,8 +518,13 @@
   // The live bubble is NOT part of w.items: it renders the in-flight assistant
   // text from /stream and is replaced by the completed /main-log item (dedupe
   // by content) once the run settles.
-  const live = { el: null, text: null, streaming: false, settledAt: 0, consumed: null, startedAt: null };
-  let lastStream = { streaming: false, text: "", turnStartedAt: null, tool: null };
+  const live = {
+    el: null, text: null, streaming: false, settledAt: 0, consumed: null, startedAt: null,
+    runSeen: null,           // runStartedAt last seen from /stream (run-boundary detection)
+    covered: new Set(),      // live tool ids whose settled /main-log twin has rendered
+    toolEls: new Map(),      // live tool id -> { root, n, a } keyed line record
+  };
+  let lastStream = { streaming: false, text: "", turnStartedAt: null, runStartedAt: null, tool: null, tools: [] };
   let mainLogSeen = false;    // suppress settled-bubble flash before the first main-log snapshot
   function mainItemEls() {
     // #logcol children minus the live bubble and the empty placeholder: keeps
@@ -1262,6 +1269,40 @@
   function liveRemove() {
     live.el?.remove();
     live.el = null; live.text = null; live.streaming = false; live.settledAt = 0; live.startedAt = null;
+    for (const rec of live.toolEls.values()) rec.root.remove();
+    live.toolEls.clear();
+    // live.covered is deliberately NOT cleared here: it tracks settled-log
+    // coverage (run-scoped), not bubble DOM, and survives rebuilds/recreations
+    // until the next run boundary (runStartedAt change in liveSync).
+  }
+  // ---------- settled-twin consumption for live tool lines ----------
+  // A live tool line dies exactly when its settled counterpart — a /main-log
+  // tool item of the SAME run, matched by name + args text (both are bounded
+  // JSON.stringify previews of the same call, so prefix matching absorbs the
+  // different truncation bounds) — has rendered. Never before (the line would
+  // blink out mid-run) and never twice (the settled item owns the line from
+  // then on). Provider toolCall ids never repeat across runs, so the covered
+  // set cannot false-positive on a later re-run of the same command.
+  function argsCover(settled, summary) {
+    if (!settled || !summary) return settled === summary;
+    return settled === summary || settled.startsWith(summary) || summary.startsWith(settled);
+  }
+  function coverSettledTools(snap) {
+    if (!live.runSeen) return; // no run window known yet
+    const tools = snap.tools ?? [];
+    if (!tools.length) return;
+    const items = win("main").items;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind !== "tool") continue;
+      if (!Number.isFinite(it.ts) || it.ts < live.runSeen - 2000) continue; // pre-run entries can never cover
+      for (const t of tools) {
+        if (!live.covered.has(t.id) && it.name === t.name && argsCover(it.text, t.summary)) live.covered.add(t.id);
+      }
+    }
+    for (const [tid, rec] of live.toolEls) {
+      if (live.covered.has(tid)) { rec.root.remove(); live.toolEls.delete(tid); }
+    }
   }
   /**
    * Drop the live bubble when a completed /main-log item IS this message.
@@ -1276,14 +1317,33 @@
   function liveConsume(fullText, ts) {
     if (!live.el || !live.text) return;
     const knownAge = Number.isFinite(ts) && Number.isFinite(live.startedAt);
-    if (knownAge && ts < live.startedAt - 2000) return; // written before this message started
+    // Entries are written at message_end, so the current message's entry is
+    // always ts >= startedAt; a 300ms skew covers timer coalescing. The old
+    // 2000ms window let the PREVIOUS message's entry (fast tool, poll lag)
+    // consume the fresh bubble whenever the two texts shared a suffix — short
+    // repetitive replies blanked the live text mid-render.
+    if (knownAge && ts < live.startedAt - 300) return; // written before this message started
     if (fullText === live.text || (knownAge && fullText.endsWith(live.text))) {
       live.consumed = live.text;
       liveRemove();
     }
   }
   function liveSync(snap) {
-    if (!snap.streaming && !snap.text && !snap.tool) { if (live.el) liveRemove(); return; }
+    // Run boundary (server reset at agent_start, or a fresh runStartedAt):
+    // drop run-scoped live state — covered ids and tool lines never carry
+    // across runs.
+    const run = snap.runStartedAt ?? null;
+    if (run !== live.runSeen) {
+      live.runSeen = run;
+      live.covered.clear();
+      for (const rec of live.toolEls.values()) rec.root.remove();
+      live.toolEls.clear();
+    }
+    // Settled /main-log entries consume their live tool twins exactly once.
+    coverSettledTools(snap);
+    const tools = snap.tools ?? [];
+    const pending = tools.filter((t) => !live.covered.has(t.id));
+    if (!snap.streaming && !snap.text && !snap.tool && !pending.length) { if (live.el) liveRemove(); return; }
     // Settled text needs the main-log view to exist first (no flash on reload);
     // and once consumed into a real item, never resurrect the same text.
     if (!snap.streaming && (!mainLogSeen || live.consumed === snap.text)) { if (live.el) liveRemove(); return; }
@@ -1299,12 +1359,7 @@
       const t = document.createElement("div");
       t.className = "atext";
       const tl = document.createElement("div");
-      tl.className = "evt tool";
-      const tn = document.createElement("span");
-      tn.className = "tname";
-      const ta = document.createElement("span");
-      ta.className = "targs";
-      tl.append(tn, ta);
+      tl.className = "live-tools";
       d.append(m, t, tl);
       live.el = d; live.text = null; created = true;
     }
@@ -1320,13 +1375,34 @@
     }
     live.el.classList.toggle("streaming", !!snap.streaming);
     live.el.querySelector(".meta").textContent = "coordinator" + (snap.streaming ? " \u00b7 streaming" : "");
-    const tl = live.el.querySelector(".evt.tool");
-    if (snap.tool && snap.streaming) {
-      tl.querySelector(".tname").textContent = "\u203a " + snap.tool.name;
-      tl.querySelector(".targs").textContent = snap.tool.summary || "";
-      tl.hidden = false;
-    } else {
-      tl.hidden = true;
+    // Cumulative in-flight tool lines: one keyed line per run tool call —
+    // appended as new ids appear (previous lines are never removed when the
+    // next tool starts), updated in place when a repeated id refines its
+    // summary, removed only once their settled twin has rendered.
+    const box = live.el.querySelector(".live-tools");
+    const wanted = new Set(pending.map((t) => t.id));
+    for (const [tid, rec] of live.toolEls) {
+      if (!wanted.has(tid)) { rec.root.remove(); live.toolEls.delete(tid); }
+    }
+    for (const t of pending) {
+      let rec = live.toolEls.get(t.id);
+      if (!rec) {
+        const root = document.createElement("div");
+        root.className = "evt tool";
+        root.dataset.tid = t.id;
+        const n = document.createElement("span");
+        n.className = "tname";
+        const a = document.createElement("span");
+        a.className = "targs";
+        root.append(n, a);
+        box.append(root);
+        markEnter(root);
+        live.toolEls.set(t.id, rec = { root, n, a });
+      }
+      const nameTxt = "\u203a " + t.name;
+      const argsTxt = t.summary || "";
+      if (rec.n.textContent !== nameTxt) rec.n.textContent = nameTxt;
+      if (rec.a.textContent !== argsTxt) rec.a.textContent = argsTxt;
     }
     // The bubble always trails the conversation; re-move it when it changed.
     if (created) markEnter(live.el);
@@ -1476,10 +1552,15 @@
 
   async function pollWin(id) {
     const w = win(id);
-    // /main-log takes ?after; /sub-log already carries ?id= so the cursor joins with &
+    // /main-log takes ?after; /sub-log already carries ?id= so the cursor joins with &.
+    // The main poll echoes the session file it knows (?file=): when our cursor
+    // has fallen behind the server's item ring (busy turn, suspended tab), the
+    // server deep-reads the log straight from that cursor — but only for a
+    // cursor minted against the same file.
     const after = w.cursor === null ? "" : `${id === "main" ? "?" : "&"}after=${w.cursor}`;
+    const fileQ = id === "main" && w.file ? `${after ? "&" : "?"}file=${encodeURIComponent(w.file)}` : "";
     const r = id === "main"
-      ? await api(`/main-log${after}`)
+      ? await api(`/main-log${after}${fileQ}`)
       : await api(`/sub-log?id=${encodeURIComponent(id)}${after}`);
     if (!r.ok || !r.body) return;
     if (id !== "main") logOkAt.set(id, Date.now());
@@ -1527,6 +1608,9 @@
           if (mainSc.stick) mainSc.glide();
         }
       }
+      // Settled tool entries that just rendered consume their live twins
+      // (same tick as the settled line, so a live duplicate never shows).
+      coverSettledTools(lastStream);
       // Bound the view. Trim only the live tail window: explicitly loaded
       // history erodes only when the live conversation itself outgrows the
       // base cap, and the oldest cursor is re-anchored so trimmed rows stay
@@ -1726,31 +1810,26 @@
   // ---------- resume on tab visibility / network restore ----------
   // Mobile browsers suspend JS timers in background tabs; on return the page
   // would sit on stale data until the next (possibly dropped) timer fire.
-  // Re-poll immediately on visible/online. After a long suspension (>60s)
-  // incremental deltas are untrustworthy: drop every cursor so the next round
-  // returns a reset snapshot for each window — the boot loader over the live
-  // DOM, riding the same reset=true rebuild path, scroller stick state intact.
-  let hiddenAt = 0;
+  // Re-poll immediately on visible/online. Cursors are kept (append-only log,
+  // stable byte offsets — see resumePolling).
   function pollAllNow() {
     pollState();
     pollLogs();
     pollStream();
   }
-  function fullRebuild() {
-    for (const w of state.wins.values()) w.cursor = null;
-    pollState().then(pollLogs);
-    pollStream();
-  }
+  // Byte cursors stay valid across suspension (the session log is append-only,
+  // offsets are stable), so a resume does NOT reset them: the server deep-reads
+  // the gap from our cursor. The old reset-to-ring-tail merge here silently
+  // dropped everything the coordinator logged while the tab was suspended past
+  // the server's 300-item ring — messages vanished from the middle of the
+  // view. A changed session file is still caught: /main-log carries ?file= and
+  // reset-replaces on mismatch (sameFile=false in mergeReset).
   function resumePolling() {
     if (document.hidden) return;
-    const away = hiddenAt ? Date.now() - hiddenAt : 0;
-    hiddenAt = 0;
-    if (away > 60000) fullRebuild();
-    else pollAllNow();
+    pollAllNow();
   }
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) hiddenAt = Date.now();
-    else resumePolling();
+    if (!document.hidden) resumePolling();
   });
   window.addEventListener("online", resumePolling);
 

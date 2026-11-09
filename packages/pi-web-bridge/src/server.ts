@@ -129,8 +129,11 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
     }
     if (method === "GET" && path === "/main-log") {
       const after = url.searchParams.get("after");
+      // Additive ?file= — the session path the client's cursor was minted
+      // against; guards the deep-read below-ring-start catch-up path.
+      const clientFile = url.searchParams.get("file") ?? undefined;
       mainLog.attach(deps.sessionFile());
-      const snap = mainLog.consume(after === null ? null : Number(after));
+      const snap = mainLog.consume(after === null ? null : Number(after), clientFile);
       return sendJson(res, 200, snap);
     }
     if (method === "GET" && path === "/history") {
