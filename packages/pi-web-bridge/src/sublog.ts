@@ -1,4 +1,5 @@
 import { existsSync, openSync, readSync, closeSync, statSync } from "node:fs";
+import { usageStats, type UsageStats } from "./usage.ts";
 
 /**
  * Per-subagent window log: parse events.jsonl incrementally from a byte offset
@@ -22,6 +23,8 @@ export interface SubLogSnapshot {
   /** Tail of result.md when the subagent reached a terminal state, else null. */
   result: string | null;
   done: boolean;
+  /** Whole-run usage aggregates (additive; omitted while a large cold log warms in the background). */
+  stats?: UsageStats;
 }
 
 const MAX_BYTES_PER_POLL = 256 * 1024;
@@ -79,6 +82,14 @@ function readResult(resFile: string): string | null {
  * @param after  client cursor; null = first poll (returns the tail)
  */
 export function readSubLog(dir: string, id: string, after: number | null): SubLogSnapshot {
+  const snap = readSubLogWindow(dir, id, after);
+  // Additive whole-run aggregates; null (still warming) leaves the field off the payload.
+  const stats = usageStats(`${dir}/events.jsonl`);
+  if (stats) snap.stats = stats;
+  return snap;
+}
+
+function readSubLogWindow(dir: string, id: string, after: number | null): SubLogSnapshot {
   const evFile = `${dir}/events.jsonl`;
   const resFile = `${dir}/result.md`;
   const result = readResult(resFile);

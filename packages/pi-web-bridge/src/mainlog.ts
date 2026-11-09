@@ -1,4 +1,5 @@
 import { openSync, readSync, closeSync, fstatSync, statSync } from "node:fs";
+import { usageStats, type UsageStats } from "./usage.ts";
 
 /**
  * Incremental reader for the main session JSONL.
@@ -29,6 +30,8 @@ export interface MainLogSnapshot {
   /** True when the client must replace its view with the returned items (unknown cursor / session change). */
   reset: boolean;
   items: MainLogItem[];
+  /** Whole-run usage aggregates for the coordinator session (additive; omitted while warming). */
+  stats?: UsageStats;
 }
 
 const MAX_ITEM_CHARS = 16_000;
@@ -85,11 +88,14 @@ export class MainLogReader {
   consume(after: number | null): MainLogSnapshot {
     this.ingest();
     const file = this.file ?? null;
+    // Additive whole-run aggregates, independent of the item ring; null while a large
+    // cold session file is still warming in the background.
+    const stats = file ? usageStats(file) ?? undefined : undefined;
     if (after === null || !Number.isFinite(after) || after > this.cursor || after < this.ringStart()) {
-      return { file, cursor: this.cursor, reset: true, items: [...this.items] };
+      return { file, cursor: this.cursor, reset: true, items: [...this.items], stats };
     }
-    if (after === this.cursor) return { file, cursor: this.cursor, reset: false, items: [] };
-    return { file, cursor: this.cursor, reset: false, items: this.items.filter((i) => i.offset > after) };
+    if (after === this.cursor) return { file, cursor: this.cursor, reset: false, items: [], stats };
+    return { file, cursor: this.cursor, reset: false, items: this.items.filter((i) => i.offset > after), stats };
   }
 
   private ringStart(): number {

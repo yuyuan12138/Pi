@@ -1,5 +1,6 @@
-import { existsSync, openSync, readSync, closeSync, fstatSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, openSync, readSync, closeSync, fstatSync, readdirSync, statSync, readFileSync, writeSync, fsyncSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { usageStats, type UsageStats } from "./usage.ts";
 
 /**
  * Subagent state derived from the on-disk log dirs that pi-superagent's
@@ -28,6 +29,34 @@ export interface SubagentView {
   lastExcerpt: string;
   /** result.md exists (subagent reached a terminal state). */
   result: boolean;
+  /** Compact whole-run usage (additive; omitted until the log scan has warmed). */
+  usage?: UsageSummary;
+}
+
+/** Card-sized usage summary; full aggregates come from /sub-log `stats`. */
+export interface UsageSummary {
+  totalTokens: number;
+  costTotal: number;
+  toolCalls: number;
+}
+
+/** Per-settled-subagent record appended to <subagentsDir>/../subagents-usage.jsonl. */
+export interface UsageRecord {
+  id: string;
+  label: string | null;
+  session: string | null;
+  model: string | null;
+  /** Nesting depth derived from parent-child dir naming (0 = top-level, null when unknown). */
+  depth: number | null;
+  /** Parent subagent id when it was present in the same scan, else null. */
+  spawned_by: string | null;
+  startedAt: number | null;
+  /** result.md mtime at settle time — the dedupe key for append-only persistence. */
+  settledAt: number;
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number; total: number; cost: number; framesWithUsage: number; framesWithoutUsage: number };
+  tools: Record<string, number>;
+  skills: string[];
+  subagents: string[];
 }
 
 const STATUS_RANK: Record<SubagentStatus, number> = { running: 0, blocked: 1, done: 2 };
@@ -168,6 +197,11 @@ export class SubagentScanner {
       const res = existsSync(resFile) ? statSync(resFile) : null;
       const cached = this.cache.get(name);
       if (cached && cached.evMtimeMs === ev.mtimeMs && cached.evSize === ev.size && cached.resMtimeMs === (res?.mtimeMs ?? 0)) {
+        // Usage may have finished background-warming since this view was cached.
+        if (!cached.view.usage) {
+          const s = usageStats(evFile);
+          if (s) cached.view.usage = { totalTokens: s.tokens.total, costTotal: s.tokens.cost, toolCalls: s.toolCalls };
+        }
         out.push(cached.view);
         continue;
       }
@@ -175,13 +209,22 @@ export class SubagentScanner {
       this.cache.set(name, { evMtimeMs: ev.mtimeMs, evSize: ev.size, resMtimeMs: res?.mtimeMs ?? 0, view });
       out.push(view);
     }
-    return sortViews(out);
+    const views = sortViews(out);
+    this.persistSettled(dir, views);
+    return views;
+  }
+
+  private usageSummary(file: string): UsageSummary | undefined {
+    const s = usageStats(file);
+    if (!s) return undefined; // still warming; a later scan attaches it
+    return { totalTokens: s.tokens.total, costTotal: s.tokens.cost, toolCalls: s.toolCalls };
   }
 
   private build(id: string, evFile: string, resFile: string | null, evMtime: number, resMtime: number): SubagentView {
     const head = readHead(evFile, HEAD_BYTES);
     const model = /"model":"([^"]+)"/.exec(head)?.[1] ?? null;
     const label = firstUserTaskText(head);
+    const usage = this.usageSummary(evFile);
     if (resFile) {
       const raw = readTail(resFile, 8192);
       return {
@@ -190,6 +233,7 @@ export class SubagentScanner {
         lastActivity: Math.max(evMtime, resMtime),
         lastExcerpt: excerpt(raw, EXCERPT_CHARS),
         result: true,
+        usage,
       };
     }
     const tail = readTail(evFile, TAIL_BYTES);
@@ -201,6 +245,143 @@ export class SubagentScanner {
       lastActivity: evMtime,
       lastExcerpt: text ? excerpt(text, EXCERPT_CHARS) : excerpt(report?.summary ?? "", EXCERPT_CHARS),
       result: false,
+      usage,
     };
   }
+
+  // ---------- settled-subagent persistence (append-only sidecar) ----------
+
+  private recorded: Map<string, number> | null = null;
+  private recordedTried = false;
+
+  /**
+   * Append one UsageRecord per newly-settled subagent to <dir>/../subagents-usage.jsonl.
+   * Append-only: existing lines are never rewritten (read-merge-write via tmp+fsync+rename);
+   * a (id, settledAt) pair already recorded is skipped, a newer settle appends a new line.
+   */
+  private persistSettled(dir: string, views: SubagentView[]): void {
+    if (!views.length) return;
+    const sidecar = join(dirname(dir), "subagents-usage.jsonl");
+    if (!this.recordedTried) {
+      this.recordedTried = true;
+      this.recorded = loadRecorded(sidecar);
+      if (this.recorded === null) return; // sidecar exists but is unreadable: never risk clobbering history
+    }
+    if (!this.recorded) return;
+    const ids = new Set(views.map((v) => v.id));
+    const depths = new Map<string, number>();
+    const candidates: Array<{ line: string; id: string; settledAt: number }> = [];
+    for (const v of views) {
+      if (v.status !== "done") continue;
+      const settledAt = this.cache.get(v.id)?.resMtimeMs ?? 0;
+      if (settledAt <= (this.recorded.get(v.id) ?? -1)) continue;
+      const stats = usageStats(`${dir}/${v.id}/events.jsonl`);
+      if (!stats) continue; // still warming; retried on a later scan
+      candidates.push({ line: JSON.stringify(buildRecord(v, settledAt, stats, ids, depths, `${dir}/${v.id}/events.jsonl`)), id: v.id, settledAt });
+    }
+    if (!candidates.length) return;
+    try {
+      appendRecordsAtomic(sidecar, candidates.map((c) => c.line));
+      for (const c of candidates) this.recorded.set(c.id, c.settledAt);
+    } catch { /* disk failure: retried on a later scan */ }
+  }
+}
+
+function sidecarKey(id: string, settledAt: number): string {
+  return `${id}@${settledAt}`;
+}
+
+/** Parse the sidecar into id -> settledAt. null means "exists but unreadable" (never write). */
+function loadRecorded(sidecar: string): Map<string, number> | null {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(sidecar);
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "ENOENT" ? new Map() : null;
+  }
+  const map = new Map<string, number>();
+  for (const line of bytes.toString("utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as { id?: unknown; settledAt?: unknown };
+      if (r && typeof r.id === "string" && typeof r.settledAt === "number") map.set(r.id, r.settledAt);
+    } catch { /* skip malformed lines */ }
+  }
+  return map;
+}
+
+/** Atomic append: read current bytes, merge (never duplicate), tmp+fsync+rename. */
+function appendRecordsAtomic(sidecar: string, lines: string[]): void {
+  let existing = Buffer.alloc(0);
+  try {
+    existing = readFileSync(sidecar);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  const have = new Set<string>();
+  for (const line of existing.toString("utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as { id?: unknown; settledAt?: unknown };
+      if (r && typeof r.id === "string" && typeof r.settledAt === "number") have.add(sidecarKey(r.id, r.settledAt));
+    } catch { /* skip malformed lines */ }
+  }
+  const fresh = lines.filter((l) => {
+    try {
+      const r = JSON.parse(l) as { id?: unknown; settledAt?: unknown };
+      return !(r && typeof r.id === "string" && typeof r.settledAt === "number" && have.has(sidecarKey(r.id, r.settledAt)));
+    } catch { return true; }
+  });
+  if (!fresh.length) return;
+  const buf = Buffer.concat([existing, Buffer.from(fresh.map((l) => l + "\n").join(""), "utf8")]);
+  const tmp = `${sidecar}.tmp-${process.pid}-${Date.now()}`;
+  const fd = openSync(tmp, "w");
+  try {
+    writeSync(fd, buf);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(tmp, sidecar);
+}
+
+/** Parent-child naming (e.g. "sa2-sa1") resolves depth when the parent id is present in the same scan. */
+function resolveAncestry(id: string, ids: Set<string>, depths: Map<string, number>): { spawnedBy: string | null; depth: number | null } {
+  const cut = id.lastIndexOf("-");
+  if (cut <= 0) return { spawnedBy: null, depth: 0 };
+  const parent = id.slice(0, cut);
+  if (!ids.has(parent)) return { spawnedBy: null, depth: 0 };
+  let parentDepth = depths.get(parent);
+  if (parentDepth === undefined) {
+    parentDepth = resolveAncestry(parent, ids, depths).depth ?? 0;
+    depths.set(parent, parentDepth);
+  }
+  return { spawnedBy: parent, depth: parentDepth + 1 };
+}
+
+function buildRecord(v: SubagentView, settledAt: number, stats: UsageStats, ids: Set<string>, depths: Map<string, number>, evFile: string): UsageRecord {
+  const { spawnedBy, depth } = resolveAncestry(v.id, ids, depths);
+  let startedAt = stats.startedAt;
+  if (startedAt === null) {
+    try {
+      const st = statSync(evFile);
+      startedAt = st.birthtimeMs > 0 ? st.birthtimeMs : st.ctimeMs;
+    } catch { startedAt = null; }
+  }
+  const tools: Record<string, number> = {};
+  for (const t of stats.tools) tools[t.name] = t.count;
+  return {
+    id: v.id,
+    label: v.label ? (v.label.length > 200 ? v.label.slice(0, 199) + "…" : v.label) : null,
+    session: v.session,
+    model: stats.model ?? v.model,
+    depth,
+    spawned_by: spawnedBy,
+    startedAt,
+    settledAt,
+    tokens: { ...stats.tokens },
+    tools,
+    skills: stats.skills,
+    subagents: stats.subagents.map((c) => c.id).filter((x): x is string => x !== null),
+  };
 }

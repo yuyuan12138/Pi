@@ -184,6 +184,46 @@
   .linklike:hover { color: var(--muted); background: var(--raised); }
   .panel-empty { padding: 20px 10px; color: var(--dim); font-size: 12px; }
 
+  /* ---------- usage (resource inventory) ---------- */
+  .usage { flex: none; border-bottom: 1px solid var(--border-soft); }
+  #main-usage { background: var(--bg); }
+  #so-usage { background: var(--panel); }
+  .usage-head {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 8px 24px; background: none; border: 0; cursor: pointer;
+    font: inherit; text-align: left; color: inherit;
+  }
+  #so-usage .usage-head { padding: 8px 16px; }
+  .usage-head:hover .usage-title { color: var(--text); }
+  .usage-title { flex: none; font-size: 10.5px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .usage-sum { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  .usage-head .chev { flex: none; color: var(--dim); transition: transform .2s var(--ease); }
+  .usage-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .usage-body { max-height: 264px; overflow-y: auto; padding: 2px 24px 12px; }
+  #so-usage .usage-body { padding: 2px 16px 12px; }
+  .u-sec { margin-bottom: 12px; }
+  .u-sec:last-child { margin-bottom: 2px; }
+  .u-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+  .u-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; align-items: center; gap: 10px;
+    padding: 3px 0; border-bottom: 1px solid var(--border-soft); font-family: var(--mono); font-size: 11px;
+  }
+  .u-row:last-child { border-bottom: 0; }
+  .u-name { color: var(--body-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .u-bar { height: 3px; background: var(--raised-2); border-radius: 2px; position: relative; overflow: hidden; }
+  .u-bar i { position: absolute; top: 0; bottom: 0; left: 0; background: #3a3a44; border-radius: 2px; }
+  .u-count { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .u-more { font-family: var(--mono); font-size: 10.5px; color: var(--dim); padding: 5px 0 0; }
+  .u-line { font-family: var(--mono); font-size: 11px; color: var(--dim); padding: 2px 0; overflow-wrap: break-word; }
+  .u-line b { color: var(--body-2); font-weight: 600; }
+  .u-empty { font-size: 12px; color: var(--dim); padding: 2px 0 4px; }
+  .u-sub-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 0; border-bottom: 1px solid var(--border-soft); font-size: 11px; }
+  .u-sub-row:last-child { border-bottom: 0; }
+  .u-sub-id { font-family: var(--mono); color: var(--body-2); flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .u-sub-label { color: var(--dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .u-sub-status { font-family: var(--mono); font-size: 10px; color: var(--dim); flex: none; }
+  .u-sub-status.blocked { color: var(--red); }
+
   /* ---------- slide-over transcript ---------- */
   #backdrop {
     position: fixed; inset: var(--tb-h) 0 0 0; background: rgba(0, 0, 0, .55); z-index: 45;
@@ -277,6 +317,14 @@
       <h2>Coordinator</h2>
       <span id="win-meta"></span>
     </header>
+    <section class="usage" id="main-usage">
+      <button class="usage-head" id="main-usage-head" type="button" aria-expanded="false" aria-controls="main-usage-body">
+        <span class="usage-title">Usage</span>
+        <span class="usage-sum" id="main-usage-sum">no activity yet</span>
+        <svg class="chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="usage-body" id="main-usage-body" hidden></div>
+    </section>
     <div id="log"><div class="col" id="logcol"></div></div>
     <button id="jump" type="button" hidden>Jump to latest</button>
     <form id="composer">
@@ -316,6 +364,14 @@
     </button>
     <p id="so-label"></p>
   </header>
+  <section class="usage" id="so-usage">
+    <button class="usage-head" id="so-usage-head" type="button" aria-expanded="true" aria-controls="so-usage-body">
+      <span class="usage-title">Usage</span>
+      <span class="usage-sum" id="so-usage-sum">no activity yet</span>
+      <svg class="chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="usage-body" id="so-usage-body"></div>
+  </section>
   <div id="slog"><div class="col so-col" id="slogcol"></div></div>
   <button id="sjump" type="button" hidden>Jump to latest</button>
   <form id="scomposer">
@@ -336,19 +392,20 @@
     subs: new Map(),          // id -> SubagentView (latest /state)
     openSub: null,            // slide-over target id | null
     panelOpen: false,         // mobile drawer
-    wins: new Map(),          // id -> { items, cursor, resultText, done }
+    wins: new Map(),          // id -> { items, cursor, resultText, done, stats }
     unread: new Map(),        // id -> new-line count since last open
     prevActivity: new Map(),  // id -> lastActivity (fallback unread path)
     firstSeen: new Map(),     // id -> epoch ms first observed (elapsed base)
     doneShown: false,
     bridgeDown: false,
+    usageOpen: new Map(),     // "main" | sub id -> collapsed/expanded (default: main collapsed, subs expanded)
   };
   const logOkAt = new Map();  // id -> epoch ms of last successful sub-log poll
   const cardEls = new Map();  // id -> card element record
 
   const win = (id) => {
     let w = state.wins.get(id);
-    if (!w) { w = { items: [], cursor: null, resultText: null, done: false }; state.wins.set(id, w); }
+    if (!w) { w = { items: [], cursor: null, resultText: null, done: false, stats: null }; state.wins.set(id, w); }
     return w;
   };
 
@@ -367,6 +424,14 @@
     if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
     return `${Math.floor(s / 86400)}d ago`;
   }
+  function fmtTokens(n) {
+    if (!Number.isFinite(n) || n <= 0) return "0";
+    if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + "G";
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + "k";
+    return String(Math.round(n));
+  }
+  function plural(n, word) { return `${n} ${word}${n === 1 ? "" : "s"}`; }
   function fmtElapsed(ms) {
     const t = Math.max(0, Math.floor(ms / 1000));
     const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
@@ -461,6 +526,8 @@
     st.className = "st " + (s?.status ?? "");
     st.textContent = s?.status ?? "\u2014";
     el.append(st);
+    const tok = s?.usage?.totalTokens;
+    if (Number.isFinite(tok) && tok > 0) el.append(document.createTextNode(" \u00b7 " + fmtTokens(tok) + " tok"));
     if (s?.model) el.append(document.createTextNode(" \u00b7 " + s.model));
   }
   function updateCard(rec, s) {
@@ -515,6 +582,180 @@
     $("#panel-empty").hidden = subs.length > 0;
     updateLivebarStatus(active);
     updateBadges();
+  }
+
+  // ---------- usage (resource inventory) ----------
+  function usageIsEmpty(s) {
+    return s.toolCalls === 0 && s.subagents.length === 0 && s.skills.length === 0 && s.assistantMessages === 0;
+  }
+  function usageSummaryText(s) {
+    if (!s || usageIsEmpty(s)) return "no activity yet";
+    const parts = [];
+    if (s.toolCalls > 0) parts.push(plural(s.toolCalls, "tool call"));
+    if (s.subagents.length > 0) parts.push(plural(s.subagents.length, "subagent"));
+    if (s.skills.length > 0) parts.push(plural(s.skills.length, "skill"));
+    if (!parts.length) parts.push(plural(s.assistantMessages, "message"));
+    return parts.join(" \u00b7 ");
+  }
+  /** Client-side fallback when server stats are absent (windowed slice only). */
+  function usageFromItems(items) {
+    const counts = new Map();
+    const subagents = [];
+    const skills = new Set();
+    let assistantMessages = 0;
+    for (const it of items) {
+      if (it.kind === "tool") {
+        counts.set(it.name, (counts.get(it.name) ?? 0) + 1);
+        if (it.name === "subagent_spawn") {
+          let a = null;
+          try { a = JSON.parse(it.text); } catch { /* args preview may be truncated */ }
+          subagents.push({
+            id: null,
+            label: (a && (typeof a.label === "string" ? a.label : typeof a.task === "string" ? a.task.split("\n", 1)[0] : null)) || null,
+            session: a && typeof a.session === "string" ? a.session : null,
+            model: a && typeof a.model === "string" ? a.model : null,
+          });
+        }
+        if (it.name === "read" || it.name === "grep") {
+          const m = /skills\/([A-Za-z0-9][A-Za-z0-9._-]*)\/SKILL\.md/i.exec(it.text || "") || /\.pi\/skills\/([A-Za-z0-9][A-Za-z0-9._-]*)\//i.exec(it.text || "");
+          if (m) skills.add(m[1]);
+        }
+      } else if (it.kind === "assistant") {
+        assistantMessages++;
+      }
+    }
+    const tools = [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : 1));
+    return { tools, toolCalls: tools.reduce((a, t) => a + t.count, 0), subagents, skills: [...skills].sort(), assistantMessages, assistantTurns: assistantMessages, tokens: null, model: null, startedAt: null };
+  }
+  function statsForWin(id) {
+    const w = win(id);
+    return w.stats ?? usageFromItems(w.items);
+  }
+  function sectionEl(label) {
+    const d = document.createElement("div");
+    d.className = "u-sec";
+    const l = document.createElement("div");
+    l.className = "u-label";
+    l.textContent = label;
+    d.append(l);
+    return d;
+  }
+  function tokensSection(t) {
+    const sec = sectionEl("Tokens");
+    const parts = [`total ${fmtTokens(t.total)}`, `in ${fmtTokens(t.input)}`, `out ${fmtTokens(t.output)}`, `cache read ${fmtTokens(t.cacheRead)}`, `cache write ${fmtTokens(t.cacheWrite)}`];
+    if (t.reasoning > 0) parts.push(`reasoning ${fmtTokens(t.reasoning)}`);
+    parts.push(`cost $${Number(t.cost ?? 0).toFixed(4)}`);
+    const line = document.createElement("div");
+    line.className = "u-line";
+    line.textContent = parts.join(" \u00b7 ");
+    sec.append(line);
+    if (t.framesWithoutUsage > 0) {
+      const note = document.createElement("div");
+      note.className = "u-line";
+      note.textContent = `${t.framesWithoutUsage} assistant frame${t.framesWithoutUsage === 1 ? "" : "s"} without usage excluded`;
+      sec.append(note);
+    }
+    return sec;
+  }
+  function toolsSection(tools) {
+    const sec = sectionEl("Tools");
+    const max = tools[0]?.count || 1;
+    for (const t of tools.slice(0, 12)) {
+      const row = document.createElement("div");
+      row.className = "u-row";
+      const n = document.createElement("span"); n.className = "u-name"; n.textContent = t.name;
+      const bar = document.createElement("span"); bar.className = "u-bar";
+      const fill = document.createElement("i"); fill.style.width = `${Math.max(4, Math.round((t.count / max) * 100))}%`;
+      bar.append(fill);
+      const c = document.createElement("span"); c.className = "u-count"; c.textContent = String(t.count);
+      row.append(n, bar, c);
+      sec.append(row);
+    }
+    if (tools.length > 12) {
+      const more = document.createElement("div"); more.className = "u-more"; more.textContent = `\u2026${tools.length - 12} more`;
+      sec.append(more);
+    }
+    return sec;
+  }
+  function subagentsSection(subs) {
+    const sec = sectionEl("Subagents");
+    for (const c of subs) {
+      const view = c.id ? state.subs.get(c.id) : null;
+      const row = document.createElement("div");
+      row.className = "u-sub-row";
+      const dot = document.createElement("span"); dot.className = "dot " + (view ? view.status : "");
+      const id = document.createElement("span"); id.className = "u-sub-id"; id.textContent = c.id ?? "child";
+      const label = document.createElement("span"); label.className = "u-sub-label"; label.textContent = c.label ?? ""; label.title = c.label ?? "";
+      const st = document.createElement("span"); st.className = "u-sub-status" + (view && view.status === "blocked" ? " blocked" : ""); st.textContent = view ? view.status : "unknown";
+      row.append(dot, id, label, st);
+      sec.append(row);
+    }
+    return sec;
+  }
+  function skillsSection(skills) {
+    const sec = sectionEl("Skills");
+    for (const s of skills) {
+      const row = document.createElement("div"); row.className = "u-sub-row";
+      const n = document.createElement("span"); n.className = "u-sub-id"; n.textContent = s;
+      row.append(n);
+      sec.append(row);
+    }
+    return sec;
+  }
+  function modelSection(s, modelFallback) {
+    const sec = sectionEl("Model");
+    const line = document.createElement("div"); line.className = "u-line";
+    const model = s.model || modelFallback || null;
+    line.textContent = [...(model ? [model] : []), plural(s.assistantMessages, "text message"), plural(s.assistantTurns, "turn")].join(" \u00b7 ");
+    sec.append(line);
+    return sec;
+  }
+  function renderUsage(body, stats, modelFallback) {
+    body.textContent = "";
+    if (!stats || usageIsEmpty(stats)) {
+      const e = document.createElement("div"); e.className = "u-empty"; e.textContent = "no activity yet";
+      body.append(e);
+      return;
+    }
+    if (stats.tokens && (stats.tokens.framesWithUsage > 0 || stats.tokens.framesWithoutUsage > 0)) body.append(tokensSection(stats.tokens));
+    if (stats.tools.length) body.append(toolsSection(stats.tools));
+    if (stats.subagents.length) body.append(subagentsSection(stats.subagents));
+    if (stats.skills.length) body.append(skillsSection(stats.skills));
+    body.append(modelSection(stats, modelFallback));
+  }
+  function updateUsage(key) {
+    const stats = statsForWin(key);
+    const sig = JSON.stringify(stats);
+    if (key === "main") {
+      const body = $("#main-usage-body"), sum = $("#main-usage-sum");
+      sum.textContent = usageSummaryText(stats);
+      if (body.dataset.sig !== sig) {
+        body.dataset.sig = sig;
+        if (!body.hidden) renderUsage(body, stats, null);
+      }
+    } else if (state.openSub === key) {
+      const body = $("#so-usage-body"), sum = $("#so-usage-sum");
+      sum.textContent = usageSummaryText(stats);
+      if (body.dataset.sig !== sig) {
+        body.dataset.sig = sig;
+        if (!body.hidden) renderUsage(body, stats, state.subs.get(key)?.model ?? null);
+      }
+    }
+  }
+  function applyUsageOpen(key) {
+    const open = state.usageOpen.get(key) ?? key !== "main";
+    const head = key === "main" ? $("#main-usage-head") : $("#so-usage-head");
+    const body = key === "main" ? $("#main-usage-body") : $("#so-usage-body");
+    head.setAttribute("aria-expanded", String(open));
+    body.hidden = !open;
+    if (open && !body.children.length) {
+      body.dataset.sig = "";
+      updateUsage(key);
+    }
+  }
+  function toggleUsage(key) {
+    state.usageOpen.set(key, !(state.usageOpen.get(key) ?? key !== "main"));
+    applyUsageOpen(key);
   }
 
   // ---------- transcript rendering ----------
@@ -679,6 +920,9 @@
       ? "This subagent finished \u2014 replies go via the coordinator"
       : `Reply to ${id}`;
     rebuildSub();
+    $("#so-usage-body").dataset.sig = "";
+    applyUsageOpen(id);
+    updateUsage(id);
     $("#slideover").classList.add("open");
     syncBackdrop();
     for (const [cid, rec] of cardEls) rec.root.classList.toggle("active", cid === id);
@@ -775,6 +1019,8 @@
         }
       }
       if (w.items.length > 600) { w.items = w.items.slice(-600); rebuildMain(); }
+      w.stats = b.stats ?? (w.stats ?? usageFromItems(w.items));
+      updateUsage("main");
       return;
     }
 
@@ -800,6 +1046,8 @@
       w.items = w.items.slice(-2000);
       if (state.openSub === id) rebuildSub();
     }
+    w.stats = b.stats ?? (w.stats ?? usageFromItems(w.items));
+    if (state.openSub === id) updateUsage(id);
   }
 
   async function pollLogs() {
@@ -902,6 +1150,8 @@
   // ---------- chrome controls ----------
   $("#so-close").addEventListener("click", closeSub);
   $("#backdrop").addEventListener("click", closeSub);
+  $("#main-usage-head").addEventListener("click", () => toggleUsage("main"));
+  $("#so-usage-head").addEventListener("click", () => { if (state.openSub) toggleUsage(state.openSub); });
   $("#done-toggle").addEventListener("click", () => {
     state.doneShown = !state.doneShown;
     syncPanel([...state.subs.values()]);
