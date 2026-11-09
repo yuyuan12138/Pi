@@ -60,6 +60,29 @@ The tools live in `tools/wps-reader/`.
   formatted-empty and `'null'`-residue rows). Read the column block and take the
   last row with any non-empty, non-`'null'` cell; append at `last+1`.
 
+## Batch writes: snapshot first, dedupe narrowly (2026-11-09 incident lessons)
+- **Snapshot the full sheet range to disk BEFORE any mutation.** When a batch
+  script dies mid-run (or a bad dedupe deletes rows), that snapshot is the
+  only complete recovery source. A 42-row near-loss was recovered entirely
+  from the pre-mutation snapshot; without it the data was gone.
+- **Dedupe only over the rows YOU are writing** — never the whole sheet. A
+  bookkeeping sheet legitimately contains same-day same-amount entries (two
+  coffees); a whole-sheet `(date, amount)` dedupe deletes real user data.
+  Scope the duplicate check to the batch's own rows (and only after re-read
+  verification, per the rules above).
+- **Compare numeric vs numeric**: `float(v) == float(expected)`. `str()`
+  comparison misses duplicates silently — `"46312"` != `46312.0` even though
+  the sheet renders both the same way, so a match check passes nothing and
+  verification lies to you.
+- **Stop ALL workers touching the sheet before any manual intervention.**
+  Zombie CDP writers keep writing after their parent process is killed — a
+  killed parent does not mean the sheet is quiet. Kill (or confirm exit of)
+  every writer, then verify the sheet is stable before hand-repairing.
+- **A hung WPS core recovers by reloading the tab**: symptom is API
+  `evaluate` timing out while trivial JS still works. Reload the tab in the
+  CDP Chrome, then re-verify the sheet state (post-reload re-read) before
+  continuing.
+
 ## Distinguish real transactions from noise (bookkeeping)
 When recording from a WeChat/Alipay bill dump, record only actual money-moved
 entries ("Paid by Balance" / "Deducted by Balance"). Skip summary/notification
