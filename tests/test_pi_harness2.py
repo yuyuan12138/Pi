@@ -319,6 +319,31 @@ class TestQueryParsing(unittest.TestCase):
         qs = h2.parse_queries("```\nTARGET=A QUERY=fenced task\n```", 4)
         self.assertEqual(qs, [{"target": "A", "text": "fenced task"}])
 
+    def test_numbered_and_bulleted_lines_tolerated(self):
+        qs = h2.parse_queries(
+            "1. TARGET=A QUERY=numbered task\n"
+            "- TARGET=B QUERY=bulleted task", 4)
+        self.assertEqual([q["target"] for q in qs], ["A", "B"])
+        self.assertEqual(qs[0]["text"], "numbered task")
+
+
+class TestQueryLinesParsing(unittest.TestCase):
+    def test_parse_query_lines(self):
+        self.assertEqual(h2.parse_query_lines("QUERY=one\nQUERY=two", 3),
+                         ["one", "two"])
+
+    def test_numbered_tolerated(self):
+        self.assertEqual(h2.parse_query_lines("1. QUERY=one\n2) QUERY=two", 3),
+                         ["one", "two"])
+
+    def test_target_lines_rejected(self):
+        # TARGET=A QUERY=... must not parse as a body query
+        self.assertEqual(h2.parse_query_lines("TARGET=A QUERY=x", 3), [])
+
+    def test_cap_and_dedupe(self):
+        self.assertEqual(h2.parse_query_lines("QUERY=a\nQUERY=a\nQUERY=b\nQUERY=c", 2),
+                         ["a", "b"])
+
 
 # ---------------------------------------------------------------------------
 # Probe answer parsing
@@ -799,6 +824,500 @@ class TestComposeOffline(unittest.TestCase):
                          "cost_tokens": ctx["probe_tokens"]},
                "decisions": "none (observe)", "run_id": "compose1"}
         self.assertTrue(h2.append_journal(out / "journal.jsonl", rec))
+
+
+# ---------------------------------------------------------------------------
+# v1: full-list probe parsing
+# ---------------------------------------------------------------------------
+
+
+FULL_LIST = ["generated-control-surface", "generative-apps", "mc-rsi-episode",
+             "security-audit", "show-me", "telegram-bridge",
+             "workspace-checkpoint", "wps-cloud-sheet"]
+
+
+class TestFullListParsing(unittest.TestCase):
+    def test_pick_from_full_list(self):
+        r = h2.parse_probe_answer("SKILL: show-me", FULL_LIST)
+        self.assertEqual(r["pick"], "show-me")
+
+    def test_ambiguous_across_full_list_is_miss(self):
+        r = h2.parse_probe_answer("SKILL: show-me or telegram-bridge", FULL_LIST)
+        self.assertIsNone(r["pick"])
+
+    def test_sibling_prefix_names_dont_confuse(self):
+        r = h2.parse_probe_answer("SKILL: generative-apps", FULL_LIST)
+        self.assertEqual(r["pick"], "generative-apps")
+        r2 = h2.parse_probe_answer("SKILL: generated-control-surface", FULL_LIST)
+        self.assertEqual(r2["pick"], "generated-control-surface")
+
+    def test_unknown_name_is_miss_full_list(self):
+        r = h2.parse_probe_answer("SKILL: feishu-user-plugin", FULL_LIST)
+        self.assertIsNone(r["pick"])
+
+    def test_build_probe_prompt_lists_all_candidates(self):
+        prompt = h2.build_probe_prompt("some task", [(n, f"{n} does things") for n in FULL_LIST])
+        for n in FULL_LIST:
+            self.assertIn(n, prompt)
+
+
+# ---------------------------------------------------------------------------
+# v1: stem-leak rejection / trap validation / sensitivity gate / name guard
+# ---------------------------------------------------------------------------
+
+
+class TestStemLeak(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.skill = make_skill(self.root, "alpha",
+                                "Manage telegram buttons and voice replies")
+
+    def test_no_overlap_ok(self):
+        ok, reason = h2.validate_body_query("Brew chamomile tea with honey", self.skill)
+        self.assertTrue(ok)
+
+    def test_three_shared_stems_ok(self):
+        # exactly 3 shared stems (telegram, button, voice) -> at the limit, accepted
+        ok, reason = h2.validate_body_query("telegram button voice checks", self.skill)
+        self.assertTrue(ok)
+
+    def test_four_shared_stems_rejected(self):
+        ok, reason = h2.validate_body_query(
+            "telegram button voice reply management", self.skill)
+        self.assertFalse(ok)
+        self.assertIn("description_leak", reason)
+
+    def test_leak_stems_helper(self):
+        shared = h2.description_leak_stems("telegram button voice reply management",
+                                           self.skill.description)
+        self.assertTrue(len(shared) >= 4)
+
+    def test_ban_name_stems(self):
+        ok, reason = h2.validate_body_query("alpha runbook steps", self.skill,
+                                            ban_name_stems=True)
+        self.assertFalse(ok)
+        self.assertIn("target_name_stem_in_query", reason)
+        ok2, _ = h2.validate_body_query("runbook steps for relays", self.skill,
+                                        ban_name_stems=True)
+        self.assertTrue(ok2)
+
+
+class TestTrapValidation(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.target = make_skill(self.root, "alpha",
+                                 "Manage telegram buttons and voice replies")
+        self.neighbor = make_skill(self.root, "beta",
+                                   "Brew chamomile tea and honey infusions")
+
+    def test_valid_trap_uses_neighbor_vocabulary(self):
+        ok, reason = h2.validate_trap_query("brew chamomile honey infusion steps",
+                                            self.target, self.neighbor)
+        self.assertTrue(ok)
+
+    def test_insufficient_neighbor_vocabulary_rejected(self):
+        ok, reason = h2.validate_trap_query("random unrelated task words here",
+                                            self.target, self.neighbor)
+        self.assertFalse(ok)
+        self.assertIn("insufficient_neighbor_vocabulary", reason)
+
+    def test_trap_leaking_target_description_rejected(self):
+        # 4 stems shared with the TARGET description despite neighbor vocabulary
+        ok, reason = h2.validate_trap_query(
+            "telegram button voice reply brew chamomile", self.target, self.neighbor)
+        self.assertFalse(ok)
+        self.assertIn("description_leak", reason)
+
+    def test_single_neighbor_stem_insufficient(self):
+        ok, reason = h2.validate_trap_query("brewing some unrelated workflow",
+                                            self.target, self.neighbor)
+        self.assertFalse(ok)
+        self.assertIn("insufficient_neighbor_vocabulary", reason)
+
+
+class TestSensitivityGate(unittest.TestCase):
+    def test_pass_significant_drop(self):
+        passed, reason = h2.sensitivity_gate(38, 40, 20, 40)
+        self.assertTrue(passed)
+
+    def test_fail_no_separation(self):
+        passed, reason = h2.sensitivity_gate(40, 40, 40, 40)
+        self.assertFalse(passed)
+        self.assertIn("no separation", reason)
+
+    def test_fail_drop_not_significant(self):
+        passed, reason = h2.sensitivity_gate(40, 40, 39, 40)
+        self.assertFalse(passed)
+        self.assertIn("below required", reason)
+
+    def test_fail_mutated_better(self):
+        passed, reason = h2.sensitivity_gate(30, 40, 35, 40)
+        self.assertFalse(passed)
+        self.assertIn("no separation", reason)
+
+    def test_boundary_exactly_min_drop_passes(self):
+        passed, _ = h2.sensitivity_gate(40, 40, 36, 40)  # drop = 0.10
+        self.assertTrue(passed)
+
+    def test_empty_inputs_fail(self):
+        passed, reason = h2.sensitivity_gate(0, 0, 0, 0)
+        self.assertFalse(passed)
+        self.assertIn("no queries", reason)
+
+    def test_partial_ceiling_case(self):
+        # current=100% AND mutated=100% -> must fail (the honesty-gate case)
+        passed, _ = h2.sensitivity_gate(40, 40, 40, 40)
+        self.assertFalse(passed)
+
+
+class TestNeighborNameGuard(unittest.TestCase):
+    def test_detects_exact_name(self):
+        bad = h2.find_embedded_skill_name(
+            "excludes app authoring (generative-apps)", FULL_LIST, exclude="show-me")
+        self.assertEqual(bad, "generative-apps")
+
+    def test_clean_description_passes(self):
+        bad = h2.find_embedded_skill_name(
+            "excludes reusable app authoring and button generation", FULL_LIST,
+            exclude="show-me")
+        self.assertIsNone(bad)
+
+    def test_own_name_excluded(self):
+        bad = h2.find_embedded_skill_name(
+            "show-me explains work with diagrams", FULL_LIST, exclude="show-me")
+        self.assertIsNone(bad)
+
+    def test_word_boundary(self):
+        # 'generative-applications' does not contain the exact name 'generative-apps'
+        bad = h2.find_embedded_skill_name(
+            "tooling for generative-applications", FULL_LIST, exclude="show-me")
+        self.assertIsNone(bad)
+
+    def test_generate_proposal_guard_rejects_and_retries(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        root = Path(td.name)
+        a = make_skill(root, "skill-a", "Alpha description here")
+        b = make_skill(root, "skill-b", "Beta description here")
+
+        def responder(req):
+            return completion("description: defers to skill-b for beta tasks; alpha keeps x.\n"
+                              "rationale: body evidence")
+
+        with MockEndpoint(responder) as base:
+            client = h2.ProbeClient(base, "test-model", cap=10)
+            prop = h2.generate_proposal(client, a, b, ["skill-a", "skill-b"])
+        self.assertEqual(prop["status"], "rejected")
+        self.assertIsNone(prop["after"])
+        self.assertTrue(prop["reject_reason"].startswith("neighbor_name_in_description"))
+        self.assertEqual(prop["attempts"], 2)
+        self.assertEqual(client.calls, 2)
+
+    def test_generate_proposal_guard_recovers_on_retry(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        root = Path(td.name)
+        a = make_skill(root, "skill-a", "Alpha description here")
+        b = make_skill(root, "skill-b", "Beta description here")
+        calls = []
+
+        def responder(req):
+            calls.append(1)
+            if len(calls) == 1:
+                return completion("description: defers to skill-b for beta tasks.\n"
+                                  "rationale: body evidence")
+            return completion("description: alpha keeps x; excludes beta territory.\n"
+                              "rationale: body evidence")
+
+        with MockEndpoint(responder) as base:
+            client = h2.ProbeClient(base, "test-model", cap=10)
+            prop = h2.generate_proposal(client, a, b, ["skill-a", "skill-b"])
+        self.assertEqual(prop["status"], "proposed")
+        self.assertEqual(prop["after"], "alpha keeps x; excludes beta territory.")
+        self.assertEqual(client.calls, 2)
+
+
+class TestFewShotPrompt(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.skill = make_skill(self.root, "show-me", "Explains things with diagrams")
+        self.neighbor = make_skill(self.root, "generative-apps", "Builds apps")
+        self.prompt = h2.build_proposal_prompt(
+            self.skill, self.neighbor, ["show-me", "generative-apps",
+                                        "generated-control-surface"])
+
+    def test_good_example_present(self):
+        self.assertIn("GOOD (show-me", self.prompt)
+
+    def test_bad_example_present(self):
+        self.assertIn("BAD (generated-control-surface", self.prompt)
+        self.assertIn("(generative-apps)", self.prompt)  # the embedding that flipped routing
+
+    def test_guard_reason_named(self):
+        self.assertIn("neighbor_name_in_description", self.prompt)
+
+    def test_forbidden_names_listed(self):
+        self.assertIn("generated-control-surface", self.prompt)
+
+
+# ---------------------------------------------------------------------------
+# v1: body/trap generation against the local fixture
+# ---------------------------------------------------------------------------
+
+
+class TestQueryGeneration(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_body_gen_validates_and_regen(self):
+        skill = make_skill(self.root, "alpha", "Manage telegram buttons and voice replies",
+                           body="Run fix_buttons.py then restart relay daemon. " * 20)
+        attempts = []
+
+        def responder(req):
+            attempts.append(req["messages"][0]["content"])
+            if len(attempts) == 1:
+                return completion(
+                    "QUERY=alpha run fix_buttons.py on row three\n"       # valid
+                    "QUERY=telegram button voice reply management\n"      # leak (5 stems)
+                    "QUERY=alpha restart the relay daemon")               # valid
+            return completion(
+                "QUERY=alpha archive the exported button audit csv\n"     # valid
+                "QUERY=telegram button voice reply manager\n")            # leak again
+
+        with MockEndpoint(responder) as base:
+            client = h2.ProbeClient(base, "test-model", cap=10)
+            batch = h2.generate_body_queries(client, skill, 3)
+        self.assertEqual(len(attempts), 2)
+        self.assertTrue(batch["regen"])
+        self.assertEqual(len(batch["queries"]), 3)
+        self.assertEqual(len(batch["dropped"]), 2)
+        self.assertTrue(all("description_leak" in d["reason"] for d in batch["dropped"]))
+        self.assertEqual(client.calls, 2)
+
+    def test_body_gen_parse_failure_then_giveup(self):
+        skill = make_skill(self.root, "alpha", "Manage telegram buttons and voice replies")
+        with MockEndpoint(lambda req: completion("no parseable lines at all")) as base:
+            client = h2.ProbeClient(base, "test-model", cap=10)
+            batch = h2.generate_body_queries(client, skill, 3)
+        self.assertEqual(batch["queries"], [])
+        self.assertTrue(batch["error"])
+        self.assertEqual(client.calls, 2)
+
+    def test_trap_gen_balanced_directions(self):
+        a = make_skill(self.root, "alpha", "Manage telegram buttons and voice replies")
+        b = make_skill(self.root, "beta", "Brew chamomile tea and honey infusions")
+        attempts = []
+
+        def responder(req):
+            attempts.append(req["messages"][0]["content"])
+            if len(attempts) == 1:
+                return completion(
+                    "TARGET=A QUERY=alpha steps to chamomile honey blend\n"   # valid A-trap
+                    "TARGET=B QUERY=telegram button voice beta brew\n")       # leak: 3 vs beta? no -> valid
+            return completion("TARGET=B QUERY=chamomile brewing beta checklist")
+
+        with MockEndpoint(responder) as base:
+            client = h2.ProbeClient(base, "test-model", cap=10)
+            batch = h2.generate_trap_queries(client, a, b, 2)
+        targets = sorted(q["target"] for q in batch["queries"])
+        self.assertEqual(targets, ["alpha", "beta"])
+        self.assertEqual(client.calls, 1)  # first attempt already balanced+valid
+
+    def test_trap_gen_regen_on_leak(self):
+        a = make_skill(self.root, "alpha", "Manage telegram buttons and voice replies")
+        b = make_skill(self.root, "beta", "Brew chamomile tea and honey infusions")
+        attempts = []
+
+        def responder(req):
+            attempts.append(req["messages"][0]["content"])
+            if len(attempts) == 1:
+                return completion(
+                    "TARGET=A QUERY=telegram button voice reply manager\n"  # target leak
+                    "TARGET=B QUERY=chamomile honey beta brew\n")           # no alpha vocab
+            return completion("TARGET=A QUERY=chamomile infusion alpha checklist")
+
+        with MockEndpoint(responder) as base:
+            client = h2.ProbeClient(base, "test-model", cap=10)
+            batch = h2.generate_trap_queries(client, a, b, 2)
+        self.assertTrue(batch["regen"])
+        self.assertEqual([q["target"] for q in batch["queries"]], ["alpha"])
+        self.assertEqual(len(batch["dropped"]), 2)
+        self.assertTrue(any("description_leak" in d["reason"] for d in batch["dropped"]))
+        self.assertEqual(client.calls, 2)
+
+    def test_progress_print_every_10_calls(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with MockEndpoint(lambda req: completion("SKILL: show-me")) as base:
+            client = h2.ProbeClient(base, "test-model", cap=12)
+            with redirect_stdout(buf):
+                for _ in range(10):
+                    client.chat([{"role": "user", "content": "hi"}])
+        self.assertIn("[pi-harness2 progress] calls=10/12", buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# v1: full cmd_run end-to-end (offline fixture) — both sensitivity branches
+# ---------------------------------------------------------------------------
+
+
+def _make_three_skills(root: Path):
+    make_skill(root, "alpha", "Manage telegram buttons and voice replies",
+               body="Run fix_buttons.py --row 3; restart relay daemon; edit config.yaml. " * 10)
+    make_skill(root, "beta", "Manage telegram button surfaces and styling",
+               body="Use kettle.py at 80 degrees; add chamomile leaves; steep timer. " * 10)
+    make_skill(root, "gamma", "Unrelated gamma accounting ledger entries",
+               body="post_entries.sh --month 9; reconcile totals; export ledger.csv. " * 10)
+    return h2.discover_skills([root])
+
+
+def _run_cmd_run(responder, tmp_root, out_dir, k_body=1, k_trap=2):
+    import types
+    with MockEndpoint(responder) as base:
+        args = types.SimpleNamespace(
+            root=[str(tmp_root)], k_body=k_body, k_trap=k_trap, cap=60, threshold=0.30,
+            leak_max_stems=3, min_trap_stems=2, ban_target_name_stems=False,
+            base_url=base, model="test-model", api_key=None, out_dir=str(out_dir))
+        rc = h2.cmd_run(args)
+    return rc
+
+
+def _battery_responder(name_picks_correctly=True):
+    """Router stub: picks the candidate named in the task text.
+
+    With name_picks_correctly=False, it detects the MUTATED list (alpha's slot
+    carries beta's description) and deliberately swaps alpha<->beta picks, so
+    mutated accuracy drops and the sensitivity gate can pass.
+    """
+
+    def responder(req):
+        content = req["messages"][0]["content"]
+        if "grounded in" in content and "SKILL.md body" in content:  # body query gen
+            m = re.search(r"Skill name: (\S+)", content)
+            return completion(f"QUERY={m.group(1)} body procedure task one")
+        if "trap tasks" in content:  # trap query gen
+            return completion(
+                "TARGET=A QUERY=alpha styled surface procedure\n"
+                "TARGET=B QUERY=beta button voice checklist")
+        if "Skill++ style rewrite" in content:  # proposal
+            m = re.search(r"^Skill: (\S+)$", content, re.M)
+            return completion(f"description: {m.group(1)} keeps its own territory clearly.\n"
+                              "rationale: body evidence")
+        if "You are a skill router" in content:  # probe
+            cands = re.findall(r"^- (\S+): (.*)$", content, re.M)
+            task = re.search(r"User task: (.+)$", content, re.M).group(1)
+            mutated = any(n == "alpha" and "surfaces" in d for n, d in cands)
+            pick = None
+            for n, _d in cands:
+                if n in task:
+                    pick = n
+                    break
+            if mutated and name_picks_correctly is False and pick in ("alpha", "beta"):
+                pick = "beta" if pick == "alpha" else "alpha"
+            if pick is None:
+                pick = cands[0][0]
+            return completion(f"SKILL: {pick}")
+        return completion("")
+
+    return responder
+
+
+class TestCmdRunV1(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name) / "skills"
+        self.root.mkdir(parents=True)
+        self.out = Path(self._tmp.name) / "out"
+        self.addCleanup(self._tmp.cleanup)
+
+    def _journal(self):
+        lines = (self.out / "journal.jsonl").read_text().splitlines()
+        return json.loads(lines[-1])
+
+    def test_end_to_end_sensitivity_fail_marks_probe_invalid(self):
+        _make_three_skills(self.root)
+        rc = _run_cmd_run(_battery_responder(name_picks_correctly=True), self.root, self.out)
+        self.assertEqual(rc, 0)
+        rec = self._journal()
+        # v2 journal shape
+        for key in ("ts", "mode", "queries", "overall", "sensitivity",
+                    "proposals_accepted_by_probe"):
+            self.assertIn(key, rec)
+        self.assertEqual(rec["mode"], "observe")
+        self.assertEqual(rec["queries"], 5)  # 3 body + 2 trap
+        self.assertEqual(rec["overall"]["current"], "5/5")
+        self.assertEqual(rec["overall"]["mutated"], "5/5")
+        self.assertEqual(rec["sensitivity"], "fail")
+        self.assertEqual(rec["probe_invalid"], "sensitivity check failed")
+        self.assertEqual(rec["proposals_accepted_by_probe"], 2)
+        report = next(self.out.glob("report-*.md")).read_text()
+        self.assertIn("probe_invalid", report)
+        self.assertIn("MUTATED", report)
+        self.assertIn("每对的探针结果表", report)
+        props = json.loads(next(self.out.glob("proposals-*.json")).read_text())
+        self.assertEqual(len(props["entries"]), 2)  # alpha + beta (gamma has no pair)
+
+    def test_end_to_end_sensitivity_pass(self):
+        _make_three_skills(self.root)
+        rc = _run_cmd_run(_battery_responder(name_picks_correctly=False), self.root, self.out)
+        self.assertEqual(rc, 0)
+        rec = self._journal()
+        self.assertEqual(rec["sensitivity"], "pass")
+        self.assertIsNone(rec["probe_invalid"])
+        # mutated drops only the swapped pair's targeted queries (4 wrong), gamma stays right
+        self.assertEqual(rec["overall"]["current"], "5/5")
+        self.assertEqual(rec["overall"]["mutated"], "1/5")
+        report = next(self.out.glob("report-*.md")).read_text()
+        self.assertNotIn("probe_invalid", report.split("## 概览")[0])  # no banner
+
+    def test_k_trap_balances_directions(self):
+        _make_three_skills(self.root)
+        rc = _run_cmd_run(_battery_responder(name_picks_correctly=True), self.root, self.out,
+                          k_trap=2)
+        self.assertEqual(rc, 0)
+        rec = self._journal()
+        self.assertEqual(rec["queries"], 5)  # k_body=1 x3 + k_trap=2 (1 per direction)
+
+    def test_endpoint_down_writes_v2_journal(self):
+        _make_three_skills(self.root)
+        import types
+        args = types.SimpleNamespace(
+            root=[str(self.root)], k_body=1, k_trap=2, cap=5, threshold=0.30,
+            leak_max_stems=3, min_trap_stems=2, ban_target_name_stems=False,
+            base_url="http://127.0.0.1:1/v1", model="test-model", api_key=None,
+            out_dir=str(self.out))
+        rc = h2.cmd_run(args)
+        self.assertEqual(rc, 2)
+        rec = self._journal()
+        self.assertIn("overall", rec)
+        self.assertEqual(rec["sensitivity"], "n/a")
+        self.assertEqual(rec["error"], "endpoint unreachable")
+
+
+class TestLegacyCompat(unittest.TestCase):
+    """v0 pairwise path must keep working for existing workflows/tests."""
+
+    def test_defaults_constants(self):
+        self.assertEqual(h2.DEFAULT_K_BODY, 3)
+        self.assertEqual(h2.DEFAULT_K_TRAP, 2)
+        self.assertEqual(h2.DEFAULT_CAP, 200)
+        self.assertEqual(h2.LEAK_MAX_SHARED, 3)
+        self.assertEqual(h2.MIN_TRAP_NEIGHBOR_STEMS, 2)
+        self.assertEqual(h2.MIN_SENSITIVITY_DROP, 0.10)
+
+    def test_probe_pair_still_available(self):
+        self.assertTrue(callable(h2.probe_pair))
+        self.assertTrue(callable(h2.build_recommendations))
 
 
 if __name__ == "__main__":

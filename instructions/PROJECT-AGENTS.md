@@ -23,6 +23,11 @@ the user does not need to name a role or manually start assistants.
   and accepts the best: the one that passes all tests; if several pass, pick by
   quality/simplicity. Report all N outcomes (which passed, which failed and why)
   plus the accepted candidate. N may be raised (e.g. 5) for hard tasks; state it.
+- Turn-level BoN variant for multi-turn interactive work: see instructions/TURN-BON-DISPATCH.md (paper: arXiv 2611.06868).
+- **Enforcement (user directive, 2026-11-06): apply best-of-N to every new bounded
+  coder/task with an objective verifier (test suite, live check), starting immediately.**
+  Single-dispatch requires a stated reason in the turn (serial coupling, no verifier, or
+  trivial size). Record which mode was used and why.
 - This is parallel exploration, not unlimited retries: the acceptance criteria
   are fixed and identical for all candidates; the primary never weakens a test
   to make a candidate pass. A candidate that fails is reported, not hidden.
@@ -49,8 +54,15 @@ the user does not need to name a role or manually start assistants.
 ### Role boundaries (each agent does its own job; do not grab work)
 - The **primary conversation** only does what others cannot: user communication
   and requirement understanding, task decomposition and briefs, decisions,
-  acceptance verification of delegated output, cross-module integration, and
-  trivial one-point fixes whose delegation overhead exceeds their size.
+  acceptance verification of delegated output, and cross-module integration.
+- **Zero inline execution (user rule, 2026-11-05): even trivial tasks must be
+  dispatched.** The 'trivial one-point fix' exception is revoked by user
+directive — if the primary conversation can do it, a subagent can. Any
+exception requires the user to explicitly say so in the current turn.
+Multi-step chains (prepare/deploy/preflight/launch, world resets) are never
+babysat turn-by-turn in the primary: hand the whole chain to one background
+operator with the runbook/pitfalls written into the brief, and report on
+completion. Router posture: dispatch, release attention, receive reports.
 - **fork (implementer)**: multi-file feature development, test authoring,
   scripted/automation work (e.g. deployment chains), debugging reproduction.
   Works from a brief; delivers code plus evidence. Multi-file implementation is
@@ -85,9 +97,10 @@ the user does not need to name a role or manually start assistants.
 - Context hygiene: when primary context exceeds ~75%, absorb nothing new —
   write the needed state to files (skills, runbooks, experience logs) and
   dispatch from those instead of carrying raw transcripts.
-- Primary execution is an exception: truly trivial one-point fix,
-  integration-only work, or unavailable delegation tools. State the concrete
-  reason; context familiarity, convenience and being faster are not sufficient.
+- Primary execution is an exception only for: cross-module integration glue,
+  unavailable delegation tools, or an explicit user instruction in the current
+  turn. State the concrete reason; context familiarity, convenience, task
+  simplicity, or being faster are NOT sufficient reasons.
 - For nontrivial work, validate the declaration using
   `python3 /Users/yuyuan/PiAgents/tools/delegation_gate.py --category <category> --owner <owner>`
   (add a documented `--exception` only when applicable). This is a required
@@ -100,6 +113,12 @@ the user does not need to name a role or manually start assistants.
 - Routing details and exceptions: `/Users/yuyuan/PiAgents/instructions/DELEGATION-ROUTING.md`.
 - Use `fork` for context-heavy exploration, implementation, debugging, or testing
   that benefits from the current conversation. It receives the active branch.
+- **Prefer `subagent_spawn` for dispatches (user rule, 2026-11-06): long-running or
+  multi-step operator/coder chains must run as background `subagent_spawn` tasks so the
+  primary conversation never blocks on them; use the synchronous `subagent` tool only for
+  short advisor/reviewer opinions or quick bounded checks. After spawning, verify the
+  dispatch is live (events.jsonl mtime moving + task-specific tokens present) before
+  trusting it — spawned ids can collide with stale directories on disk.
 - Use `subagent` for a clean-context **advisor** (architecture/product tradeoffs)
   or **reviewer** (correctness, security, regression and UX review). Give a complete
   brief: role, goal, relevant paths, necessary facts, authorization, non-goals,
@@ -146,6 +165,7 @@ Adapted from DeepSeek dsh-superagent (MIT): take as little human attention as po
 - The primary conversation never holds a turn open waiting on long work: delegate, release, and let worker reports arrive as new messages.
 - Every task record carries a stage naming whom it waits for (person/review, person/answer, person/blocked-failed, working, queued, idle) and, for anything resumed automatically, an authorization mandate (user basis + date + scope) revalidated before resume; no valid mandate, no auto-replay.
 - A persistent user pause (pause flag in coordinator state) blocks all automatic starts and retries until a person lifts it; it survives restarts.
+- **Agent-bound communication is English (user rule, 2026-11-05): the user may converse in Chinese, but all prompts, task briefs, role messages, and any text sent to subagents/forks/MCP/external agents must be written in English.** This applies regardless of the user's chat language; deliverables whose audience is the user (chat replies, reports shown to the user) follow the user's language.
 - User-originated work always dequeues ahead of background work (reserved attention slot).
 - Any future proactive/autonomous behavior must first run in observe mode (record "would accept" decisions only) before user review; never start in auto mode. Prompts describe permissions; only host code enforces them — message text never changes authorization.
 
