@@ -84,6 +84,32 @@ describe("SubagentScanner over a real redacted events.jsonl fixture", () => {
     ]);
   });
 
+  test("stale result.md does not mask an actively-appending worker (dir collision)", async () => {
+    const dir = await makeDir();
+    // Simulate a new worker reusing an old task's dir: fresh events, ancient result.
+    const evFile = join(dir, "sa-fixture", "events.jsonl");
+    await writeFile(evFile, TASK + MODEL + ASSIST);
+    const now = Date.now() / 1000;
+    await utimes(evFile, now, now);
+    await utimes(join(dir, "sa-fixture", "result.md"), now - 86400, now - 86400);
+    const views = new SubagentScanner().scan(dir);
+    const v = views.find((x) => x.id === "sa-fixture")!;
+    assert.equal(v.status, "running");
+    assert.equal(v.result, false);
+  });
+
+  test("no result + no events for over 15 minutes surfaces as blocked, not eternal running", async () => {
+    const dir = await makeDir();
+    const evFile = join(dir, "sa-zombie", "events.jsonl");
+    await mkdir(join(dir, "sa-zombie"));
+    await writeFile(evFile, TASK + MODEL);
+    const old = Date.now() / 1000 - 20 * 60;
+    await utimes(evFile, old, old);
+    const views = new SubagentScanner().scan(dir);
+    const v = views.find((x) => x.id === "sa-zombie")!;
+    assert.equal(v.status, "blocked");
+  });
+
   test("caches by mtime+size so unchanged dirs are not re-read", async () => {
     const dir = await makeDir();
     const s = new SubagentScanner();

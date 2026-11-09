@@ -174,6 +174,8 @@ interface CacheEntry {
 const HEAD_BYTES = 512 * 1024;   // task + model live near the head (after the big system line)
 const TAIL_BYTES = 64 * 1024;    // recent reports/assistant text live at the tail
 const EXCERPT_CHARS = 400;
+const STALE_RUNNING_MS = 15 * 60 * 1000; // no result + no events this long = worker stopped reporting
+const DONE_SLOP_MS = 5 * 60 * 1000;      // result.md counts as current if written within this window
 
 /** Scans a .pi/subagents dir into UI-ready views, caching by mtime+size so idle subagents cost one stat per poll. */
 export class SubagentScanner {
@@ -225,7 +227,12 @@ export class SubagentScanner {
     const model = /"model":"([^"]+)"/.exec(head)?.[1] ?? null;
     const label = firstUserTaskText(head);
     const usage = this.usageSummary(evFile);
-    if (resFile) {
+    if (resFile && resMtime >= evMtime - DONE_SLOP_MS) {
+      // done ONLY when the result was written (near) after the last event: a collided
+      // dir can carry a STALE result.md from a previous task while a new worker
+      // is actively appending events (result.md mtime << events.jsonl mtime).
+      // Slop tolerates fixture/fs ordering where events.jsonl is touched last
+      // within the same second as the result.
       const raw = readTail(resFile, 8192);
       return {
         id, label, session: null, model,
@@ -239,9 +246,12 @@ export class SubagentScanner {
     const tail = readTail(evFile, TAIL_BYTES);
     const report = lastReport(tail);
     const text = lastAssistantText(tail);
+    // No result and no fresh events: the worker stopped reporting (killed/aborted
+    // without a receipt). Surface as blocked instead of an eternal green "running".
+    const stale = !resFile && Date.now() - evMtime > STALE_RUNNING_MS;
     return {
       id, label, session: null, model,
-      status: report?.status === "blocked" ? "blocked" : "running",
+      status: report?.status === "blocked" || stale ? "blocked" : "running",
       lastActivity: evMtime,
       lastExcerpt: text ? excerpt(text, EXCERPT_CHARS) : excerpt(report?.summary ?? "", EXCERPT_CHARS),
       result: false,
