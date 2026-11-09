@@ -5,6 +5,10 @@ One router conversation dispatches every task to clean-context subagents, then v
 > 📚 Architecture documentation portal (English): [docs-site/](docs-site/README.md) (overview + delegation system / nine roles / multi-project coordinator / knowledge base / security, incl. a single-page [index.html](docs-site/index.html) tour; Chinese edition: [zh/README.md](docs-site/zh/README.md))
 >
 > 👋 New here? [ADOPTING.md](ADOPTING.md) takes you from zero to this setup in about 30 minutes.
+>
+> 🏠 Product overview: [yuyuan12138.github.io/piagents](https://yuyuan12138.github.io/piagents/) — architecture, verification loop, live subagent panels
+>
+> ✍️ Blog post: ["The time my AI claimed 26 test failures were the environment"](https://yuyuan12138.github.io/2026/11/09/pi-agent-architecture/)
 
 PiAgents is a personal operating system for coordinating dozens of AI workers from one router conversation. The router (the primary conversation) only understands requirements, writes briefs, dispatches, and verifies; all execution happens in clean-context subagents, context-inheriting forks, and per-project primary sessions. The core thesis: **correctness comes from architecture, not model IQ** — fixed acceptance tests, filesystem-checked evidence, scope-gated memory, and auditable state make an ordinary mid-tier model (currently GLM-5.3-Flash served through a local vLLM tunnel) reliably productive, and keep a stronger model from quietly failing anyway. Everything is plain text: Markdown rules, role templates, vendored Pi extensions, and a few small scripts. No hidden binaries, no cloud dependency.
 
