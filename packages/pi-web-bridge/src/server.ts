@@ -1,6 +1,8 @@
 import http from "node:http";
 import type { Socket } from "node:net";
-import { statSync } from "node:fs";
+import { statSync, lstatSync, mkdirSync, writeFileSync, createReadStream } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve as resolvePath, sep as pathSep } from "node:path";
 import { routeMessage, type RoutedMessage } from "./routing.ts";
 import { SubagentScanner } from "./state.ts";
 import { MainLogReader, readHistoryBefore } from "./mainlog.ts";
@@ -11,8 +13,30 @@ import { EMPTY_STREAM, type StreamSnapshot } from "./stream.ts";
 export const MAX_BODY_BYTES = 32 * 1024;
 /** Hard cap on a single message text (kept under the body cap so headers/JSON fit). */
 export const MAX_TEXT_CHARS = 30_000;
+/** Hard cap on one uploaded file (POST /file body, raw octet-stream). */
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/** Bound on a stored filename component (id = "<utc-stamp>-<name>"). */
+const MAX_NAME_CHARS = 200;
 /** Subagent id pattern shared by routing and log lookups (same shape pi-superagent uses). */
 export const SUBAGENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Reduce an uploaded/downloaded file name to a safe single path component:
+ * basename only (both slash types), control characters stripped, dot-only and
+ * empty names rejected, length bounded. Anything it removes is treated as a
+ * traversal attempt by the caller.
+ */
+export function sanitizeFilename(name: string): string {
+  const base = String(name ?? "").split(/[\\/]/).pop() ?? "";
+  const cleaned = base.replace(/[\x00-\x1f\x7f]/g, "").trim();
+  if (!cleaned || cleaned === "." || cleaned === "..") return "";
+  return cleaned.slice(0, MAX_NAME_CHARS);
+}
+
+/** Filesystem-safe UTC stamp prefix for stored uploads: 2026-02-11T101530.482Z-<name>. */
+function fileStamp(): string {
+  return new Date().toISOString().replace(/:/g, "");
+}
 
 export interface BridgeDeps {
   /** Project name (cwd basename) stamped into injected message headers. */
@@ -31,6 +55,12 @@ export interface BridgeDeps {
   scanner?: SubagentScanner;
   /** Main session log reader (defaults to a fresh one). */
   mainLog?: MainLogReader;
+  /** Root dir for browser→coordinator uploads (defaults to ~/.pi/agent/inbox). */
+  inboxDir?: () => string;
+  /** Root dir served by GET /file/<id> (defaults to ~/.pi/agent/outbox; auto-created 0700 at start). */
+  outboxDir?: () => string;
+  /** Upload size cap override (tests); defaults to MAX_UPLOAD_BYTES (100MB). */
+  uploadMaxBytes?: number;
   log?: (msg: string) => void;
 }
 
@@ -52,12 +82,12 @@ function sendText(res: http.ServerResponse, code: number, body: string, type: st
 }
 
 /** Read a request body with a hard cap. Resolves null when the cap is exceeded (response already sent). */
-function readBody(req: http.IncomingMessage, cap: number, res: http.ServerResponse): Promise<string | null> {
+function readBodyRaw(req: http.IncomingMessage, cap: number, res: http.ServerResponse): Promise<Buffer | null> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let done = false;
-    const finish = (v: string | null) => { if (!done) { done = true; resolve(v); } };
+    const finish = (v: Buffer | null) => { if (!done) { done = true; resolve(v); } };
     req.on("data", (c: Buffer) => {
       size += c.length;
       if (size > cap) {
@@ -68,9 +98,14 @@ function readBody(req: http.IncomingMessage, cap: number, res: http.ServerRespon
       }
       chunks.push(c);
     });
-    req.on("end", () => finish(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => finish(Buffer.concat(chunks)));
     req.on("error", () => finish(null));
   });
+}
+
+/** Read a request body as utf8 text with a hard cap. */
+function readBody(req: http.IncomingMessage, cap: number, res: http.ServerResponse): Promise<string | null> {
+  return readBodyRaw(req, cap, res).then((b) => (b === null ? null : b.toString("utf8")));
 }
 
 /** True when the request came from a browser context we serve (CSRF/DNS-rebinding guard). */
@@ -88,6 +123,14 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
   const scanner = deps.scanner ?? new SubagentScanner();
   const mainLog = deps.mainLog ?? new MainLogReader();
   const log = deps.log ?? (() => {});
+  const inbox = deps.inboxDir?.() ?? join(homedir(), ".pi", "agent", "inbox");
+  const outbox = deps.outboxDir?.() ?? join(homedir(), ".pi", "agent", "outbox");
+  const uploadCap = deps.uploadMaxBytes ?? MAX_UPLOAD_BYTES;
+  // Auto-create the file-drop dirs, private to the user (local-only bridge;
+  // the browser download path serves ONLY from the outbox).
+  for (const dir of [inbox, outbox]) {
+    try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (e) { log(`file dir setup failed (${dir}): ${(e as Error).message}`); }
+  }
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
@@ -170,6 +213,51 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
       const dir = `${deps.subagentsDir()}/${id}`;
       const out = readSubLog(dir, id, after);
       return sendJson(res, 200, out);
+    }
+    if (method === "POST" && path === "/file") {
+      // Browser → coordinator upload: raw octet-stream body, ?name=<filename>.
+      const clean = sanitizeFilename(url.searchParams.get("name") ?? "");
+      if (!clean) return sendJson(res, 400, { ok: false, error: "missing or invalid ?name=" });
+      const body = await readBodyRaw(req, uploadCap, res);
+      if (body === null) return; // cap exceeded; 413 already sent
+      const id = `${fileStamp()}-${clean}`;
+      const dest = join(inbox, id);
+      try {
+        writeFileSync(dest, body, { mode: 0o600 });
+      } catch (e) {
+        log(`file upload save failed: ${(e as Error).message}`);
+        return sendJson(res, 500, { ok: false, error: "could not save file" });
+      }
+      return sendJson(res, 200, { ok: true, id, path: dest, name: clean, size: body.length });
+    }
+    if (method === "GET" && path.startsWith("/file/")) {
+      // Coordinator → browser download: served ONLY from the outbox.
+      let seg: string;
+      try { seg = decodeURIComponent(path.slice("/file/".length)); } catch {
+        return sendJson(res, 400, { ok: false, error: "bad file id" });
+      }
+      const clean = sanitizeFilename(seg);
+      // Any sanitization delta means traversal, absolute-path or control-
+      // character tricks were attempted — reject rather than silently serve
+      // a different file. Symlinks are refused outright (no escapes via links).
+      if (!clean || clean !== seg) return sendJson(res, 403, { ok: false, error: "forbidden file id" });
+      const root = resolvePath(outbox);
+      const target = resolvePath(root, clean);
+      if (!target.startsWith(root + pathSep)) return sendJson(res, 403, { ok: false, error: "forbidden path" });
+      let st;
+      try { st = lstatSync(target); } catch { return sendJson(res, 404, { ok: false, error: "not found" }); }
+      if (st.isSymbolicLink()) return sendJson(res, 403, { ok: false, error: "symlinks are not served" });
+      if (!st.isFile()) return sendJson(res, 403, { ok: false, error: "not a regular file" });
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": st.size,
+        "Content-Disposition": `attachment; filename="${clean.replace(/"/g, "")}"`,
+        "Cache-Control": "no-store",
+      });
+      const rs = createReadStream(target);
+      rs.on("error", () => { try { res.destroy(); } catch { /* socket gone */ } });
+      rs.pipe(res);
+      return;
     }
     if (method === "POST" && path === "/message") {
       const raw = await readBody(req, MAX_BODY_BYTES, res);

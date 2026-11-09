@@ -102,10 +102,24 @@ subagent's window; routing metadata travels in the request, never in the text.
 | `GET /sub-history?id=<id>&before=<byteOffset>[&limit=N]` | the same backwards paging over a subagent's events.jsonl (default 300, max 1000) |
 | `GET /sub-log?id=<id>&after=<byteCursor>` | compact events.jsonl tail (`tool` / `assistant` / `report` / `event` lines) + `result` (tail of result.md); `{id, cursor, reset, lines, result, done}` |
 | `POST /message` | body `{target:"main"|"subagent:<id>", text}` → injects `[web-chat · project:<cwd-basename>] <text>` (or `[web-chat · for-subagent:<id>] <text>`); responds `{ok:true, routed:"main"|"main-for-subagent", id?}` |
+| `POST /file?name=<filename>` | browser→coordinator upload: raw octet-stream body (≤100MB, 413 over) saved to `~/.pi/agent/inbox/<utc-stamp>-<basename>` (0600); name is reduced to a safe single path component; responds `{ok:true, id, path, name, size}`. The UI then auto-sends an ordinary `POST /message` with `[web-chat file] <path> (<size>)` so the turn references the stored file |
+| `GET /file/<id>` | coordinator→browser download: serves ONLY from `~/.pi/agent/outbox` (auto-created 0700 at server start); `id` is a sanitized filename within that dir — traversal, absolute paths and symlinks are rejected with 403, missing files with 404; no directory listing. `Content-Disposition: attachment` |
 
 Security: loopback binding only; Host and Origin header checks (DNS-rebinding /
-CSRF guards); 32KB body cap; subagent ids validated against a strict pattern;
-no eval, no dynamic code paths.
+CSRF guards); 32KB body cap on messages, 100MB on uploads; subagent ids
+validated against a strict pattern; no eval, no dynamic code paths.
+
+### File sharing contract (coordinator ↔ browser)
+
+- **Browser → coordinator:** the UI's 📎 button / drag-drop uploads to
+  `POST /file` and the file lands in `~/.pi/agent/inbox/` — the coordinator
+  reads it from the path in the `[web-chat file]` message.
+- **Coordinator → browser:** copy the file into `~/.pi/agent/outbox/` and
+  mention `/file/<filename>` in a reply — the UI renders it as a clickable
+  download link. For link-safe mentions stick to names matching
+  `[A-Za-z0-9._-]+` (spaces and exotic characters still download via a pasted
+  URL, they just don't render as links). The outbox is served verbatim per
+  file; nothing is listed, nothing outside it is reachable.
 
 ## Install
 

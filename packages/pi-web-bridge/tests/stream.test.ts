@@ -581,4 +581,15 @@ describe("index.html live-streaming wiring", () => {
     assert.match(html, /Byte cursors stay valid across suspension/);
     assert.doesNotMatch(html, /fullRebuild/); // cursor-nulling rebuild removed
   });
+
+  test("file upload/download UI wiring (attach, drop, chip, /file links)", () => {
+    assert.match(html, /id="file-input"/);
+    assert.match(html, /id="attach"/);
+    assert.match(html, /\/file\?name=\$\{encodeURIComponent/); // upload POST
+    assert.match(html, /\[web-chat file\]/); // auto-send referencing message
+    assert.match(html, /dataTransfer\?\.files/); // drag-drop onto the composer
+    assert.match(html, /className = "chip"/); // file chip rendering
+    assert.match(html, /download target="_blank"/); // assistant /file/<name> links
+    assert.match(html, /uploading\\u2026|uploading…/); // pending upload state
+  });
 });
