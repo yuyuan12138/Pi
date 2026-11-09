@@ -44,6 +44,15 @@ The tools live in `tools/wps-reader/`.
 - **`CoreExecTimeout: >10000ms` is transient** — the WPS core is busy
   syncing/recalculating. The write often already applied. Wait ~5-8s, re-read the
   cell, and only re-apply if it did not change. Do not assume the write failed.
+- **A write timeout followed by "cell not empty: <expected value>" IS success.**
+  The value that appears after a timed-out write is exactly what you wrote — never
+  re-write it (you would corrupt or duplicate data). Decision rule: on any write
+  ambiguity, READ the cell; `value == expected` → success, move on; only re-apply
+  when the value differs or is empty.
+- **Batch writes: many rows per script invocation, never one bash call per row.**
+  One-row-per-call turns a 40-row append into hours of 60s timeouts. One python
+  run with per-row try/except + post-write verify handles all rows in minutes.
+  Report progress as `n/total` every ~10 rows so the user sees real progress.
 - **Dates are Excel serial numbers**: `serial = (date - 1899-12-30).days`
   (e.g. 46023 ≈ 2026-01-01). Write serials to the date column to match existing
   rows; convert on read if you need real dates.
