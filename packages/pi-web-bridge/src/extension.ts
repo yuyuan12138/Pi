@@ -130,8 +130,25 @@ export default function webBridge(pi: ExtensionAPI) {
       stream: () => stream.snapshot(),
       log,
     });
-    server.on("error", (e: Error) => log(`server error: ${e.message} (bridge inactive)`));
-    server.listen(port, "127.0.0.1", () => log(`mission control on http://127.0.0.1:${(server?.address() as any)?.port ?? port}`));
+    // A /reload rebinds this extension while the OLD bridge instance tears
+    // down. closeBridge() now force-closes its tracked sockets, so the port
+    // frees immediately; this retry is pure defense (e.g. two reloads
+    // racing): on EADDRINUSE re-listen a few times before declaring inactivity.
+    let bindRetries = 0;
+    const bind = () => {
+      server?.listen(port, "127.0.0.1", () => log(`mission control on http://127.0.0.1:${(server?.address() as any)?.port ?? port}`));
+    };
+    server.on("error", (e: NodeJS.ErrnoException) => {
+      if (e?.code === "EADDRINUSE" && bindRetries < 5) {
+        bindRetries++;
+        log(`port ${port} busy (EADDRINUSE), retrying bind (${bindRetries}/5) in 500ms`);
+        const t = setTimeout(bind, 500);
+        t.unref?.();
+        return;
+      }
+      log(`server error: ${e.message} (bridge inactive)`);
+    });
+    bind();
     // An embedded UI server must never keep the pi process alive on its own.
     server.unref();
   } catch (e) {

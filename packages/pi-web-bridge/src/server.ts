@@ -1,4 +1,5 @@
 import http from "node:http";
+import type { Socket } from "node:net";
 import { statSync } from "node:fs";
 import { routeMessage, type RoutedMessage } from "./routing.ts";
 import { SubagentScanner } from "./state.ts";
@@ -34,7 +35,7 @@ export interface BridgeDeps {
 }
 
 export interface BridgeServer extends http.Server {
-  /** Graceful shutdown: stops accepting, closes idle connections. */
+  /** Shutdown: stops accepting and force-closes tracked (keep-alive) sockets so the port frees for a rebind. */
   closeBridge(): void;
 }
 
@@ -93,6 +94,15 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
       try { sendJson(res, 500, { ok: false, error: String((err as Error)?.message ?? err) }); } catch { /* socket gone */ }
     });
   });
+
+  // Track every open TCP socket so shutdown can force-kill keep-alive
+  // connections (see closeBridge).
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket: Socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
+  let bridgeClosed = false;
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const port = req.socket.localPort ?? 0;
@@ -185,9 +195,32 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
   }
 
   return Object.assign(server, {
+    /**
+     * Shutdown: stop accepting, then FORCE-close every tracked socket.
+     *
+     * A bare server.close() only stops accepting and then waits for open
+     * connections to end on their own — but the web UI polls every 2-3s, so a
+     * keep-alive connection is always alive and the close never completed.
+     * A /reload rebind of the extension then failed with EADDRINUSE while the
+     * stale instance kept serving old code. Destroying the tracked sockets
+     * releases the port immediately; an in-flight response lost to the
+     * destroy is acceptable (the client refetches within one poll cycle).
+     */
     closeBridge() {
+      if (bridgeClosed) return; // double shutdown: close() on a closed server would emit ERR_SERVER_NOT_RUNNING
+      bridgeClosed = true;
       mainLog.attach(undefined);
-      server.close();
+      server.close(); // stop accepting new connections
+      const forced = sockets.size;
+      for (const socket of sockets) socket.destroy();
+      sockets.clear();
+      if (forced > 0) log(`bridge shutdown: force-closed ${forced} tracked socket(s)`);
+      // Belt and braces: if anything somehow outlives the destroy pass, stop
+      // waiting for it after 1s (closeAllConnections on node >= 18.2).
+      const t = setTimeout(() => {
+        try { (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.(); } catch { /* ignore */ }
+      }, 1000);
+      t.unref?.();
     },
   });
 }
