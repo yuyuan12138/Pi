@@ -1056,12 +1056,24 @@
       liveRemove();
     }
   }
-  async function pollStream() {
+  // Per-poller in-flight guard: overlapping cycles (slow response vs fast
+  // timer, or a resume burst racing the timer) skip instead of piling up.
+  // Hidden tabs skip cycles entirely (battery + no timer pileup across
+  // desktop/mobile suspend); visibilitychange / online resume below.
+  const withInFlight = (fn) => {
+    let busy = false;
+    return async (...args) => {
+      if (busy || document.hidden) return;
+      busy = true;
+      try { await fn(...args); } finally { busy = false; }
+    };
+  };
+  const pollStream = withInFlight(async () => {
     const r = await api("/stream");
     if (!r.ok || !r.body) return; // transient failure: keep the current view
     lastStream = r.body;
     liveSync(lastStream);
-  }
+  });
   function placeResult() {
     $("#slogcol").querySelector(".result-block")?.remove();
     const id = state.openSub;
@@ -1135,7 +1147,7 @@
   function toggleSub(id) { state.openSub === id ? closeSub() : openSub(id); }
 
   // ---------- polling ----------
-  async function pollState() {
+  const pollState = withInFlight(async () => {
     let data;
     try {
       const r = await api("/state");
@@ -1175,7 +1187,7 @@
     if (state.openSub) updateSoHeader(state.subs.get(state.openSub));
     sweepPending();
     refreshAges();
-  }
+  });
 
   async function pollWin(id) {
     const w = win(id);
@@ -1259,12 +1271,12 @@
     }
   }
 
-  async function pollLogs() {
+  const pollLogs = withInFlight(async () => {
     const targets = new Set(["main"]);
     for (const s of state.subs.values()) if (s.status !== "done") targets.add(s.id);
     if (state.openSub) targets.add(state.openSub);
     await Promise.allSettled([...targets].map((id) => pollWin(id)));
-  }
+  });
 
   // ---------- elapsed tick ----------
   setInterval(() => {
@@ -1387,6 +1399,37 @@
     else if (state.panelOpen) $("#livebar").click();
   });
   window.addEventListener("resize", syncBackdrop);
+
+  // ---------- resume on tab visibility / network restore ----------
+  // Mobile browsers suspend JS timers in background tabs; on return the page
+  // would sit on stale data until the next (possibly dropped) timer fire.
+  // Re-poll immediately on visible/online. After a long suspension (>60s)
+  // incremental deltas are untrustworthy: drop every cursor so the next round
+  // returns a reset snapshot for each window — the boot loader over the live
+  // DOM, riding the same reset=true rebuild path, scroller stick state intact.
+  let hiddenAt = 0;
+  function pollAllNow() {
+    pollState();
+    pollLogs();
+    pollStream();
+  }
+  function fullRebuild() {
+    for (const w of state.wins.values()) w.cursor = null;
+    pollState().then(pollLogs);
+    pollStream();
+  }
+  function resumePolling() {
+    if (document.hidden) return;
+    const away = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = 0;
+    if (away > 60000) fullRebuild();
+    else pollAllNow();
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) hiddenAt = Date.now();
+    else resumePolling();
+  });
+  window.addEventListener("online", resumePolling);
 
   // ---------- boot ----------
   pollState().then(pollLogs);
