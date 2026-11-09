@@ -153,7 +153,18 @@ One npm package plus eight locally vendored/local extensions (loaded directly fr
 | `pi-usage-log` | local | Per-turn token/cost JSONL + `/usage` command; offline, write failures never break a session. |
 | `pi-delegation-gate` | local | Real `tool_call` interception: `fork` without a stated context dependency is blocked; allowed forks are logged. |
 | `pi-memory-index` | local (`extensions-src/`) | Cross-session SQLite FTS5 `memory_search` over distilled memory; credential-screened, project-scoped, jieba CJK tokenization. |
-| `pi-web-bridge` | local (since `fe02dda`) | Web mission control: a local web UI on 127.0.0.1:7788 (hero coordinator conversation + right LIVE WORK panel with per-subagent status, slide-over transcripts with reply composer) injected into the running session; subagent replies ride the coordinator's `subagent_message` fallback. |
+| `pi-web-bridge` | local (since `fe02dda`) | Web Mission Control: single-file UI on 127.0.0.1:7788 served from inside the running session — live streaming, per-subagent panels, steering injection (feature block below). |
+
+**`pi-web-bridge` — web Mission Control** (`packages/pi-web-bridge/`): a single-file web UI served from inside the running pi session on 127.0.0.1:7788 — talk to the coordinator and watch every worker from a browser:
+
+- **Honest per-subagent status from disk** — one LIVE WORK card per worker (`running` / `blocked` / `done` derived from `events.jsonl` + `result.md`; a stale result file no longer masks an active worker), with slide-over transcripts and a reply composer (two-hop delivery via the coordinator's `subagent_message`).
+- **Live streaming of coordinator replies** — fed by pi's `message_update` hooks (`GET /stream`): a growing bubble plus cumulative in-flight tool lines per run, instead of waiting for the turn to persist to disk.
+- **Markdown rendering** — escape-first inline renderer, fence-aware while streaming.
+- **Backwards-paged history** — `GET /history` / `GET /sub-history` ("Load earlier") for the main conversation and every subagent window.
+- **Steering injection** — a main-target message steers into an in-flight turn (`deliverAs: "steer"`) instead of queueing behind it; idle sends start a turn.
+- **Mobile adaptation** — safe areas and touch targets, device-tested at 360/390px via Playwright probes; polling resumes on tab visibility / network restore.
+- **Precision-instrument design language** — signal-green live-state accent, hairline/glass depth, usage instrument cluster; zero external resources.
+- **Ops** — deployable behind an nginx sub-path (all fetches relative) or an SSH reverse tunnel; force-close shutdown so `/reload` swaps code cleanly; 83 Node tests plus a real-pi-loader check.
 
 ## Reproduce / quickstart
 

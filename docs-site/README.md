@@ -42,7 +42,7 @@ One-line positioning: **this is not an application — it is an agent operating 
                           single-writer queue per project
 ```
 
-An optional observation surface wraps this loop: **pi-web-bridge** — a local web mission control (127.0.0.1:7788) with live per-subagent panels and message injection into the running session (see `packages/pi-web-bridge/`).
+An optional observation surface wraps this loop: **pi-web-bridge** — a local web Mission Control (127.0.0.1:7788) with live per-subagent panels, streaming coordinator replies, steering injection, markdown rendering and mobile support (see `packages/pi-web-bridge/`).
 
 ## Reproduction in three steps
 
@@ -66,7 +66,7 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 |---|---|---|---|
 | `fork` | Spawns a child process that inherits the current conversation branch (context-heavy exploration) | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
 | `subagent_spawn` | Spawns a background clean-context subagent (the default dispatch; `tools` allowlist / persistent `session` / `wait: true` for sync semantics) | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
-| `pi-web-bridge` | Local web mission control (127.0.0.1:7788) with live per-subagent panels and message injection (optional) | `packages/pi-web-bridge/` | register the in-repo path in `settings.json` (see its README) |
+| `pi-web-bridge` | Local web Mission Control (127.0.0.1:7788): live per-subagent panels, streaming replies, steering injection, markdown, mobile-adapted (optional) | `packages/pi-web-bridge/` | register the in-repo path in `settings.json` (see its README) |
 
 Either install path works: install the upstream packages with the `pi install` commands above, or list the in-repo paths in the `packages` array of `~/.pi/agent/settings.json` (which is how this machine runs). Version note: this repo currently runs on pi 1.5.0 — installing the latest release is recommended (first verification was on 1.3.0, where fork/subagent were tested working).
 
@@ -160,7 +160,7 @@ Once verified, one transferable lesson is appended by date to `knowledge-base/da
 
 - **9 predefined roles**: all are brief templates, not resident processes; no extensions loaded; methodology is injected by "read your own skill file first" — the entire asset is the `instructions/agents/` directory.
 - **2 live dispatch tools** (`fork` + `subagent_spawn`): pi ships without subagents — `packages/pi-fork` and `packages/pi-superagent` provide them; the sync `subagent` tool was retired 2026-11-09 (absorbed into `subagent_spawn`; `packages/pi-minimal-subagent` kept in-repo for reference only).
-- **1 optional web mission control**: `pi-web-bridge` — a local web UI on 127.0.0.1:7788 with live per-subagent panels and message injection into the running session.
+- **1 optional web Mission Control**: `pi-web-bridge` — a local web UI on 127.0.0.1:7788 with live per-subagent panels, streaming coordinator replies, steering injection and backwards-paged history.
 - **3 scripts**: `delegation_gate.py` (ownership check, advisory), `git_guard.py` (staged-content guard), `compile_kb.py` (knowledge-base compile + lint) — purely local, zero dependencies.
 - **1 multi-project coordinator** (optional): SQLite persistence, single-writer queue per project, global concurrency cap of 2, crashed mutating tasks are never blindly replayed.
 - **2-layer knowledge base**: `wiki/` (curated first-hand external experience, with confidence levels) + `daily/` and `knowledge/concepts/` (internal engineering log), with a fail-closed scope gate.

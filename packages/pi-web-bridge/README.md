@@ -2,14 +2,16 @@
 
 A local "mission control" web chat for pi: talk to the running coordinator
 session and read/reply to per-subagent threads from the browser. Dark, quiet,
-single-file UI — no framework, no external resources, no npm runtime deps
-(Node stdlib only).
+single-file UI in a precision-instrument design language (signal-green
+live-state accent, hairline/glass depth) — no framework, no external
+resources, no npm runtime deps (Node stdlib only).
 
 The v2 layout is a **hero conversation + right LIVE WORK panel** (no left rail):
 
 - **Hero conversation (left/center)** — the coordinator window: chat log (user
-  bubbles, assistant text, tool/report events), a collapsible usage panel, and
-  the "Message the coordinator" composer.
+  bubbles, assistant replies that stream in live with markdown rendering and
+  cumulative in-flight tool lines, tool/report events), a collapsible usage
+  instrument panel, and the "Message the coordinator" composer.
 - **LIVE WORK panel (right)** — one card per subagent: a status dot that pulses
   while `running`, the agent id, an unread badge counting new lines since you
   last opened it, elapsed/last-activity time, a `status · tokens · model` line,
@@ -21,7 +23,8 @@ The v2 layout is a **hero conversation + right LIVE WORK panel** (no left rail):
   coordinator).
 - **Mobile** — the panel collapses into a live-bar at the top (status dot +
   `N running · M blocked` text + total unread badge); tapping it opens the
-  panel as a drawer.
+  panel as a drawer. Safe-area layout, device-tested at 360/390px; polling
+  resumes immediately when the tab becomes visible or the network returns.
 
 ```
 ┌────────────────────────────────────────┬─────────────────────┐
@@ -41,8 +44,11 @@ The v2 layout is a **hero conversation + right LIVE WORK panel** (no left rail):
 
 A pi extension (`src/extension.ts`) starts an HTTP server **inside the running
 pi session** on `127.0.0.1:7788` (override with `PI_WEB_BRIDGE_PORT`). The UI is
-served at `GET /`; all state is read from disk (session JSONL + `.pi/subagents/`
-log dirs written by pi-superagent) and polled by the browser.
+served at `GET /`; settled state is read from disk (session JSONL +
+`.pi/subagents/` log dirs written by pi-superagent) and polled by the browser,
+while in-flight assistant output streams from pi's
+`message_start`/`message_update`/`message_end` hooks (`GET /stream` — the
+session JSONL only persists complete messages).
 
 ### Injection mechanism (the exact pi API)
 
@@ -92,6 +98,8 @@ subagent's window; routing metadata travels in the request, never in the text.
 | `GET /state` | `{project, now, mainSessionAlive, main:{sessionFile, sessionMtime, alive}, subagents:[{id,label,session,model,status,lastActivity,lastExcerpt,result}]}` — status is `running` / `blocked` (last `report_to_parent` status) / `done` (`result.md` present) |
 | `GET /main-log?after=<byteCursor>[&file=<sessionPath>]` | incremental conversation items parsed from the session JSONL: `web-chat` custom messages (user) + assistant text entries + one compact line per `toolCall` block (terminal-like activity flow); `{file, cursor, reset, items:[{kind:"user"|"assistant"|"tool",name?,text,ts,id,offset}]}` — the additive `file` param lets the server deep-read the log straight from the client's cursor when it has fallen behind the item ring (no gap after a busy turn or a suspended tab) |
 | `GET /stream` | live in-flight assistant view fed by the pi `message_start`/`message_update`/`message_end` hooks (the session JSONL only persists complete messages, so this is the only true streaming source): `{streaming, text, turnStartedAt, runStartedAt, tool:{name,summary}|null, tools:[{id,name,summary}]}` — `text` is bounded to the last 8000 chars of the growing reply; `tools` accumulates every tool call of the current run in order (bounded to the last 30, deduped by toolCall id) so earlier calls stay visible while the next one streams; the single-slot `tool` field is kept for backward compatibility |
+| `GET /history?before=<byteOffset>[&limit=N]` | backwards-paged main-conversation history: up to `limit` items (default 200, max 500) strictly before the byte offset; `{items, oldest}` — `oldest` is the next page's `before`, `null` at file start |
+| `GET /sub-history?id=<id>&before=<byteOffset>[&limit=N]` | the same backwards paging over a subagent's events.jsonl (default 300, max 1000) |
 | `GET /sub-log?id=<id>&after=<byteCursor>` | compact events.jsonl tail (`tool` / `assistant` / `report` / `event` lines) + `result` (tail of result.md); `{id, cursor, reset, lines, result, done}` |
 | `POST /message` | body `{target:"main"|"subagent:<id>", text}` → injects `[web-chat · project:<cwd-basename>] <text>` (or `[web-chat · for-subagent:<id>] <text>`); responds `{ok:true, routed:"main"|"main-for-subagent", id?}` |
 
@@ -142,6 +150,12 @@ node scripts/standalone-server.mjs /path/to/project &   # foreground job in back
 Do not wire it into launchd/cron — this is a dev/preview helper, the real
 bridge belongs to the pi session.
 
+**Remote/deployed access:** the server binds loopback only. All UI `fetch()`
+paths are relative, so it can sit behind an nginx sub-path (e.g.
+`location /pi-bridge/`) or be exposed through an SSH reverse tunnel to the
+loopback port; put your own auth in front of it — the bridge itself has none
+by design.
+
 ## Tests
 
 ```sh
@@ -149,11 +163,22 @@ cd packages/pi-web-bridge
 npm run check        # tsc --noEmit && node --test tests/
 ```
 
-27 tests, Node built-in test runner:
+83 tests, Node built-in test runner:
 
 - **routing** — `/message` header building, subagent fallback, 404 on unknown
   ids, validation, 503 on refused injection, `/state` and `/sub-log` against a
   live server with a mocked `inject` emitter
+- **inject** — delivery decisions: main-target steers into a busy turn /
+  followUp when idle, subagent-target always followUp
+- **history** — the backwards JSONL pager behind `/history`/`/sub-history`:
+  byte-offset pages are true line starts, incomplete tails skipped,
+  `oldest=null` at file start
+- **stream** — `message_start`/`message_update`/`message_end` extraction and
+  the cumulative per-run tool list (dedup by toolCall id, 8000-char text bound)
+- **usage** — tools/subagents/skills/token counting over subagent event-stream
+  lines feeding the append-only `subagents-usage.jsonl` ledger
+- **shutdown** — `closeBridge` force-closes tracked keep-alive sockets so the
+  port frees immediately on `/reload`; double-close is a no-op
 - **state** — subagent status/label/model/excerpt derived from a **real
   redacted events.jsonl fixture** (`tests/fixtures/sa-fixture/`, copied from
   `.pi/subagents/sa1/`, credential-looking strings replaced), plus ordering and
@@ -172,8 +197,9 @@ npm run check        # tsc --noEmit && node --test tests/
 - Subagent `label` is the first line of the child's task; `session` (named
   persistent sessions) is not recoverable from disk and always `null`.
 - The main window backfills the last ~512KB of the session file (bounded ring
-  of 300 items); older history is not shown, and TUI-typed user messages are
-  not rendered — only web-sent messages and assistant replies.
+  of 300 items); older history loads on demand via backwards-paged `/history`.
+  TUI-typed user messages are not rendered — only web-sent messages and
+  assistant replies.
 - `blocked` detection scans the last 64KB of events.jsonl; a blocked report
   buried deeper than that shows as `running`.
 - One bridge per machine (port conflict → later sessions run without a bridge).
