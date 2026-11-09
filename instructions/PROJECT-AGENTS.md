@@ -135,7 +135,7 @@ completion. Router posture: dispatch, release attention, receive reports.
   `PiAgents/instructions/agents/` (scout, planner, coder, reviewer,
   researcher, each a folder with AGENTS.md, skills/, records/)
   as task-brief templates for `subagent`: take the agent's AGENTS.md, fill its
-  "任务书补充" section as the prompt, have the child read its own
+  "Task Brief" section as the prompt, have the child read its own
   skills/ file first, and set `tools` to match. After verifying a child's
   result, append transferable lessons (not project-private data) to its
   records/experience.md and commit, so agents improve across projects.

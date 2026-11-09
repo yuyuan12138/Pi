@@ -1,50 +1,69 @@
 ---
 name: design-craft
-description: 视觉设计工艺守则：排版层级、间距节奏、色彩系统、邮件/HTML 安全实现、反 AI 模板味。美化任何页面/文档/邮件前必读。
+description: Visual design craft rules — typographic hierarchy, spacing rhythm, color system, email/HTML-safe implementation, anti-AI-template-slop. Required reading before beautifying any page/document/email.
 ---
 
-# Design Craft（美化工艺守则）
+# Design Craft (beautification rules)
 
-目标不是"加装饰"，而是让信息层级一目了然、让人愿意读下去。
-判断标准：**删掉任何元素，信息是否仍完整？是 → 删。**
+The goal is not "add decoration" but to make the information hierarchy legible
+at a glance and the artifact worth reading.
+Acceptance test: **delete any element — is the information still complete?
+If yes, delete it.**
 
-## 1. 层级先于装饰
-- 一屏只有一个视觉重心。标题、分组、条目、元信息四级层次拉开：
-  字号至少 1.25 倍跳档，或用字重/颜色对比，不要用"略小一点"。
-- 分组靠间距（组间距 ≈ 2 倍组内间距），不靠分隔线。能不画线就不画线。
+## 1. Hierarchy before decoration
+- One visual focal point per screen. Separate four levels (title / group /
+  item / meta) by at least a 1.25x font-size step, or by weight/color
+  contrast — never by "slightly smaller".
+- Group with spacing (inter-group gap ≈ 2x intra-group gap), not divider
+  lines. If a line can be omitted, omit it.
 
-## 2. 排版
-- 行长 45–75 字符（中文 20–38 字）；行高 1.5–1.7（正文）。
-- 字体栈有真实回退：中文 `PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif`；
-  数字/代码用等宽。最多两种字族。
-- 对齐：除非表格数字，永远左对齐；不用两端对齐。
+## 2. Typography
+- Line length 45–75 characters (20–38 CJK characters); line height 1.5–1.7
+  for body text.
+- Font stack with real fallbacks: for CJK, `PingFang SC, Noto Sans CJK SC,
+  Microsoft YaHei, sans-serif`; numerals/code in monospace. At most two font
+  families.
+- Alignment: always left-aligned (except numeric tables); never justified.
 
-## 3. 色彩
-- 一个主色 + 2–3 个中性灰阶 + 每类语义色（成功/警告/来源标记）。
-- 背景色承载分组，边框色弱化（比文字淡 3 档）。
-- 对比度：正文 ≥ 4.5:1，辅助文字 ≥ 3:1（深色模式同理检查）。
+## 3. Color
+- One primary color + 2–3 neutral grays + one semantic color per class
+  (success / warning / source marker).
+- Background color carries grouping; border color is de-emphasized (3 steps
+  lighter than the text color).
+- Contrast: body text ≥ 4.5:1, secondary text ≥ 3:1 (check dark mode the
+  same way).
 
-## 4. 反 AI 模板味（slop design）
-见到就改，这些是"一眼 AI 生成"的标志：
-- 渐变横幅 + 圆角卡片 + 三栏等宽图标卡堆砌
-- 每个标题都加 emoji、每张卡都配图标
-- 紫蓝渐变、glassmorphism 滥用、阴影叠加三层
-- 空话文案（"赋能"、"一站式"、排比三连）
-装饰必须服务信息：来源标记、状态、可点性，才配一个颜色/图标。
+## 4. Anti-AI-template-slop (slop design)
+Fix these on sight — they are the markers of "instantly recognizable as
+AI-generated":
+- Gradient banner + rounded cards + a grid of three equal-width icon cards
+- An emoji on every heading, an icon on every card
+- Purple-blue gradients, glassmorphism abuse, triple-stacked shadows
+- Empty phrase copy ("empower", "one-stop", triple parallelism)
+Decoration must serve information: a source marker, a status, clickability —
+that is what earns a color/icon.
 
-## 5. 邮件 HTML 安全实现
-- 外层 `<table role="presentation">` 640px；客户端会剥 `<style>`，
-  关键间距/字号/颜色全部内联；dark-mode 只放 head `<style>` 的
-  `prefers-color-scheme` 覆盖里，浅色模式在无 head 样式时必须仍完整。
-- 零外部资源（无 img/script/link）。图片位置用色块+文字替代。
-- 测试三问：Gmail 网页、手机竖屏、深色模式，各脑内渲染一遍。
+## 5. Email HTML safe implementation
+- Outer `<table role="presentation">` at 640px; clients strip `<style>`, so
+  all critical spacing/font-size/colors go inline; dark mode lives only in
+  the head `<style>` `prefers-color-scheme` override, and the light-mode
+  rendering must still be complete when no head styles apply.
+- Zero external resources (no img/script/link). Replace image slots with a
+  color block + text.
+- Three-question test: mentally render once each in Gmail web, phone
+  portrait, and dark mode.
 
-## 6. 文档美化（Markdown/飞书/网页）
-- 段落 ≤ 4 行；列表 ≤ 2 层；表格代替逗号排比。
-- 强调用粗体，不用下划线/斜体（中文斜体是排版事故）。
-- 数字是视觉锚点：关键数字加粗或放大，不要埋在句子里。
+## 6. Document beautification (Markdown/Feishu/web)
+- Paragraphs ≤ 4 lines; lists ≤ 2 levels; use a table instead of
+  comma-linked parallelism.
+- Emphasis via bold, never underline/italic (italic CJK is a typography
+  failure).
+- Numbers are visual anchors: bold or enlarge key numbers, do not bury them
+  in prose.
 
-## 7. 验收
-交付前自检：截图/渲染一遍 → 五米外眯眼测试（三层层级是否可辨）→
-删元素测试 → 对比度抽查。与美化前的版本对比，必须能一句话说清
-"信息没变，观感差异是什么"。
+## 7. Acceptance
+Before delivery, self-check: screenshot/render once → 5-meter squint test
+(are three hierarchy levels distinguishable) → delete-an-element test →
+contrast spot-check. Compared against the pre-beautification version, you
+must be able to state in one sentence: "the information is unchanged; the
+difference is in the look".

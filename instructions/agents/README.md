@@ -25,7 +25,7 @@ instructions/agents/
 | reviewer | read-only | severity-review | graded findings + depth statement |
 | researcher | read/exec | source-verification | public research + source verification |
 | visualizer | read/write/exec | visualization-artifacts | real visual artifacts (charts, diagrams, maps) |
-| writer | read/write/exec | document-writing | documents in the user's style (人话/详细/不堆技术细节) + Feishu delivery; skill self-updates from feedback |
+| writer | read/write/exec | document-writing | documents in the user's style (plain/detailed/no technical jargon) + Feishu delivery; skill self-updates from feedback |
 | designer | read/write/edit/exec | design-craft + unslop | beautify pages/emails/docs; presentation-only edits; de-slop prose via installed unslop |
 
 ## Dispatch

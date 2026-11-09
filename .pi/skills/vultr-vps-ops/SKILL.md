@@ -15,7 +15,7 @@ description: Operate the Vultr VPS account (API balance/billing reads, ACL white
 - Other read-only calls (same header): `.../v2/billing/history` and `.../v2/instances` (list).
 - Cross-check in `/v2/billing/history`: an entry with `type=payment` and a NEGATIVE amount is a
   top-up being CREDITED, not a charge.
-- VPS sizing: `vc2-1c-2gb` ($10/月) is ample for a shadowsocks jump box; the expensive `vx1-g` tier
+- VPS sizing: `vc2-1c-2gb` ($10/month) is ample for a shadowsocks jump box; the expensive `vx1-g` tier
   is frequently out of stock in lax/sjc.
 
 ## 2. ACL whitelist trap (401 Unauthorized IP)
@@ -66,5 +66,5 @@ description: Operate the Vultr VPS account (API balance/billing reads, ACL white
 
 ## Source
 
-knowledge-base/daily/2026-11-05.md (Vultr/代理体系迁移段); `~/.config/vultr/` (token,
+knowledge-base/daily/2026-11-05.md (Vultr/proxy-system migration section); `~/.config/vultr/` (token,
 ss-config-backup.json); mihomo config `/opt/homebrew/etc/mihomo/config.yaml`.

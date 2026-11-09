@@ -26,8 +26,10 @@ The tools live in `tools/wps-reader/`.
   `http_json` from it for custom reads.
 
 ## Writing (bookkeeping)
-- `python3 tools/wps-reader/add_entry.py --amount 25 --category 餐饮 --note 午饭 [--date 2026-11-03]`
-  — append one row to 流水-钧 (sheet index 4).
+- `python3 tools/wps-reader/add_entry.py --amount 25 --category 餐饮 (dining) --note 午饭 (lunch) [--date 2026-11-03]`
+  — append one row to the `流水-钧` ledger sheet (sheet index 4; Chinese sheet
+  names/categories are literal data vocabulary of the user's workbook — keep
+  entries in Chinese to match existing rows).
 - `python3 tools/wps-reader/batch_add.py entries.json` — append many rows in one
   CDP session. `entries.json` = `[{"date":"YYYY-MM-DD","category":..,"amount":..,"note":..}]`.
 
@@ -86,9 +88,11 @@ The tools live in `tools/wps-reader/`.
 ## Distinguish real transactions from noise (bookkeeping)
 When recording from a WeChat/Alipay bill dump, record only actual money-moved
 entries ("Paid by Balance" / "Deducted by Balance"). Skip summary/notification
-messages: the daily 记账日报 (yesterday's totals), 微信支付分 "先享后付服务使用通知"
-(service notice, no charge). Ask the user to confirm ambiguous categories
-(convenience-store purchases default to 零食; a "先购后付" deduction may be a
+messages: the daily bookkeeping daily-report notification (记账日报, yesterday's
+totals), the WeChat Pay Score "先享后付服务使用通知" (pay-after-use service
+notice, no charge). Ask the user to confirm ambiguous categories
+(convenience-store purchases default to the `零食` (snacks) category; a
+"先购后付" (buy-now-pay-later) deduction may be a
 specific item — ask what it was).
 
 ## Verification
