@@ -231,8 +231,8 @@ export class SubagentManager {
     }
     // Localization: always pass a model so the worker never falls back to Pi's
     // default (which 401s on this host). Precedence: explicit subagent_spawn model
-    // > PI_SUBAGENT_MODEL env > self-hosted training-coder/Qwen3-5 default.
-    const defaultModel = process.env.PI_SUBAGENT_MODEL || "training-coder/Qwen3-5";
+    // > PI_SUBAGENT_MODEL env > self-hosted training-coder/GLM-5.3-Flash default.
+    const defaultModel = process.env.PI_SUBAGENT_MODEL || "training-coder/GLM-5.3-Flash";
     args.push("--model", l.info.model || defaultModel);
     // Recursion: children learn their position in the spawn tree via env. PI_SPAWN_DEPTH 1 =
     // spawned by the root session; the extension refuses further spawns at depth >= MAX_SPAWN_DEPTH
