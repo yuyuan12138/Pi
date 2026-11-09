@@ -65,9 +65,9 @@ Three channels, chosen per task; the router dispatches and releases attention in
 
 **Verify everything against the filesystem.** A subagent's PASS report, a commit record's gate numbers, a tool's green output — all are claims until the primary re-checks against real files, logs, and server state. Three incidents that shaped this rule:
 
-- A wave-25 commit record declared 26 failing guest tests "pre-existing environmental"; a baseline A/B with the previous payload on the same machine proved the new payload itself caused them (fixed in remote-agent `a367fef`).
+- A commit record declared 26 failing containerized tests "pre-existing environmental"; a baseline A/B with the previous payload on the same machine proved the new payload itself caused them (fixed in commit `a367fef`).
 - A spawned subagent id collided with a stale log directory from the previous day and its transcript was polluted with old content — since then every background dispatch is liveness-checked (log `events.jsonl` mtime moving + task-specific tokens present).
-- A server-side verification tool grepped player data for a stats string that exists in no real Minecraft file format, so it returned 0 forever — a false negative caught only by reading the actual on-disk format.
+- A server-side verification tool grepped a stats string that exists in no real file format, so it returned 0 forever — a false negative caught only by reading the actual on-disk format.
 
 ## The nine roles
 
@@ -98,15 +98,12 @@ After a verified result, transferable lessons are appended to the role's `record
 
 The knowledge base deliberately stays small (tens to low hundreds of articles, no vector DB); Git history is the tamper-evident audit trail, and writes only happen from the owning conversation. See [knowledge-base/AGENTS.md](knowledge-base/AGENTS.md) for scope/approval gates.
 
-## Self-improvement loop (MC RSI testbed)
+## Harness self-improvement
 
-A real closed-loop self-improvement campaign runs against Minecraft episodes in [remote-agent/operations/20261029-minimal-sword-episode/](remote-agent/operations/20261029-minimal-sword-episode/):
+The dispatch layer tunes itself the same way work is dispatched — with a human gate:
 
-- **Server-authoritative ground truth.** Success is read from the game server — advancement trees and per-run stats files — never from the model's or the tools' own claims. The advancement ladder (`advancement_ladder.py`) extracts real ids and tree edges from the pinned 1.21.6 server jar; it never invents them.
-- **Auditable wave loop** (`wave_loop.py` + `wave/`): error ledger → LLM hypotheses (hot-path only, each with a falsifiable prediction) → staged patch → world-reset A/B episode → baseline-vs-treatment report. There is deliberately **no `accept` subcommand**: acceptance is the human's, at the gate. Every step writes inspectable artifacts under `wave/<run_id>/`.
-- **Closed-loop engine** (`closed_loop.py`) — **in progress, honestly marked**: wires sense → propose → filter → experiment → accept-gate → apply → curriculum into one cycle, in observe mode first (records "would accept" decisions only; `--live` is an explicit human flag). State checkpoints after every step; crashed experiments are never replayed. First observe-mode cycles ran 2026-11-09 (1 cycle, `would_reject` at the estimate gate) — this is not yet a working autonomous improver.
-- **Advancement-tree curriculum**: ladder nodes (`wooden_sword` → …) with saturation rules (3 consecutive successes advance the node; 5 consecutive failures hold and flag). An earlier manual version of the loop drove the furnace campaign to server-verified success twice (runs `35d359bd`, `166a1d12`).
 - **`harness2/`**: a v0 observe-mode harness-optimization loop (inventory → propose → probe → journal) for tuning the dispatch layer itself.
+- **Closed-loop experiment engine** (in progress, honestly marked): error ledger → LLM hypotheses (hot-path only, each with a falsifiable prediction) → controlled A/B on a real task environment → rule-based accept gate → apply with revert procedure. Observe mode records "would accept" decisions only; live apply requires an explicit human flag. State checkpoints after every step; crashed experiments are never replayed. There is deliberately no auto-accept: acceptance is the human's, at the gate.
 
 ## Repository layout
 
@@ -120,7 +117,7 @@ A real closed-loop self-improvement campaign runs against Minecraft episodes in 
 | `docs-site/` | Reproducible architecture guide — English with Chinese mirror, plus single-page `index.html`. |
 | `tools/` | `delegation_gate.py` (advisory ownership check), harness/coordination tools, test suites. |
 | `.pi/skills/` | Coordinator skills: `workspace-checkpoint`, `mc-rsi-episode`, `vultr-vps-ops`, `info-router-sources`, `wps-cloud-sheet`. |
-| `remote-agent/` | Independent legacy repo; `operations/` holds the MC RSI campaign records (wave loop, closed loop, autopsies, operator records). |
+| `remote-agent/` | Independent legacy repo (operations records kept for provenance). |
 | `research-agent/`, `internet-search-agent/` | Independent legacy repos: paper registry, and bounded public-source search (dependency-free `tools/search.py`). |
 | `harness2/` | Observe-mode harness-optimization loop (v0). |
 | `agents.json` | Multi-project coordinator registry snapshot (live state lives in `~/.pi/agent/project-coordinator/`, private). |
@@ -156,6 +153,6 @@ The router session needs no role chats and no daemons — it dispatches to subag
 - **Guards are advisory or workflow-level, not sandboxes.** Tool allowlists and cwd limits constrain workflows; children still run under the host user's permissions. `delegation_gate.py` validates *declared* ownership and is not a runtime interceptor; only the `fork`-context rule has real interception. No Pi hook can prove a child actually ran.
 - **Local Git is not backup, and not encryption.** Ignore rules exclude runtime state and credentials, but ignoring a file does not untrack it, and revert/delete commits do not purge secrets from history. The shared `.githooks/pre-commit` staged-content guard is best-effort, not DLP; never disable it to make a commit pass.
 - **Verification evidence has ceilings.** Offline extension tests are not evidence of model quality, weeks-long memory retention, OS isolation, or multi-project Telegram routing. API green ≠ browser usable; idempotent success ≠ the flow reran. Single-episode success only fails to falsify a fix, it does not prove one.
-- **The closed loop is not autonomous yet.** `closed_loop.py` has run observe-mode cycles only; live apply requires an explicit human `--live` flag, and no `accept` exists in the wave loop by design.
+- **The harness self-improvement loop is not autonomous yet.** Experiment cycles have run in observe mode only; live apply requires an explicit human flag, and no auto-accept exists by design.
 - **Model-calls-off is real but narrow.** The coordinator's RPC runtime refuses prompts by default and never replays crashed mutating tasks, but nothing here prevents a human or a shell-capable child from spending tokens; authorization lives in briefs and rules, enforced by attention, not by the OS.
 - **Skills guide behavior; they enforce nothing.** They neither isolate processes nor grant permissions, and skills in one workspace do not automatically load in sibling workspaces.
