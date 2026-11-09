@@ -487,18 +487,19 @@
   // The live bubble is NOT part of w.items: it renders the in-flight assistant
   // text from /stream and is replaced by the completed /main-log item (dedupe
   // by content) once the run settles.
-  const live = { el: null, text: null, streaming: false, settledAt: 0, consumed: null };
+  const live = { el: null, text: null, streaming: false, settledAt: 0, consumed: null, startedAt: null };
   let lastStream = { streaming: false, text: "", turnStartedAt: null, tool: null };
   let mainLogSeen = false;    // suppress settled-bubble flash before the first main-log snapshot
   function mainItemEls() {
-    // #logcol children minus the live bubble: keeps the index-based item lookups
-    // (pending-user replace/fail) aligned with w.items.
-    return [...$("#logcol").children].filter((el) => el !== live.el);
+    // #logcol children minus the live bubble and the empty placeholder: keeps
+    // the index-based item lookups (pending-user echo replace) aligned 1:1
+    // with w.items in every render state.
+    return [...$("#logcol").children].filter((el) => el !== live.el && !el.classList.contains("empty"));
   }
 
   const win = (id) => {
     let w = state.wins.get(id);
-    if (!w) { w = { items: [], cursor: null, resultText: null, done: false, stats: null, oldest: null, histDone: false }; state.wins.set(id, w); }
+    if (!w) { w = { items: [], cursor: null, resultText: null, done: false, stats: null, oldest: null, histDone: false, histCount: 0, file: null }; state.wins.set(id, w); }
     return w;
   };
 
@@ -508,6 +509,42 @@
       if (Number.isFinite(it.offset) && it.offset >= 0 && (w.oldest === null || it.offset < w.oldest)) w.oldest = it.offset;
     }
   }
+  /**
+   * A reset snapshot (first poll, resume rebuild, session switch) carries only
+   * the server's ring/window tail. Replacing the model with it used to blank
+   * every "Load earlier" row and any just-sent message whose echo had not
+   * landed yet — the disappearing-messages bug. Merge instead: keep model
+   * items older than the snapshot (by byte offset — never duplicated, since
+   * every snapshot offset is >= its own minimum), drop client-only pending
+   * items whose echo already arrived inside the snapshot (the server copy
+   * wins), and re-insert the remaining client-only items by timestamp so a
+   * mid-turn message keeps its chronological place. A full replace happens
+   * only when the session file itself changed (old byte offsets are stale).
+   */
+  function mergeReset(w, snap, sameFile) {
+    if (!sameFile || !w.items.length) { w.histCount = 0; return snap; }
+    let minOff = Infinity;
+    for (const it of snap) {
+      if (Number.isFinite(it.offset) && it.offset >= 0 && it.offset < minOff) minOff = it.offset;
+    }
+    const keep = [], clientOnly = [];
+    for (const it of w.items) {
+      if (Number.isFinite(it.offset) && it.offset >= 0) {
+        if (it.offset < minOff) keep.push(it);
+      } else clientOnly.push(it); // optimistic sent/failed message: no server offset yet
+    }
+    if (!keep.length && !clientOnly.length) { w.histCount = 0; return snap; }
+    w.histCount = keep.reduce((n, it) => n + (it._h ? 1 : 0), 0);
+    const echoed = new Set(snap.filter((it) => it.kind === "user").map((it) => it.text));
+    const merged = keep.concat(snap);
+    for (const p of clientOnly) {
+      if (p.kind === "user" && echoed.has(p.text)) continue;
+      let i = merged.length;
+      while (i > 0 && Number.isFinite(merged[i - 1].ts) && (merged[i - 1].ts ?? 0) > (p.ts ?? 0)) i--;
+      merged.splice(i, 0, p);
+    }
+    return merged;
+  }
   async function loadEarlier(id, histPath, render, col, scroller) {
     const w = win(id);
     const btn = id === "main" ? $("#load-earlier") : $("#sload-earlier");
@@ -516,6 +553,7 @@
     btn.style.opacity = ".55";
     try {
       const sc = scroller.el;
+      const fileBefore = id === "main" ? w.file : null;
       let its = [];
       let cursor = w.oldest; // null = start from the tail of the log
       // A page can hold zero displayable lines (the parsers filter most raw
@@ -530,13 +568,16 @@
         if (cursor === null) { w.histDone = true; btn.hidden = true; break; }
         if (its.length) break;
       }
+      if (fileBefore && w.file && w.file !== fileBefore) return; // session switched mid-page: byte offsets are stale
       w.oldest = cursor;
       if (!its.length) return; // nothing displayable before this point
+      for (const it of its) it._h = true; // history-page marker (reset merge + cap erosion accounting)
       const prevH = sc.scrollHeight, prevTop = sc.scrollTop;
       col.querySelector(".empty")?.remove();
       const first = col.firstChild; // fixed reference: keeps chronological order
       for (const it of its) col.insertBefore(render(it), first);
       w.items.unshift(...its); // keep the model in sync so rebuilds keep history
+      w.histCount += its.length;
       sc.scrollTop = prevTop + (sc.scrollHeight - prevH); // keep the viewport stable
     } finally {
       w.histBusy = false;
@@ -962,6 +1003,19 @@
         m.className = "meta";
         m.textContent = "not delivered";
         d.append(m);
+      } else if (item.pending) {
+        // The POST accepted it; the echo replaces this bubble whenever the
+        // coordinator's log catches up (a long turn can delay that for many
+        // minutes). No client timer ever turns "sent" into a failure.
+        const m = document.createElement("div");
+        m.className = "meta";
+        if (item.ts) {
+          m.dataset.sentTs = String(item.ts);
+          m.textContent = "sent \u00b7 " + fmtElapsed(Date.now() - item.ts);
+        } else {
+          m.textContent = "sent";
+        }
+        d.append(m);
       }
     } else {
       const m = document.createElement("div");
@@ -1025,16 +1079,6 @@
       if (mainSc.stick) mainSc.glide();
     }
   }
-  function sweepPending() {
-    const w = win("main");
-    for (const it of w.items) {
-      if (it.pending && it.ts && Date.now() - it.ts > 60000) {
-        it.pending = false;
-        it.failed = true;
-        refreshMainNode(it);
-      }
-    }
-  }
   function refreshAges() {
     for (const m of document.querySelectorAll("#logcol .msg.assistant .meta[data-ts]")) {
       const ts = Number(m.dataset.ts);
@@ -1044,11 +1088,13 @@
 
   function rebuildMain() {
     const w = win("main");
-    // The rebuild wipes the live bubble with the column; a settled snapshot is
-    // already covered by the rebuilt items, so don't let it resurrect.
-    if (live.el) {
-      live.el = null; live.text = null; live.streaming = false; live.settledAt = 0;
-      if (!lastStream.streaming) live.consumed = lastStream.text || null;
+    // A settled bubble is already covered by the rebuilt items, so drop it
+    // (and don't let it resurrect). A still-streaming bubble survives the
+    // rebuild and is re-appended below — destroying it here blanked the
+    // just-rendered streaming text until the next /stream poll.
+    if (live.el && !lastStream.streaming) {
+      liveRemove();
+      live.consumed = lastStream.text || null;
     }
     mainSc.reset();
     if (!w.items.length) {
@@ -1059,18 +1105,30 @@
     } else {
       for (const it of w.items) $("#logcol").append(renderMainItem(it));
     }
+    if (live.el) $("#logcol").append(live.el); // streaming bubble trails the rebuilt column
     mainSc.toBottom();
   }
 
   // ---------- live streaming bubble ----------
   function liveRemove() {
     live.el?.remove();
-    live.el = null; live.text = null; live.streaming = false; live.settledAt = 0;
+    live.el = null; live.text = null; live.streaming = false; live.settledAt = 0; live.startedAt = null;
   }
-  /** Drop the live bubble when a completed /main-log item IS this text (dedupe by content). */
-  function liveConsume(fullText) {
+  /**
+   * Drop the live bubble when a completed /main-log item IS this message.
+   * The stream buffer holds the TAIL of the in-flight text and the item its
+   * (possibly head-truncated) full text, so a long reply legitimately matches
+   * as a tail window — but only when the item was written at/after this
+   * message started. An older message that merely ends with the same words
+   * must never consume the bubble: that removed freshly streamed text
+   * mid-render. Only ever removes the live bubble itself, never a rendered
+   * item node.
+   */
+  function liveConsume(fullText, ts) {
     if (!live.el || !live.text) return;
-    if (fullText === live.text || fullText.endsWith(live.text)) {
+    const knownAge = Number.isFinite(ts) && Number.isFinite(live.startedAt);
+    if (knownAge && ts < live.startedAt - 2000) return; // written before this message started
+    if (fullText === live.text || (knownAge && fullText.endsWith(live.text))) {
       live.consumed = live.text;
       liveRemove();
     }
@@ -1103,6 +1161,7 @@
     }
     const wasStreaming = live.streaming;
     live.streaming = snap.streaming;
+    if (snap.turnStartedAt) live.startedAt = snap.turnStartedAt;
     if (snap.streaming) live.settledAt = 0;
     else if (wasStreaming) live.settledAt = Date.now();
     const changed = live.text !== snap.text;
@@ -1262,7 +1321,6 @@
     const mtime = data.main?.sessionMtime;
     $("#win-meta").textContent = mtime ? `last activity ${relTime(mtime)}` : "";
     if (state.openSub) updateSoHeader(state.subs.get(state.openSub));
-    sweepPending();
     refreshAges();
   });
 
@@ -1277,11 +1335,16 @@
     if (id !== "main") logOkAt.set(id, Date.now());
     const b = r.body;
     w.cursor = b.cursor;
+    if (b.file) w.file = b.file; // main snapshot only; anchors the loadEarlier staleness guard
 
     if (id === "main") {
       mainLogSeen = true;
       if (b.reset) {
-        w.items = (b.items ?? []).slice();
+        // A reset snapshot is the server ring tail, not the whole view: merge
+        // so loaded history and a pending just-sent message survive the
+        // rebuild (resume after >60s, session switch, first poll).
+        const sameFile = !b.file || !w.file || b.file === w.file;
+        w.items = mergeReset(w, b.items ?? [], sameFile);
         rebuildMain();
         w.oldest = null; w.histDone = false;
         noteOldest(w, w.items);
@@ -1290,12 +1353,13 @@
         for (const item of b.items ?? []) {
           const idx = w.items.findIndex((x) => x.pending && x.kind === "user" && x.text === item.text);
           if (idx >= 0) {
-            w.items.splice(idx, 1);
-            mainItemEls()[idx]?.remove();
-            w.items.splice(idx, 0, item);
-            const ref = mainItemEls()[idx];
-            const node = renderMainItem(item);
-            if (ref) $("#logcol").insertBefore(node, ref); else $("#logcol").append(node);
+            // The echo replaces the optimistic bubble in place: its position
+            // is already chronologically correct (pushed at send time).
+            w.items[idx] = item;
+            const els = mainItemEls();
+            if (els[idx]) els[idx].replaceWith(renderMainItem(item));
+            else $("#logcol").append(renderMainItem(item));
+            if (mainSc.stick) mainSc.glide();
           } else {
             w.items.push(item);
             fresh.push(item);
@@ -1305,7 +1369,7 @@
         if (fresh.length) {
           let ei = 0;
           for (const it of fresh) {
-            if (it.kind === "assistant") liveConsume(it.text);
+            if (it.kind === "assistant") liveConsume(it.text, it.ts);
             const node = renderMainItem(it);
             markEnter(node, ei++);
             $("#logcol").append(node);
@@ -1313,7 +1377,18 @@
           if (mainSc.stick) mainSc.glide();
         }
       }
-      if (w.items.length > 600) { w.items = w.items.slice(-600); rebuildMain(); }
+      // Bound the view. Trim only the live tail window: explicitly loaded
+      // history erodes only when the live conversation itself outgrows the
+      // base cap, and the oldest cursor is re-anchored so trimmed rows stay
+      // reachable via Load-earlier instead of silently vanishing.
+      const overMain = Math.max(w.items.length - w.histCount - 600, w.items.length - 3000);
+      if (overMain > 0) {
+        w.items.splice(0, overMain);
+        w.histCount = Math.max(0, w.histCount - overMain);
+        const head = w.items[0];
+        if (head && Number.isFinite(head.offset) && head.offset >= 0) w.oldest = head.offset;
+        rebuildMain();
+      }
       w.stats = b.stats ?? (w.stats ?? usageFromItems(w.items));
       if (!w.histDone) $("#load-earlier").hidden = w.items.length === 0;
       updateUsage("main");
@@ -1324,7 +1399,9 @@
     w.done = !!b.done;
     if (b.result != null) w.resultText = b.result;
     if (b.reset) {
-      w.items = (b.lines ?? []).slice();
+      // Same merge discipline as the main window: a sub-log reset re-reads a
+      // bounded window of events.jsonl; keep older client-side rows.
+      w.items = mergeReset(w, b.lines ?? [], true);
       w.oldest = null; w.histDone = false;
       noteOldest(w, w.items);
       if (state.openSub === id) rebuildSub();
@@ -1340,8 +1417,12 @@
         }
       }
     }
-    if (w.items.length > 2000) {
-      w.items = w.items.slice(-2000);
+    const overSub = Math.max(w.items.length - w.histCount - 2000, w.items.length - 6000);
+    if (overSub > 0) {
+      w.items.splice(0, overSub);
+      w.histCount = Math.max(0, w.histCount - overSub);
+      const head = w.items[0];
+      if (head && Number.isFinite(head.offset) && head.offset >= 0) w.oldest = head.offset;
       if (state.openSub === id) rebuildSub();
     }
     w.stats = b.stats ?? (w.stats ?? usageFromItems(w.items));
@@ -1362,6 +1443,11 @@
   setInterval(() => {
     if (document.hidden) return;
     const now = Date.now();
+    // pending user bubbles: ticking "sent · m:ss" until the echo replaces them
+    for (const m of document.querySelectorAll("#logcol .meta[data-sent-ts]")) {
+      const ts = Number(m.dataset.sentTs);
+      if (Number.isFinite(ts) && ts > 0) m.textContent = "sent \u00b7 " + fmtElapsed(now - ts);
+    }
     for (const s of state.subs.values()) {
       if (s.status === "done") continue;
       const rec = cardEls.get(s.id);
@@ -1410,12 +1496,19 @@
     const optimistic = { kind: "user", text, ts: Date.now(), pending: true, failed: false };
     w.items.push(optimistic);
     mainSc.add(renderMainItem(optimistic));
-    const r = await api("/message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target: "main", text }),
-    });
-    if (!r.ok) {
+    // Failure is the POST's verdict alone (HTTP error or network throw): a
+    // delivered message whose echo is delayed by a long coordinator turn must
+    // never be failed by a client-side timer — it stays in the neutral sent
+    // state until the echo replaces it.
+    let r = null;
+    try {
+      r = await api("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "main", text }),
+      });
+    } catch { /* network error: the POST did not go through */ }
+    if (!r || !r.ok) {
       optimistic.pending = false;
       optimistic.failed = true;
       refreshMainNode(optimistic);
