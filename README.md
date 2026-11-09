@@ -1,6 +1,10 @@
 # PiAgents — a personal operating system for AI worker fleets
 
+One router conversation dispatches every task to clean-context subagents, then verifies their work against real files and tests — all execution happens in disposable workers, and every rule, role brief, and memory layer is plain text in this repo. Core thesis: **correctness comes from architecture, not model IQ**.
+
 > 📚 Architecture documentation portal (English): [docs-site/](docs-site/README.md) (overview + delegation system / nine roles / multi-project coordinator / knowledge base / security, incl. a single-page [index.html](docs-site/index.html) tour; Chinese edition: [zh/README.md](docs-site/zh/README.md))
+>
+> 👋 New here? [ADOPTING.md](ADOPTING.md) takes you from zero to this setup in about 30 minutes.
 
 PiAgents is a personal operating system for coordinating dozens of AI workers from one router conversation. The router (the primary conversation) only understands requirements, writes briefs, dispatches, and verifies; all execution happens in clean-context subagents, context-inheriting forks, and per-project primary sessions. The core thesis: **correctness comes from architecture, not model IQ** — fixed acceptance tests, filesystem-checked evidence, scope-gated memory, and auditable state make an ordinary mid-tier model (currently GLM-5.3-Flash served through a local vLLM tunnel) reliably productive, and keep a stronger model from quietly failing anyway. Everything is plain text: Markdown rules, role templates, vendored Pi extensions, and a few small scripts. No hidden binaries, no cloud dependency.
 
@@ -9,48 +13,56 @@ Verified running on [pi](https://github.com/earendil-works/pi) 1.3.0, but not bo
 ## Architecture overview
 
 ```text
-                         User (requirements · decisions · final acceptance)
-                                          │
-  ┌───────────────────────────────────────▼────────────────────────────────────┐
-  │        PRIMARY CONVERSATION = router  (one per project, cwd = project root) │
-  │   only does: requirements · written briefs · decisions · acceptance ·       │
-  │              cross-module integration      (zero inline execution)          │
-  └──────┬──────────────────────┬─────────────────────┬────────────────────────┘
-         │ background (default) │ context-inherit     │ sync (short opinions;
-         ▼                      ▼                     ▼  pending retirement)
-  subagent_spawn headless     fork (copies the      subagent (depth-3 nesting)
-  workers + report_to_parent  active session
-  (milestone reports as       branch, isolated
-  messages, never polling)    worktree)
-         │                      │                     │
-         ▼                      ▼                     ▼
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │  ROLE BRIEFS  instructions/agents/ — 9 templates: scout · planner ·       │
-  │  coder · operator · reviewer · researcher · visualizer · writer ·         │
-  │  designer  (each: AGENTS.md brief + skills/ method + experience log)      │
-  └──────────────────────────────┬───────────────────────────────────────────┘
-                                 ▼
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │  VERIFICATION GATES   best-of-N candidates on fixed acceptance tests ·    │
-  │  primary inspects the actual diff · advisory ownership check              │
-  │  (tools/delegation_gate.py, real tool_call interception for fork) ·       │
-  │  worker hardening (no-extensions/MCP/approve, credential denylist)        │
-  └──────────────────────────────┬───────────────────────────────────────────┘
-                                 ▼ verified results only
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │  MEMORY LAYERS                                                            │
-  │  1 session observations/reflections (pi-observational-memory)             │
-  │  2 daily decision log   knowledge-base/daily/YYYY-MM-DD.md                │
-  │  3 distilled concepts   knowledge/concepts/ (scope + approval gated)      │
-  │  4 sourced wiki         knowledge-base/wiki/ (confidence-tagged)          │
-  │  + pi-memory-index: cross-session SQLite FTS5 memory_search (installed)   │
-  └──────────────────────────────────────────────────────────────────────────┘
+                User (requirements · decisions · final acceptance)
+                                  │
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ PRIMARY CONVERSATION = router — one per project, cwd = project root  │
+ │ only does: requirements · written briefs · decisions · acceptance ·  │
+ │            cross-module integration          (zero inline execution) │
+ └──────────────────────────────┬────────────────────────────────────┘
+                                │ dispatch via three channels
+          ┌─────────────────────┼─────────────────────┐
+          ▼                     ▼                     ▼
+   subagent_spawn         fork (by exception)    sync subagent
+   background headless    copies the active      short opinions only
+   workers — the default; session branch into    (depth-3 nesting;
+   report_to_parent       an isolated worktree;  pending retirement)
+   milestone reports      context-inherit
+   arrive as messages,
+   never polling
+          └─────────────────────┼─────────────────────┘
+                                ▼
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ ROLE BRIEFS — instructions/agents/, 9 templates: scout · planner ·   │
+ │ coder · operator · reviewer · researcher · visualizer · writer ·     │
+ │ designer  (each: AGENTS.md brief + skills/ method + experience log)  │
+ └──────────────────────────────┬────────────────────────────────────┘
+                                ▼
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ VERIFICATION GATES — best-of-N candidates on fixed acceptance        │
+ │ tests · primary inspects the actual diff · advisory ownership        │
+ │ check (tools/delegation_gate.py; real tool_call interception         │
+ │ for fork) · worker hardening (no-extensions/MCP/approve,             │
+ │ credential denylist)                                                 │
+ └──────────────────────────────┬────────────────────────────────────┘
+                                ▼  verified results only
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ MEMORY LAYERS                                                        │
+ │ 1 session observations/reflections (pi-observational-memory)         │
+ │ 2 daily decision log   knowledge-base/daily/YYYY-MM-DD.md            │
+ │ 3 distilled concepts   knowledge/concepts/ (scope + approval gated)  │
+ │ 4 sourced wiki         knowledge-base/wiki/ (confidence-tagged)      │
+ │ + pi-memory-index (installed): cross-session SQLite FTS5             │
+ │   memory_search                                                      │
+ └──────────────────────────────────────────────────────────────────────┘
 
- ═══════════════ cross-project coordination layer (optional) ═══════════════
+ ════════════ cross-project coordination layer (optional) ════════════
   Project A primary ──┐
-  Project B primary ──┼──▶ pi-project-coordinator: registry (explicit ids only,
-  …                   │    never disk scanning) · per-project FIFO queues ·
-                      ▼    single-writer lease · crash-safe journal (SQLite)
+  Project B primary ──┼──▶ pi-project-coordinator
+  …                   │    registry (explicit ids only, never disk
+                      │    scanning) · per-project FIFO queues ·
+                      ▼    single-writer lease · crash-safe journal
+                           (SQLite)
 ```
 
 ## Dispatch discipline
