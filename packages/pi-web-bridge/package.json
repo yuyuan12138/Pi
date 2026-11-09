@@ -1,0 +1,40 @@
+{
+  "name": "pi-web-bridge",
+  "version": "0.1.0",
+  "description": "Local web chat bridge for pi — chat with the coordinator session and per-subagent threads from a browser (mission control UI).",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "keywords": [
+    "pi",
+    "pi-package",
+    "extension",
+    "web",
+    "chat",
+    "mission-control"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
+  "files": [
+    "src/",
+    "tests/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/",
+    "check": "npm run typecheck && npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

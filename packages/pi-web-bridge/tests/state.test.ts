@@ -1,0 +1,119 @@
+import { test, describe } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { cp, mkdtemp, mkdir, writeFile, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SubagentScanner, naturalCompare, readTail } from "../src/state.ts";
+
+const FIXTURES = new URL("./fixtures/", import.meta.url).pathname;
+
+const evLine = (ev: object) => JSON.stringify(ev) + "\n";
+const TASK = evLine({ type: "message_end", message: { role: "user", content: [{ type: "text", text: "Investigate flaky login test and propose a fix" }] } });
+const MODEL = evLine({ type: "message_start", message: { role: "assistant", content: [], api: "x", provider: "p", model: "test-model-9" } });
+const PROGRESS = evLine({ type: "tool_execution_start", toolCallId: "t1", toolName: "report_to_parent", args: { status: "progress", summary: "reproduced the flake" } });
+const BLOCKED = evLine({ type: "tool_execution_start", toolCallId: "t2", toolName: "report_to_parent", args: { status: "blocked", summary: "which fix do you prefer, A or B?" } });
+const ASSIST = evLine({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Found the race: the token refresh happens after the redirect." }] } });
+
+async function makeDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "wbstate-"));
+  // Real redacted fixture: a finished subagent (result.md present).
+  await cp(join(FIXTURES, "sa-fixture"), join(dir, "sa-fixture"), { recursive: true });
+  // Blocked: last report is blocked, no result.
+  await mkdir(join(dir, "sa-blocked"));
+  await writeFile(join(dir, "sa-blocked", "events.jsonl"), TASK + MODEL + PROGRESS + BLOCKED);
+  // Running: recent activity, last report progress.
+  await mkdir(join(dir, "sa-running"));
+  await writeFile(join(dir, "sa-running", "events.jsonl"), TASK + MODEL + PROGRESS + ASSIST);
+  // Idle-running: task only, no reports.
+  await mkdir(join(dir, "sa-quiet"));
+  await writeFile(join(dir, "sa-quiet", "events.jsonl"), TASK);
+  // Deterministic recency: running > quiet > blocked (ordering assertions rely on this).
+  const now = Date.now() / 1000;
+  await utimes(join(dir, "sa-running", "events.jsonl"), now, now);
+  await utimes(join(dir, "sa-quiet", "events.jsonl"), now - 60, now - 60);
+  await utimes(join(dir, "sa-blocked", "events.jsonl"), now - 120, now - 120);
+  // Noise that must be ignored.
+  await mkdir(join(dir, "sessions"));
+  await mkdir(join(dir, "worktrees"));
+  await writeFile(join(dir, "README.md"), "not a subagent");
+  return dir;
+}
+
+describe("SubagentScanner over a real redacted events.jsonl fixture", () => {
+  test("derives status, model, label, excerpt and result from disk", async () => {
+    const dir = await makeDir();
+    const views = new SubagentScanner().scan(dir);
+    const byId = new Map(views.map((v) => [v.id, v]));
+    assert.equal(views.length, 4);
+
+    const done = byId.get("sa-fixture")!;
+    assert.equal(done.status, "done");
+    assert.equal(done.result, true);
+    assert.equal(done.model, "claude-opus-4-8");
+    assert.ok(done.label!.startsWith("Trivial test of the DeepSeek-style report_to_parent protocol"), done.label ?? "");
+    // excerpt contract: the tail of result.md, whitespace-collapsed
+    const resRaw = readFileSync(join(dir, "sa-fixture", "result.md"), "utf8");
+    const collapsed = resRaw.replace(/\s+/g, " ").trim();
+    assert.equal(done.lastExcerpt, collapsed.length <= 400 ? collapsed : "…" + collapsed.slice(collapsed.length - 400));
+    assert.ok(done.lastActivity > 0);
+
+    const blocked = byId.get("sa-blocked")!;
+    assert.equal(blocked.status, "blocked");
+    assert.equal(blocked.result, false);
+    assert.equal(blocked.model, "test-model-9");
+    assert.equal(blocked.label, "Investigate flaky login test and propose a fix");
+
+    const running = byId.get("sa-running")!;
+    assert.equal(running.status, "running");
+    assert.equal(running.lastExcerpt, "Found the race: the token refresh happens after the redirect.");
+
+    const quiet = byId.get("sa-quiet")!;
+    assert.equal(quiet.status, "running");
+    assert.equal(quiet.label, "Investigate flaky login test and propose a fix");
+  });
+
+  test("orders running before blocked before done", async () => {
+    const dir = await makeDir();
+    const views = new SubagentScanner().scan(dir);
+    assert.deepEqual(views.map((v) => [v.id, v.status]), [
+      ["sa-running", "running"],
+      ["sa-quiet", "running"],
+      ["sa-blocked", "blocked"],
+      ["sa-fixture", "done"],
+    ]);
+  });
+
+  test("caches by mtime+size so unchanged dirs are not re-read", async () => {
+    const dir = await makeDir();
+    const s = new SubagentScanner();
+    const first = s.scan(dir);
+    const second = s.scan(dir);
+    assert.deepEqual(second, first);
+    // touch a file: view content updates on the next scan
+    await writeFile(join(dir, "sa-running", "events.jsonl"), TASK + MODEL + PROGRESS + ASSIST + evLine({ type: "agent_settled" }));
+    const third = s.scan(dir);
+    assert.equal(third.length, first.length);
+  });
+
+  test("missing dir scans empty", () => {
+    assert.deepEqual(new SubagentScanner().scan("/nonexistent-path-xyz"), []);
+  });
+});
+
+describe("helpers", () => {
+  test("naturalCompare orders sa2 before sa10", () => {
+    const ids = ["sa10", "sa2", "sa40-sa1", "sa40", "sa1"];
+    ids.sort(naturalCompare);
+    assert.deepEqual(ids, ["sa1", "sa2", "sa10", "sa40", "sa40-sa1"]);
+  });
+
+  test("readTail returns only the requested suffix", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "wbtail-"));
+    const f = join(dir, "f.txt");
+    await writeFile(f, "0123456789".repeat(100));
+    assert.equal(readTail(f, 5), "56789");
+    assert.equal(readTail(f, 10_000).length, 1000);
+    assert.equal(readTail(join(dir, "missing.txt"), 5), "");
+  });
+});

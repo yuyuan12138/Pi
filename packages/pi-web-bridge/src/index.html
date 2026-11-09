@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control</title>
+<style>
+  :root {
+    --bg: #0b0b0c;
+    --bg-rail: #0e0e10;
+    --bg-hover: #17171a;
+    --bg-active: #1b1b1f;
+    --bg-bubble: #1a1a1e;
+    --bg-input: #121214;
+    --border: #26262b;
+    --border-soft: #1d1d21;
+    --text: #ececee;
+    --dim: #9d9da6;
+    --faint: #67676f;
+    --green: #4cc38a;
+    --red: #f0716a;
+    --gray: #4b4b54;
+    --btn: #f2f2f3;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; display: flex; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- rail ---------- */
+  #rail {
+    width: 264px; flex: none; display: flex; flex-direction: column;
+    background: var(--bg-rail); border-right: 1px solid var(--border-soft);
+  }
+  .brand { padding: 20px 18px 14px; }
+  .brand h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text); }
+  .brand p { margin: 4px 0 0; font-size: 12px; color: var(--faint); font-family: var(--mono); }
+  #rail-scroll { flex: 1; overflow-y: auto; padding: 0 10px 10px; }
+  .rail-item {
+    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    padding: 8px 10px; margin: 1px 0; border: 0; border-radius: 8px; cursor: pointer;
+    background: transparent; color: var(--dim); font: inherit; font-size: 13px;
+  }
+  .rail-item:hover { background: var(--bg-hover); }
+  .rail-item.active { background: var(--bg-active); color: var(--text); }
+  .rail-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--gray); }
+  .dot.running { background: var(--green); }
+  .dot.blocked { background: var(--red); }
+  .dot.done { background: var(--gray); }
+  .badge {
+    flex: none; min-width: 17px; padding: 1px 5px; border-radius: 9px; text-align: center;
+    background: var(--bg-bubble); border: 1px solid var(--border); color: var(--text);
+    font-size: 11px; line-height: 15px; display: none;
+  }
+  .badge.on { display: block; }
+  .section-label { padding: 16px 10px 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .section-label .count { float: right; font-family: var(--mono); text-transform: none; letter-spacing: 0; }
+  .rail-foot { padding: 12px 18px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--faint); display: flex; align-items: center; gap: 8px; }
+  .linklike {
+    margin: 4px 0 0 10px; padding: 4px 8px; background: none; border: 0; cursor: pointer;
+    color: var(--faint); font: inherit; font-size: 12px; border-radius: 6px; text-align: left;
+  }
+  .linklike:hover { color: var(--dim); background: var(--bg-hover); }
+
+  /* ---------- main column ---------- */
+  #maincol { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #head { padding: 14px 24px; border-bottom: 1px solid var(--border-soft); }
+  #head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  #head p { margin: 2px 0 0; font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #log { flex: 1; overflow-y: auto; }
+  .col { max-width: 760px; margin: 0 auto; padding: 28px 24px 20px; display: flex; flex-direction: column; gap: 18px; }
+  .empty { color: var(--faint); text-align: center; padding: 48px 0; font-size: 13px; }
+
+  .msg { max-width: 82%; }
+  .msg .meta { font-size: 11px; color: var(--faint); margin-bottom: 3px; }
+  .msg.user { align-self: flex-end; }
+  .msg.user .bubble { background: var(--bg-bubble); border: 1px solid var(--border); border-radius: 12px; padding: 9px 13px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user.pending .bubble { opacity: .55; }
+  .msg.user.failed .bubble { border-color: var(--red); }
+  .msg.assistant { align-self: flex-start; max-width: 100%; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.assistant .meta { font-size: 11px; color: var(--faint); margin-bottom: 4px; }
+
+  .evt { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .evt.tool { color: var(--faint); }
+  .evt.tool .tname { color: var(--dim); }
+  .evt .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
+  .evt.report { border-left: 2px solid var(--border); padding-left: 10px; font-family: inherit; font-size: 13px; color: var(--text); }
+  .evt.report .rstatus { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-right: 6px; }
+  .evt.report[data-status="blocked"] { border-left-color: var(--red); }
+  .evt.report[data-status="blocked"] .rstatus { color: var(--red); }
+  .evt.report[data-status="ready"] { border-left-color: var(--green); }
+  .evt.report[data-status="ready"] .rstatus { color: var(--green); }
+  .evt.task { border-left: 2px solid var(--border); padding-left: 10px; font-family: inherit; font-size: 13px; color: var(--dim); }
+  .evt.task .rstatus { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-right: 6px; }
+  .evt.settled { color: var(--faint); }
+  .result-block { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .result-block .rlabel { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+  .result-block pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; color: var(--text); }
+  .sysline { align-self: center; font-size: 11.5px; color: var(--faint); }
+
+  /* ---------- composer ---------- */
+  #composer { border-top: 1px solid var(--border-soft); padding: 14px 24px 18px; }
+  .comp-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+  #input {
+    flex: 1; resize: none; background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px;
+    font: inherit; line-height: 1.5; max-height: 160px; outline: none;
+  }
+  #input:focus { border-color: #3a3a41; }
+  #input::placeholder { color: var(--faint); }
+  #send {
+    flex: none; background: var(--btn); color: #0b0b0c; border: 0; border-radius: 10px;
+    padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  #send:disabled { background: #2a2a2f; color: var(--faint); cursor: default; }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-thumb { background: #232327; border-radius: 5px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<aside id="rail">
+  <div class="brand">
+    <h1>Mission Control</h1>
+    <p id="project">—</p>
+  </div>
+  <div id="rail-scroll">
+    <button class="rail-item active" data-win="main">
+      <span class="dot running" id="main-dot"></span>
+      <span class="name">Coordinator</span>
+      <span class="badge" id="main-badge"></span>
+    </button>
+    <div class="section-label">Subagents <span class="count" id="sub-count"></span></div>
+    <div id="sub-list"></div>
+    <button class="linklike" id="done-toggle" hidden>Show finished</button>
+    <div id="done-list" hidden></div>
+  </div>
+  <div class="rail-foot"><span class="dot running"></span><span id="bridge-status">bridge · 127.0.0.1</span></div>
+</aside>
+<main id="maincol">
+  <header id="head">
+    <h2 id="win-title">Coordinator</h2>
+    <p id="win-meta"></p>
+  </header>
+  <div id="log"><div class="col" id="logcol"></div></div>
+  <form id="composer">
+    <div class="comp-inner">
+      <textarea id="input" rows="1" placeholder="Message the coordinator"></textarea>
+      <button id="send" type="submit" disabled>Send</button>
+    </div>
+  </form>
+</main>
+<script>
+"use strict";
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const railItem = (win) => document.querySelector(`.rail-item[data-win="${CSS.escape(win)}"]`);
+  const state = {
+    project: "", subs: new Map(), active: "main",
+    wins: new Map(),          // win -> {items, cursor, pollId, lastActivity}
+    unread: new Map(),        // win -> count
+    prevActivity: new Map(),  // win -> mtime
+    doneShown: false,
+  };
+  const win = (id) => {
+    if (!state.wins.has(id)) state.wins.set(id, { items: [], cursor: null, lastActivity: 0 });
+    return state.wins.get(id);
+  };
+
+  // ---------- helpers ----------
+  async function api(path, opts) {
+    const r = await fetch(path, opts);
+    let body = null;
+    try { body = await r.json(); } catch { /* empty body */ }
+    return { ok: r.ok, code: r.status, body };
+  }
+  function relTime(ts) {
+    if (!ts) return "";
+    const s = Math.max(0, (Date.now() - ts) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+  function scrollSticky(el, fn) {
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    fn();
+    if (near) el.scrollTop = el.scrollHeight;
+  }
+
+  // ---------- rail ----------
+  function subItem(s) {
+    const b = document.createElement("button");
+    b.className = "rail-item" + (state.active === s.id ? " active" : "");
+    b.dataset.win = s.id;
+    const dot = document.createElement("span"); dot.className = "dot " + s.status;
+    const name = document.createElement("span"); name.className = "name";
+    name.textContent = s.label ? s.label : s.id;
+    b.append(dot, name);
+    const n = state.unread.get(s.id) ?? 0;
+    if (n > 0 && state.active !== s.id) {
+      const badge = document.createElement("span"); badge.className = "badge on"; badge.textContent = String(n);
+      b.append(badge);
+    }
+    b.addEventListener("click", () => activate(s.id));
+    return b;
+  }
+  function renderRail(data) {
+    $("#project").textContent = data.project;
+    const subs = data.subagents ?? [];
+    state.subs = new Map(subs.map((s) => [s.id, s]));
+    for (const s of subs) {
+      const prev = state.prevActivity.get(s.id) ?? 0;
+      if (s.lastActivity > prev) {
+        if (state.active !== s.id && state.prevActivity.has(s.id)) {
+          state.unread.set(s.id, (state.unread.get(s.id) ?? 0) + 1);
+        }
+        state.prevActivity.set(s.id, s.lastActivity);
+      }
+    }
+    const list = $("#sub-list"); list.textContent = "";
+    const doneList = $("#done-list"); doneList.textContent = "";
+    const active = subs.filter((s) => s.status !== "done");
+    const done = subs.filter((s) => s.status === "done");
+    for (const s of active) list.append(subItem(s));
+    for (const s of done) doneList.append(subItem(s));
+    $("#sub-count").textContent = active.length ? `${active.length} active` : "none";
+    const toggle = $("#done-toggle");
+    toggle.hidden = done.length === 0;
+    toggle.textContent = state.doneShown ? `Hide finished (${done.length})` : `Show finished (${done.length})`;
+    doneList.hidden = !state.doneShown;
+    const mBadge = $("#main-badge");
+    const mn = state.unread.get("main") ?? 0;
+    mBadge.classList.toggle("on", mn > 0 && state.active !== "main");
+    mBadge.textContent = String(mn);
+    $("#main-dot").className = "dot running";
+  }
+
+  // ---------- window rendering ----------
+  const logcol = $("#logcol"), logEl = $("#log");
+  function activate(id) {
+    state.active = id;
+    state.unread.delete(id);
+    for (const el of document.querySelectorAll(".rail-item")) el.classList.toggle("active", el.dataset.win === id);
+    const w = win(id);
+    logcol.textContent = "";
+    if (id === "main") {
+      $("#win-title").textContent = "Coordinator";
+      $("#input").placeholder = "Message the coordinator";
+      for (const item of w.items) logcol.append(renderMainItem(item));
+      renderHeadMain();
+      $("#main-badge").classList.remove("on");
+    } else {
+      const s = state.subs.get(id);
+      $("#win-title").textContent = id;
+      $("#input").placeholder = s && s.status === "done" ? "This subagent finished — reply goes via the coordinator" : "Reply to this subagent";
+      for (const item of w.items) logcol.append(renderSubLine(item));
+      renderHeadSub(s);
+    }
+    renderResultBlock();
+    logEl.scrollTop = logEl.scrollHeight;
+    pollLogNow();
+  }
+  function renderHeadMain() {
+    const w = win("main");
+    $("#win-meta").textContent = w.lastActivity ? `last activity ${relTime(w.lastActivity)}` : "";
+  }
+  function renderHeadSub(s) {
+    if (!s) { $("#win-meta").textContent = ""; return; }
+    const bits = [s.status, s.model, s.label, s.lastActivity ? `activity ${relTime(s.lastActivity)}` : null].filter(Boolean);
+    $("#win-meta").textContent = bits.join(" · ");
+  }
+  function metaLine(kind, ts, label) {
+    const m = document.createElement("div"); m.className = "meta";
+    m.textContent = (label ?? (kind === "user" ? "You" : "Coordinator")) + (ts ? ` · ${relTime(ts)}` : "");
+    return m;
+  }
+  function renderMainItem(item) {
+    const d = document.createElement("div");
+    d.className = "msg " + item.kind + (item.pending ? " pending" : "") + (item.failed ? " failed" : "");
+    if (item.kind === "user") {
+      const b = document.createElement("div"); b.className = "bubble"; b.textContent = item.text;
+      d.append(b);
+    } else {
+      d.append(metaLine("assistant", item.ts));
+      const t = document.createElement("div"); t.style.whiteSpace = "pre-wrap"; t.textContent = item.text;
+      d.append(t);
+    }
+    return d;
+  }
+  function renderSubLine(line) {
+    if (line.kind === "assistant") {
+      const d = document.createElement("div"); d.className = "msg assistant";
+      d.append(metaLine("assistant", null, "Agent"));
+      const t = document.createElement("div"); t.style.whiteSpace = "pre-wrap"; t.textContent = line.text;
+      d.append(t);
+      return d;
+    }
+    const d = document.createElement("div");
+    if (line.kind === "report") {
+      d.className = "evt report"; d.dataset.status = line.name;
+      const st = document.createElement("span"); st.className = "rstatus"; st.textContent = line.name;
+      d.append(st, document.createTextNode(line.text));
+    } else if (line.kind === "tool") {
+      d.className = "evt tool";
+      const n = document.createElement("span"); n.className = "tname"; n.textContent = "› " + line.name;
+      const a = document.createElement("span"); a.className = "truncate"; a.textContent = " " + (line.text || "");
+      d.append(n, a);
+    } else if (line.kind === "event" && line.name === "task") {
+      d.className = "evt task";
+      const st = document.createElement("span"); st.className = "rstatus"; st.textContent = "task";
+      d.append(st, document.createTextNode(line.text));
+    } else {
+      d.className = "evt settled"; d.textContent = line.name === "settled" ? "— settled —" : (line.name ?? "");
+    }
+    return d;
+  }
+  function renderResultBlock() {
+    logcol.querySelector(".result-block")?.remove();
+    if (state.active === "main") return;
+    const s = state.subs.get(state.active);
+    const w = win(state.active);
+    if (!s || !s.result || !w.resultText) return;
+    const d = document.createElement("div"); d.className = "result-block";
+    const l = document.createElement("div"); l.className = "rlabel"; l.textContent = "Result";
+    const pre = document.createElement("pre"); pre.textContent = w.resultText;
+    d.append(l, pre);
+    logcol.append(d);
+  }
+
+  // ---------- polling ----------
+  let bridgeDown = false;
+  async function pollState() {
+    let data;
+    try {
+      const r = await api("/state");
+      data = r.body;
+      if (!r.ok || !data) throw new Error(r.code);
+      if (bridgeDown) { bridgeDown = false; $("#bridge-status").textContent = "bridge · 127.0.0.1"; }
+    } catch {
+      if (!bridgeDown) { bridgeDown = true; $("#bridge-status").textContent = "bridge offline"; }
+      return;
+    }
+    const prevMain = state.prevActivity.get("main") ?? 0;
+    if (data.main?.sessionMtime > prevMain) {
+      if (state.active !== "main" && state.prevActivity.has("main")) state.unread.set("main", (state.unread.get("main") ?? 0) + 1);
+      state.prevActivity.set("main", data.main.sessionMtime);
+    }
+    win("main").lastActivity = data.main?.sessionMtime ?? 0;
+    if (state.active === "main") renderHeadMain();
+    renderRail(data);
+    if (state.active !== "main") renderHeadSub(state.subs.get(state.active));
+  }
+  async function pollLogNow() {
+    const id = state.active;
+    const w = win(id);
+    if (id === "main") {
+      const after = w.cursor === null ? "" : `?after=${w.cursor}`;
+      const r = await api(`/main-log${after}`);
+      if (!r.ok || !r.body) return;
+      const b = r.body;
+      w.cursor = b.cursor;
+      if (b.reset) { w.items = []; logcol.textContent = ""; }
+      for (const item of b.items ?? []) {
+        // dedupe optimistic copies
+        const idx = w.items.findIndex((x) => x.pending && x.kind === "user" && x.text === item.text);
+        if (idx >= 0) { w.items.splice(idx, 1); logcol.children[idx]?.remove(); }
+        w.items.push(item);
+        scrollSticky(logEl, () => logcol.append(renderMainItem(item)));
+      }
+      if (b.reset && !(b.items ?? []).length) {
+        logcol.textContent = "";
+        const e = document.createElement("div"); e.className = "empty";
+        e.textContent = "No web messages yet. Say hello — the coordinator replies here.";
+        logcol.append(e);
+      }
+    } else {
+      const after = w.cursor === null ? "" : `?after=${w.cursor}`;
+      const r = await api(`/sub-log?id=${encodeURIComponent(id)}${after}`);
+      if (!r.ok || !r.body) return;
+      const b = r.body;
+      w.cursor = b.cursor;
+      if (b.result) w.resultText = b.result;
+      if (b.reset) { w.items = []; logcol.textContent = ""; }
+      for (const line of b.lines ?? []) {
+        w.items.push(line);
+        scrollSticky(logEl, () => logcol.append(renderSubLine(line)));
+      }
+      if (b.reset && !(b.lines ?? []).length) {
+        logcol.textContent = "";
+        const e = document.createElement("div"); e.className = "empty";
+        e.textContent = b.done ? "Finished. Result below." : "No events yet.";
+        logcol.append(e);
+      }
+      renderResultBlock();
+    }
+  }
+
+  // ---------- composer ----------
+  const input = $("#input"), sendBtn = $("#send");
+  function syncSend() { sendBtn.disabled = input.value.trim().length === 0; }
+  input.addEventListener("input", () => {
+    syncSend();
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 160) + "px";
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#composer").requestSubmit(); }
+  });
+  $("#composer").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ""; input.style.height = "auto"; syncSend();
+    const target = state.active === "main" ? "main" : `subagent:${state.active}`;
+    if (state.active === "main") {
+      const optimistic = { kind: "user", text, ts: Date.now(), pending: true };
+      win("main").items.push(optimistic);
+      logcol.querySelector(".empty")?.remove();
+      scrollSticky(logEl, () => logcol.append(renderMainItem(optimistic)));
+    }
+    const r = await api("/message", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, text }),
+    });
+    if (state.active === "main") {
+      const w = win("main");
+      const it = [...w.items].reverse().find((x) => x.pending && x.text === text);
+      if (it) {
+        if (r.ok) { it.pending = false; }
+        else { it.failed = true; it.pending = false; }
+        for (const [i, x] of w.items.entries()) {
+          if (x === it) {
+            const el = logcol.children[i];
+            if (el) { el.classList.toggle("pending", it.pending); el.classList.toggle("failed", it.failed); }
+          }
+        }
+      }
+    } else {
+      const note = document.createElement("div");
+      note.className = "sysline";
+      note.textContent = r.ok
+        ? "Forwarded to the coordinator for delivery to this subagent."
+        : `Not delivered: ${r.body?.error ?? r.code}`;
+      logcol.append(note);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  });
+
+  $("#done-toggle").addEventListener("click", () => { state.doneShown = !state.doneShown; pollState(); });
+
+  // ---------- boot ----------
+  pollState().then(() => activate("main"));
+  setInterval(pollState, 3000);
+  setInterval(() => pollLogNow(), 2000);
+})();
+</script>
+</body>
+</html>
