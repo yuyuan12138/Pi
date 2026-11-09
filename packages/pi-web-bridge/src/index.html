@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="color-scheme" content="dark">
 <title>Mission Control</title>
 <style>
@@ -28,7 +28,10 @@
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --tb-h: 48px;
-    --lb-h: 40px;
+    --lb-h: 44px;
+    --sa-t: env(safe-area-inset-top, 0px);
+    --sa-b: env(safe-area-inset-bottom, 0px);
+    --tb-full: calc(var(--tb-h) + var(--sa-t));
     --panel-w: 320px;
     --measure: 720px;
     --ease: cubic-bezier(.2, .7, .2, 1);
@@ -36,6 +39,7 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { height: 100%; }
+  @supports (height: 100dvh) { html, body { height: 100dvh; } }
   body {
     margin: 0; display: flex; flex-direction: column; overflow: hidden;
     background: var(--bg); color: var(--text);
@@ -44,6 +48,7 @@
   }
   .mono { font-family: var(--mono); }
   ::selection { background: #2c2c36; }
+  button, textarea { touch-action: manipulation; }
   :focus-visible { outline: 1px solid #4a4a56; outline-offset: 2px; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #232329; border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
@@ -65,8 +70,8 @@
 
   /* ---------- top bar ---------- */
   #topbar {
-    height: var(--tb-h); flex: none; display: flex; align-items: center; gap: 12px;
-    padding: 0 16px; border-bottom: 1px solid var(--border-soft); position: relative; z-index: 60;
+    height: var(--tb-h); height: var(--tb-full); flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; padding-top: var(--sa-t); border-bottom: 1px solid var(--border-soft); position: relative; z-index: 60;
   }
   .wordmark { font-size: 11px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
   #project { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
@@ -87,6 +92,9 @@
   }
   #head h2 { margin: 0; font-size: 13px; font-weight: 600; }
   #win-meta { margin-left: auto; font-size: 11px; color: var(--dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* positioned wrapper so the floating log controls anchor to the log area,
+     not to the hero header / usage strip above it */
+  #logwrap, #slogwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .col { max-width: var(--measure); margin: 0 auto; padding: 28px 24px 16px; display: flex; flex-direction: column; gap: 20px; }
 
@@ -126,22 +134,22 @@
   .empty { align-self: center; color: var(--dim); text-align: center; padding: 56px 0; font-size: 13px; }
 
   #jump, #sjump {
-    position: absolute; right: 24px; bottom: 96px; z-index: 5;
+    position: absolute; right: 24px; z-index: 5;
     border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
     background: var(--raised-2); color: var(--muted); font: 12px var(--sans); cursor: pointer;
   }
   .histbtn {
-    position: absolute; left: 50%; transform: translateX(-50%); z-index: 5;
+    position: absolute; left: 50%; transform: translateX(-50%); top: 10px; z-index: 5;
     border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px;
     background: var(--raised-2); color: var(--muted); font: 12px var(--sans); cursor: pointer;
   }
   .histbtn:hover { color: var(--text); border-color: #3d3d47; }
-  #load-earlier { top: 10px; }
-  #sload-earlier { top: 76px; }
+  #jump { bottom: 25px; bottom: calc(25px + var(--sa-b)); }
+  #sjump { right: 16px; bottom: 17px; bottom: calc(17px + var(--sa-b)); }
   #jump:hover, #sjump:hover { color: var(--text); border-color: #3d3d47; }
 
   /* ---------- composers ---------- */
-  #composer, #scomposer { flex: none; border-top: 1px solid var(--border-soft); padding: 12px 24px 16px; background: var(--bg); }
+  #composer, #scomposer { flex: none; border-top: 1px solid var(--border-soft); padding: 12px 24px 16px; padding-bottom: calc(16px + var(--sa-b)); background: var(--bg); }
   .comp-inner { max-width: var(--measure); margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
   textarea {
     flex: 1; min-width: 0; resize: none; background: var(--input-bg); color: var(--text);
@@ -234,12 +242,12 @@
 
   /* ---------- slide-over transcript ---------- */
   #backdrop {
-    position: fixed; inset: var(--tb-h) 0 0 0; background: rgba(0, 0, 0, .55); z-index: 45;
+    position: fixed; inset: var(--tb-h) 0 0 0; inset: var(--tb-full) 0 0 0; background: rgba(0, 0, 0, .55); z-index: 45;
     opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s linear .2s;
   }
   #backdrop.on { opacity: 1; visibility: visible; transition: opacity .2s ease; }
   #slideover {
-    position: fixed; top: var(--tb-h); right: 0; bottom: 0; width: min(480px, 100%);
+    position: fixed; top: var(--tb-h); top: var(--tb-full); right: 0; bottom: 0; width: min(480px, 100%);
     display: flex; flex-direction: column; z-index: 50;
     background: var(--panel); border-left: 1px solid var(--border-soft);
     box-shadow: -24px 0 48px rgba(0, 0, 0, .45);
@@ -267,8 +275,7 @@
   }
   #slog { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .so-col { padding: 16px 16px 12px; gap: 16px; }
-  #sjump { right: 16px; bottom: 88px; }
-  #scomposer { padding: 12px 16px 16px; }
+  #scomposer { padding: 12px 16px 16px; padding-bottom: calc(16px + var(--sa-b)); }
   #scomposer .comp-inner { max-width: none; }
 
   /* ---------- breakpoints ---------- */
@@ -286,16 +293,32 @@
     #livebar svg { transition: transform .2s var(--ease); }
     #livebar.open svg { transform: rotate(90deg); }
     #panel {
-      position: fixed; top: calc(var(--tb-h) + var(--lb-h)); left: 0; right: 0; bottom: 0; z-index: 40;
+      position: fixed; top: calc(var(--tb-h) + var(--lb-h)); top: calc(var(--tb-full) + var(--lb-h));
+      left: 0; right: 0; bottom: 0; z-index: 40;
       border-left: 0; box-shadow: none;
       transform: translateX(103%); visibility: hidden;
       transition: transform .24s var(--ease), visibility 0s linear .24s;
     }
     #panel.open { transform: none; visibility: visible; transition: transform .24s var(--ease); }
+    #panel-scroll { overscroll-behavior: contain; padding-bottom: 12px; padding-bottom: calc(12px + var(--sa-b)); }
     .col { padding: 20px 16px 12px; }
-    #composer { padding: 10px 12px 12px; }
+    #head { padding: 10px 16px; }
+    #composer { padding: 10px 12px 12px; padding-bottom: calc(12px + var(--sa-b)); }
     #jump { right: 16px; }
     #topbar #project { display: none; }
+    /* touch targets >= 44px on phones */
+    .send { height: 44px; }
+    textarea { font-size: 16px; } /* keep iOS from zooming into the composer on focus */
+    .iconbtn { width: 44px; height: 44px; }
+    .usage-head { min-height: 44px; }
+    .histbtn { height: 44px; padding: 0 16px; display: inline-flex; align-items: center; }
+    #jump, #sjump { height: 44px; padding: 0 12px; display: inline-flex; align-items: center; }
+    .linklike { min-height: 44px; }
+    #livebar-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* usage strips: tighter side padding for narrow screens */
+    #main-usage .usage-head { padding-left: 16px; padding-right: 16px; }
+    .usage-body { padding-left: 16px; padding-right: 16px; }
+    .u-row { grid-template-columns: minmax(0, 1fr) 56px 44px; column-gap: 8px; }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
@@ -333,9 +356,11 @@
       </button>
       <div class="usage-body" id="main-usage-body" hidden></div>
     </section>
-    <div id="log"><div class="col" id="logcol"></div></div>
-    <button id="jump" type="button" hidden>Jump to latest</button>
-    <button id="load-earlier" class="histbtn" type="button" hidden>&uarr; Load earlier messages</button>
+    <div id="logwrap">
+      <div id="log"><div class="col" id="logcol"></div></div>
+      <button id="jump" type="button" hidden>Jump to latest</button>
+      <button id="load-earlier" class="histbtn" type="button" hidden>&uarr; Load earlier messages</button>
+    </div>
     <form id="composer">
       <div class="comp-inner">
         <textarea id="input" rows="1" placeholder="Message the coordinator"></textarea>
@@ -381,9 +406,11 @@
     </button>
     <div class="usage-body" id="so-usage-body"></div>
   </section>
-  <div id="slog"><div class="col so-col" id="slogcol"></div></div>
-  <button id="sjump" type="button" hidden>Jump to latest</button>
-  <button id="sload-earlier" class="histbtn" type="button" hidden>&uarr; Load earlier</button>
+  <div id="slogwrap">
+    <div id="slog"><div class="col so-col" id="slogcol"></div></div>
+    <button id="sjump" type="button" hidden>Jump to latest</button>
+    <button id="sload-earlier" class="histbtn" type="button" hidden>&uarr; Load earlier</button>
+  </div>
   <form id="scomposer">
     <div class="comp-inner">
       <textarea id="sinput" rows="1" placeholder="Reply"></textarea>
