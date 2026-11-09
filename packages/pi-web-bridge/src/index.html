@@ -271,7 +271,8 @@
   textarea {
     flex: 1; min-width: 0; resize: none; background: none; color: var(--t0);
     border: 0; border-radius: 0; padding: 6px 0;
-    font: 14px/1.5 var(--sans); max-height: 160px; outline: none;
+    font: 14px/1.5 var(--sans); outline: none;
+    min-height: 56px; max-height: 144px; /* 2 rows rest, ~6 rows max + internal scroll */
   }
   textarea::placeholder { color: var(--t2); }
   .send {
@@ -486,6 +487,12 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
     #pulsebar { display: none; }
+  }
+  /* very short viewports (on-screen keyboard via interactive-widget=resizes-content,
+     or a short desktop window): collapse the instrument strip so the composer and
+     log keep their space — the input's top edge can never be pushed out of view */
+  @media (max-height: 520px) {
+    .cluster { display: none; }
   }
 </style>
 </head>
@@ -1892,7 +1899,7 @@
   // ---------- composers ----------
   function autosize(el) {
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    el.style.height = Math.min(el.scrollHeight, 144) + "px"; // ~6 rows; min-height keeps the resting box 2 rows
   }
   function wireComposer(inputEl, btn, onSubmit) {
     const sync = () => { btn.disabled = inputEl.value.trim().length === 0; };
