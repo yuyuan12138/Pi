@@ -411,7 +411,9 @@
 
   // ---------- helpers ----------
   async function api(path, opts) {
-    const r = await fetch(path, opts);
+    // Relative on purpose: when served under a sub-path (e.g. /pi-bridge/), a
+    // leading slash would resolve against the domain root and hit other apps.
+    const r = await fetch(path.replace(/^\/+/, ""), opts);
     let body = null;
     try { body = await r.json(); } catch { /* empty body */ }
     return { ok: r.ok, code: r.status, body };
