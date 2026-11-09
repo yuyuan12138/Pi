@@ -1,0 +1,27 @@
+{
+  "name": "pi-delegation-reminder",
+  "version": "0.1.0",
+  "description": "Mechanical per-run reminder that the Pi main session is a dispatcher: injects a fixed ROUTER CHECK section into the system prompt so delegation rules cannot be forgotten under flow.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "main": "index.js",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "delegation",
+    "reminder",
+    "router"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}
