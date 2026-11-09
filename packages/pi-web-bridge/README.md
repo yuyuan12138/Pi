@@ -47,19 +47,34 @@ log dirs written by pi-superagent) and polled by the browser.
 ### Injection mechanism (the exact pi API)
 
 Web messages wake the coordinator through the same delivery path pi-superagent
-uses for subagent reports:
+uses for subagent reports, with one refinement: a main-target message steers
+into an in-flight turn instead of waiting for the whole run to end.
 
 ```ts
 pi.sendMessage(
   { customType: "web-chat", content: text, display: true },
-  { triggerTurn: true, deliverAs: "followUp" },
+  injectionOptions(kind, streaming), // { triggerTurn: true, deliverAs: ... }
 );
 ```
 
-`triggerTurn: true` starts a turn when the agent is idle; `deliverAs:
-"followUp"` queues the message when it is streaming. The injected entry lands
-in the session JSONL as `{"type":"custom_message","customType":"web-chat",…}`,
-which is exactly what the UI's main window parses back out.
+`triggerTurn: true` starts a turn when the agent is idle. Delivery while the
+agent is busy (tracked via `agent_start`/`agent_settled`; pi re-checks the real
+state inside `sendCustomMessage`, so a stale flag only lands on the other safe
+native path):
+
+- **main target, streaming** — `deliverAs: "steer"`: pi delivers the message
+  after the current assistant turn's tool calls finish, before the next LLM
+  call (the same boundary pi-telegram's steer packets target), so long-running
+  turns no longer swallow replies. pi holds the message until that boundary —
+  it never lands between a tool call and its result.
+- **main target, idle** — `deliverAs: "followUp"`: the previous exact behavior
+  (pi ignores `deliverAs` when idle; `triggerTurn` starts the run).
+- **subagent target** — always `deliverAs: "followUp"` (two-hop fallback
+  unchanged).
+
+The injected entry lands in the session JSONL as
+`{"type":"custom_message","customType":"web-chat",…}`, which is exactly what
+the UI's main window parses back out.
 
 **Subagent replies are a two-hop fallback:** pi-superagent's steer pathway
 (`{type:"steer"}` on the child's stdin) lives inside its private

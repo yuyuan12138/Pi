@@ -3,6 +3,66 @@ import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBridgeServer, type BridgeServer } from "./server.ts";
 
+/** Which surface POST /message routed to (drives the delivery decision). */
+export type InjectKind = "main" | "subagent";
+
+/** The custom message shape the bridge injects (unchanged format: caller pre-stamps the routing header). */
+export interface InjectedMessage {
+  customType: string;
+  content: string;
+  display: boolean;
+}
+
+/** sendMessage options chosen by the injection decision. */
+export interface InjectionOptions {
+  triggerTurn: boolean;
+  deliverAs: "steer" | "followUp";
+}
+
+/**
+ * Delivery decision for an injected message.
+ *
+ * - Main-target while the session is streaming: "steer". pi delivers the custom
+ *   message after the current assistant turn's tool calls have executed and their
+ *   results are persisted, right before the next LLM call (the agent loop polls
+ *   the steering queue exactly at that boundary), so a long-running turn no longer
+ *   hides the reply until the whole run ends. This is the same boundary
+ *   pi-telegram's telegram-steer packets target; the in-flight-tool-call hazard
+ *   its own canSubmit guards cover (active tool executions, compaction, aborted
+ *   context) cannot occur here because pi itself holds the message until the
+ *   boundary — it never appends between a tool call and its result.
+ * - Idle main-target and every subagent-target: "followUp", the exact previous
+ *   behavior. When idle pi ignores deliverAs entirely (triggerTurn starts the
+ *   run), so idle delivery is unchanged.
+ *
+ * pi re-checks the real streaming state inside sendCustomMessage, so a stale
+ * `streaming` flag can only land the message on the other safe native path
+ * (steer while idle behaves like triggerTurn; followUp while streaming queues
+ * as before) — it can never lose or corrupt the message.
+ */
+export function injectionOptions(kind: InjectKind, streaming: boolean): InjectionOptions {
+  return { triggerTurn: true, deliverAs: kind === "main" && streaming ? "steer" : "followUp" };
+}
+
+/** Sink createInjector pushes into: pi.sendMessage in production, a capture array in tests. */
+export type MessageSink = (message: InjectedMessage, options: InjectionOptions) => unknown;
+
+/**
+ * Build the deps.inject implementation. The text arrives with its routing header
+ * already applied; the only decision left is how pi should deliver it.
+ */
+export function createInjector(send: MessageSink, isStreaming: () => boolean, log: (msg: string) => void) {
+  return (text: string, kind: InjectKind = "main"): boolean => {
+    try {
+      send({ customType: "web-chat", content: text, display: true }, injectionOptions(kind, isStreaming()));
+      return true;
+    } catch (e) {
+      log(`inject failed: ${(e as Error).message}`);
+      return false;
+    }
+  };
+}
+
 /**
  * pi-web-bridge — local web chat bridge ("mission control") for pi.
  *
@@ -29,18 +89,20 @@ export default function webBridge(pi: ExtensionAPI) {
 
   const log = (msg: string) => console.error(`[web-bridge] ${msg}`);
 
-  // Same delivery path pi-superagent uses for subagent reports: a displayable
-  // custom message that triggers a turn when the agent is idle, queued as a
-  // follow-up when it is streaming.
-  const inject = (text: string): boolean => {
-    try {
-      pi.sendMessage({ customType: "web-chat", content: text, display: true }, { triggerTurn: true, deliverAs: "followUp" });
-      return true;
-    } catch (e) {
-      log(`inject failed: ${(e as Error).message}`);
-      return false;
-    }
-  };
+  // pi exposes no streaming query to a plain HTTP-server closure, so track the
+  // run lifecycle. A missed event is harmless: sendCustomMessage re-checks the
+  // real state and the stale flag merely degrades to the previous behavior.
+  let streaming = false;
+  pi.on("agent_start", () => { streaming = true; });
+  pi.on("agent_settled", () => { streaming = false; });
+
+  // Displayable web-chat custom message: wake the idle agent exactly as before;
+  // while a turn streams, main-target messages steer into it instead of waiting.
+  const inject = createInjector(
+    (message, options) => { pi.sendMessage(message, options); },
+    () => streaming,
+    log,
+  );
 
   try {
     server = createBridgeServer({

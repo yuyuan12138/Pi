@@ -33,13 +33,14 @@ describe("POST /message routing against a live bridge server", () => {
   let server: ReturnType<typeof createBridgeServer>;
   let url: string;
   const injected: string[] = [];
+  const injectedKinds: Array<"main" | "subagent" | undefined> = [];
   let failInject = false;
 
   before(async () => {
     subDir = await makeSubagentsDir();
     server = createBridgeServer({
       project: "TestProj",
-      inject: (t) => { if (failInject) return false; injected.push(t); return true; },
+      inject: (t, kind) => { if (failInject) return false; injected.push(t); injectedKinds.push(kind); return true; },
       sessionFile: () => undefined,
       subagentsDir: () => subDir,
       indexHtml: () => "<html><body>test</body></html>",
@@ -143,6 +144,15 @@ describe("POST /message routing against a live bridge server", () => {
 
   test("POST /message end-to-end: the mocked emitter received exactly one message per POST", async () => {
     assert.equal(injected.length, 2);
+  });
+
+  test("inject receives the routed kind: main for main target, subagent for the fallback", async () => {
+    const n = injected.length;
+    await post({ target: "main", text: "kind check main" });
+    await post({ target: "subagent:sa-blocked", text: "kind check sub" });
+    assert.equal(injected.length, n + 2);
+    assert.equal(injectedKinds[n], "main");
+    assert.equal(injectedKinds[n + 1], "subagent");
   });
 
 });

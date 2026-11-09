@@ -15,8 +15,8 @@ export const SUBAGENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export interface BridgeDeps {
   /** Project name (cwd basename) stamped into injected message headers. */
   project: string;
-  /** Deliver text into the running pi session as a wake-triggering custom message. Returns false if refused. */
-  inject: (text: string) => boolean;
+  /** Deliver text into the running pi session. `kind` selects delivery: main-target messages steer into an in-flight turn; subagent-fallback keeps the queue-to-end behavior. Returns false if refused. */
+  inject: (text: string, kind?: "main" | "subagent") => boolean;
   /** Absolute path of the current main session JSONL, when known. */
   sessionFile: () => string | undefined;
   /** Absolute path of the subagent log base dir (<cwd>/.pi/subagents). */
@@ -165,7 +165,7 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
         try { known = scanner.scan(deps.subagentsDir()).some((s) => s.id === routed.id); } catch { known = false; }
         if (!known) return sendJson(res, 404, { ok: false, error: `unknown subagent ${routed.id}` });
       }
-      const accepted = deps.inject(routed.text);
+      const accepted = deps.inject(routed.text, routed.kind === "main" ? "main" : "subagent");
       if (!accepted) return sendJson(res, 503, { ok: false, error: "session is shutting down; message not delivered" });
       return sendJson(res, 200, routed.kind === "main"
         ? { ok: true, routed: "main" }
