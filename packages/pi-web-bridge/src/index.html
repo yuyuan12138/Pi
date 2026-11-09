@@ -130,6 +130,14 @@
     border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
     background: var(--raised-2); color: var(--muted); font: 12px var(--sans); cursor: pointer;
   }
+  .histbtn {
+    position: absolute; left: 50%; transform: translateX(-50%); z-index: 5;
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px;
+    background: var(--raised-2); color: var(--muted); font: 12px var(--sans); cursor: pointer;
+  }
+  .histbtn:hover { color: var(--text); border-color: #3d3d47; }
+  #load-earlier { top: 10px; }
+  #sload-earlier { top: 76px; }
   #jump:hover, #sjump:hover { color: var(--text); border-color: #3d3d47; }
 
   /* ---------- composers ---------- */
@@ -327,6 +335,7 @@
     </section>
     <div id="log"><div class="col" id="logcol"></div></div>
     <button id="jump" type="button" hidden>Jump to latest</button>
+    <button id="load-earlier" class="histbtn" type="button" hidden>&uarr; Load earlier messages</button>
     <form id="composer">
       <div class="comp-inner">
         <textarea id="input" rows="1" placeholder="Message the coordinator"></textarea>
@@ -374,6 +383,7 @@
   </section>
   <div id="slog"><div class="col so-col" id="slogcol"></div></div>
   <button id="sjump" type="button" hidden>Jump to latest</button>
+  <button id="sload-earlier" class="histbtn" type="button" hidden>&uarr; Load earlier</button>
   <form id="scomposer">
     <div class="comp-inner">
       <textarea id="sinput" rows="1" placeholder="Reply"></textarea>
@@ -405,9 +415,49 @@
 
   const win = (id) => {
     let w = state.wins.get(id);
-    if (!w) { w = { items: [], cursor: null, resultText: null, done: false, stats: null }; state.wins.set(id, w); }
+    if (!w) { w = { items: [], cursor: null, resultText: null, done: false, stats: null, oldest: null, histDone: false }; state.wins.set(id, w); }
     return w;
   };
+
+  // ---------- history paging (main + subagent windows) ----------
+  function noteOldest(w, items) {
+    for (const it of items) {
+      if (Number.isFinite(it.offset) && it.offset >= 0 && (w.oldest === null || it.offset < w.oldest)) w.oldest = it.offset;
+    }
+  }
+  async function loadEarlier(id, histPath, render, col, scroller) {
+    const w = win(id);
+    const btn = id === "main" ? $("#load-earlier") : $("#sload-earlier");
+    if (w.histBusy) return; // a page is already in flight (double-click)
+    w.histBusy = true;
+    try {
+      const sc = scroller.el;
+      let its = [];
+      let cursor = w.oldest; // null = start from the tail of the log
+      // A page can hold zero displayable lines (the parsers filter most raw
+      // session lines), so keep paging until items show up or the server
+      // reports the beginning of the log — one empty page is not "the start".
+      for (let guard = 0; guard < 50; guard++) {
+        const qs = cursor !== null ? `${histPath.includes("?") ? "&" : "?"}before=${cursor}` : "";
+        const r = await api(`${histPath}${qs}`);
+        if (!r.ok || !r.body) return; // transient failure: state unchanged, retry on next click
+        its = r.body.items ?? r.body.lines ?? [];
+        cursor = r.body.oldest ?? null; // server-authoritative frontier (a line start)
+        if (cursor === null) { w.histDone = true; btn.hidden = true; break; }
+        if (its.length) break;
+      }
+      w.oldest = cursor;
+      if (!its.length) return; // nothing displayable before this point
+      const prevH = sc.scrollHeight, prevTop = sc.scrollTop;
+      col.querySelector(".empty")?.remove();
+      const first = col.firstChild; // fixed reference: keeps chronological order
+      for (const it of its) col.insertBefore(render(it), first);
+      w.items.unshift(...its); // keep the model in sync so rebuilds keep history
+      sc.scrollTop = prevTop + (sc.scrollHeight - prevH); // keep the viewport stable
+    } finally {
+      w.histBusy = false;
+    }
+  }
 
   // ---------- helpers ----------
   async function api(path, opts) {
@@ -443,7 +493,7 @@
 
   // stick-to-bottom scrollers
   function makeScroller(scrollEl, colEl, jumpBtn) {
-    const s = { stick: true };
+    const s = { stick: true, el: scrollEl };
     const near = () => scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
     scrollEl.addEventListener("scroll", () => {
       s.stick = near();
@@ -998,6 +1048,8 @@
       if (b.reset) {
         w.items = (b.items ?? []).slice();
         rebuildMain();
+        w.oldest = null; w.histDone = false;
+        noteOldest(w, w.items);
       } else {
         const fresh = [];
         for (const item of b.items ?? []) {
@@ -1022,6 +1074,7 @@
       }
       if (w.items.length > 600) { w.items = w.items.slice(-600); rebuildMain(); }
       w.stats = b.stats ?? (w.stats ?? usageFromItems(w.items));
+      if (!w.histDone) $("#load-earlier").hidden = w.items.length === 0;
       updateUsage("main");
       return;
     }
@@ -1031,6 +1084,8 @@
     if (b.result != null) w.resultText = b.result;
     if (b.reset) {
       w.items = (b.lines ?? []).slice();
+      w.oldest = null; w.histDone = false;
+      noteOldest(w, w.items);
       if (state.openSub === id) rebuildSub();
     } else {
       const fresh = [];
@@ -1049,7 +1104,10 @@
       if (state.openSub === id) rebuildSub();
     }
     w.stats = b.stats ?? (w.stats ?? usageFromItems(w.items));
-    if (state.openSub === id) updateUsage(id);
+    if (state.openSub === id) {
+      if (!w.histDone) $("#sload-earlier").hidden = w.items.length === 0;
+      updateUsage(id);
+    }
   }
 
   async function pollLogs() {
@@ -1155,6 +1213,13 @@
   // ---------- chrome controls ----------
   $("#so-close").addEventListener("click", closeSub);
   $("#backdrop").addEventListener("click", closeSub);
+  $("#load-earlier").addEventListener("click", () =>
+    loadEarlier("main", "/history", renderMainItem, $("#logcol"), mainSc));
+  $("#sload-earlier").addEventListener("click", () => {
+    if (!state.openSub) return;
+    loadEarlier(state.openSub, `/sub-history?id=${encodeURIComponent(state.openSub)}`,
+      renderSubLine, $("#slogcol"), subSc);
+  });
   $("#main-usage-head").addEventListener("click", () => toggleUsage("main"));
   $("#so-usage-head").addEventListener("click", () => { if (state.openSub) toggleUsage(state.openSub); });
   $("#done-toggle").addEventListener("click", () => {

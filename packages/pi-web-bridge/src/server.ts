@@ -2,8 +2,8 @@ import http from "node:http";
 import { statSync } from "node:fs";
 import { routeMessage, type RoutedMessage } from "./routing.ts";
 import { SubagentScanner } from "./state.ts";
-import { MainLogReader } from "./mainlog.ts";
-import { readSubLog } from "./sublog.ts";
+import { MainLogReader, readHistoryBefore } from "./mainlog.ts";
+import { readSubLog, readSubHistory } from "./sublog.ts";
 
 /** Hard cap on request body size (brief: 32KB). */
 export const MAX_BODY_BYTES = 32 * 1024;
@@ -125,6 +125,22 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
       mainLog.attach(deps.sessionFile());
       const snap = mainLog.consume(after === null ? null : Number(after));
       return sendJson(res, 200, snap);
+    }
+    if (method === "GET" && path === "/history") {
+      const sf = deps.sessionFile();
+      if (!sf) return sendJson(res, 200, { items: [], oldest: null });
+      const beforeRaw = url.searchParams.get("before");
+      const before = beforeRaw === null ? null : Number(beforeRaw);
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+      return sendJson(res, 200, readHistoryBefore(sf, before, limit));
+    }
+    if (method === "GET" && path === "/sub-history") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!SUBAGENT_ID_RE.test(id)) return sendJson(res, 400, { ok: false, error: "invalid subagent id" });
+      const beforeRaw = url.searchParams.get("before");
+      const before = beforeRaw === null ? null : Number(beforeRaw);
+      const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit")) || 300));
+      return sendJson(res, 200, readSubHistory(`${deps.subagentsDir()}/${id}`, id, before, limit));
     }
     if (method === "GET" && path === "/sub-log") {
       const id = url.searchParams.get("id") ?? "";

@@ -1,4 +1,5 @@
 import { openSync, readSync, closeSync, fstatSync, statSync } from "node:fs";
+import { readJsonlHistory, type HistoryPage } from "./history.ts";
 import { usageStats, type UsageStats } from "./usage.ts";
 
 /**
@@ -55,6 +56,18 @@ function numOr(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string") { const t = Date.parse(v); return Number.isFinite(t) ? t : null; } // session JSONL uses ISO strings
   return null;
+}
+
+/**
+ * Backwards paged history over the session JSONL, independent of the live ring.
+ * Thin wrapper over the shared readJsonlHistory pager with the main-log parser.
+ */
+export function readHistoryBefore(file: string, before: number | null, limit = 200): HistoryPage<MainLogItem> {
+  return readJsonlHistory<MainLogItem>(file, before, limit, (line, offset) => {
+    const item = parseEntry(line);
+    if (item) item.offset = offset;
+    return item;
+  });
 }
 
 export class MainLogReader {

@@ -1,4 +1,5 @@
 import { existsSync, openSync, readSync, closeSync, statSync } from "node:fs";
+import { readJsonlHistory } from "./history.ts";
 import { usageStats, type UsageStats } from "./usage.ts";
 
 /**
@@ -75,6 +76,19 @@ function readResult(resFile: string): string | null {
   } finally {
     if (fd !== undefined) try { closeSync(fd); } catch { /* ignore */ }
   }
+}
+
+/**
+ * Backwards paged history for one subagent's events.jsonl (shared pager, sub parser).
+ */
+export function readSubHistory(
+  dir: string,
+  id: string,
+  before: number | null,
+  limit = 300,
+): { id: string; lines: SubLogLine[]; oldest: number | null } {
+  const r = readJsonlHistory<SubLogLine>(`${dir}/events.jsonl`, before, limit, parseLine);
+  return { id, lines: r.items, oldest: r.oldest };
 }
 
 /**
