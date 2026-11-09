@@ -355,19 +355,20 @@
   .usage-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
   .usage-body { max-height: 264px; overflow-y: auto; padding: 2px 24px 12px; }
   #so-usage .usage-body { padding: 2px 16px 12px; }
-  /* the always-on readout strip */
-  .cluster { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0 24px; }
-  .cell { min-width: 0; padding: 12px 18px 12px 0; border-right: 1px solid var(--line-2); }
-  .cell:nth-child(2) { padding-left: 18px; }
-  .cell:nth-child(3) { padding-left: 18px; }
-  .cell:last-child { border-right: 0; padding-left: 18px; }
-  .cell .plate { display: block; margin-bottom: 5px; }
-  .cell .val { font-family: var(--mono); font-size: 17px; font-weight: 500; color: var(--t0); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
-  .cell .val small { font-size: 11px; color: var(--t2); font-weight: 400; margin-left: 2px; }
-  .cell .sub { font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; color: var(--t2); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%; font-variant-numeric: tabular-nums; }
+  /* always-on readout strip: ONE slim hairline row of faceplate labels +
+     tabular figures. The 2px meters and per-cell breakdowns live behind the
+     usage accordion (detail body renders u-* sections); their strip elements
+     stay in the DOM hidden so cluster ids and updateCluster() are untouched. */
+  .cluster { display: flex; align-items: stretch; margin: 0 24px; overflow-x: auto; scrollbar-width: none; }
+  .cluster::-webkit-scrollbar { display: none; }
+  .cell { display: flex; align-items: baseline; gap: 7px; flex: none; min-width: 0; padding: 9px 16px; border-right: 1px solid var(--line-2); white-space: nowrap; }
+  .cell:first-child { padding-left: 0; }
+  .cell:last-child { border-right: 0; }
+  .cell .plate { display: inline; margin-bottom: 0; }
+  .cell .val { font-family: var(--mono); font-size: 12.5px; font-weight: 500; line-height: 16px; color: var(--t0); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+  .cell .val small { font-size: 10px; color: var(--t2); font-weight: 400; margin-left: 1px; }
   .cell .cl-sig { color: var(--sig); }
-  .meter { height: 2px; margin-top: 8px; background: rgba(255, 255, 255, .05); border-radius: 1px; overflow: hidden; position: relative; }
-  .meter i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: linear-gradient(90deg, rgba(70, 224, 163, .20), rgba(70, 224, 163, .55)); border-radius: 1px; transition: width .4s var(--ease); }
+  .cell .sub, .cell .meter { display: none; }
   .u-sec { margin-bottom: 12px; }
   .u-sec:last-child { margin-bottom: 2px; }
   .u-label { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .17em; text-transform: uppercase; color: var(--t2); margin-bottom: 6px; }
@@ -435,12 +436,9 @@
   /* ---------- breakpoints ---------- */
   @media (max-width: 1079px) {
     :root { --panel-w: 280px; }
-    /* instrument cluster folds to a 2x2 readout */
-    .cluster { grid-template-columns: 1fr 1fr; margin: 0 20px; }
-    .cell { padding: 11px 14px 11px 0; }
-    .cell:nth-child(2), .cell:last-child { padding-left: 14px; }
-    .cell:nth-child(2n) { border-right: 0; }
-    .cell:nth-child(-n+2) { border-bottom: 1px solid var(--line-2); }
+    .cluster { margin: 0 20px; }
+    .cell { gap: 5px; padding: 9px 11px; }
+    .cell:first-child { padding-left: 0; }
   }
   @media (max-width: 719px) {
     #shell { grid-template-columns: minmax(0, 1fr); }
@@ -466,7 +464,10 @@
     .col { padding: 20px 16px 12px; }
     #head { padding: 10px 16px 9px; }
     #composer { padding: 10px 12px 12px; padding-bottom: calc(12px + var(--sa-b)); }
-    .cluster { margin: 0 16px; }
+    /* phone: the strip folds behind the usage toggle (hidden by default; the
+       44px usage head + its summary line stay always-on) */
+    #main-cluster { display: none; }
+    #main-usage-head[aria-expanded="true"] + #main-cluster { display: flex; margin: 0 16px; }
     #jump { right: 16px; }
     #topbar { padding: 0 14px; padding-top: var(--sa-t); gap: 10px; }
     #topbar #project { display: none; }
@@ -492,7 +493,7 @@
      or a short desktop window): collapse the instrument strip so the composer and
      log keep their space — the input's top edge can never be pushed out of view */
   @media (max-height: 520px) {
-    .cluster { display: none; }
+    #main-cluster { display: none !important; } /* wins over the mobile expanded rule */
   }
 </style>
 </head>
@@ -1172,7 +1173,7 @@
       t && t.input + t.output > 0 ? `${Math.round((t.output / (t.input + t.output)) * 100)}%` : "0%";
     const tools = stats.tools ?? [];
     const calls = stats.toolCalls ?? 0;
-    setCell("cl-tools", String(calls));
+    setCell("cl-tools", calls.toLocaleString("en-US"));
     setCell("cl-tools-sub", tools.length ? tools.slice(0, 2).map((x) => `${x.name.toUpperCase()} ${x.count}`).join(" · ") : "NO CALLS YET");
     document.getElementById("cl-tools-meter").style.width = calls ? `${Math.max(4, Math.round(((tools[0]?.count ?? 0) / calls) * 100))}%` : "0%";
     let run = 0, blk = 0, done = 0;
