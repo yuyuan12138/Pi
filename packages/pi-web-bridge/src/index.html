@@ -3,173 +3,353 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>Mission Control</title>
 <style>
+  /* ---------- tokens ---------- */
   :root {
-    --bg: #0b0b0c;
-    --bg-rail: #0e0e10;
-    --bg-hover: #17171a;
-    --bg-active: #1b1b1f;
-    --bg-bubble: #1a1a1e;
-    --bg-input: #121214;
-    --border: #26262b;
-    --border-soft: #1d1d21;
-    --text: #ececee;
-    --dim: #9d9da6;
-    --faint: #67676f;
-    --green: #4cc38a;
-    --red: #f0716a;
-    --gray: #4b4b54;
-    --btn: #f2f2f3;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --bg: #0a0a0b;
+    --panel: #0e0e10;
+    --raised: #15151a;
+    --raised-2: #1b1b21;
+    --bubble: #17171d;
+    --input-bg: #121216;
+    --border: #2a2a32;
+    --border-soft: #1c1c22;
+    --text: #ededf0;
+    --body-2: #d9d9e0;
+    --muted: #a4a4ae;
+    --dim: #8d8d97;
+    --green: #4dd694;
+    --red: #ff7a72;
+    --dot-idle: #3c3c45;
+    --btn-bg: #f2f2f3;
+    --btn-fg: #0a0a0b;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --tb-h: 48px;
+    --lb-h: 40px;
+    --panel-w: 320px;
+    --measure: 720px;
+    --ease: cubic-bezier(.2, .7, .2, 1);
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
-    margin: 0; display: flex; background: var(--bg); color: var(--text);
-    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 var(--sans);
     -webkit-font-smoothing: antialiased;
   }
+  .mono { font-family: var(--mono); }
+  ::selection { background: #2c2c36; }
+  :focus-visible { outline: 1px solid #4a4a56; outline-offset: 2px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #232329; border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  * { scrollbar-width: thin; scrollbar-color: #232329 transparent; }
 
-  /* ---------- rail ---------- */
-  #rail {
-    width: 264px; flex: none; display: flex; flex-direction: column;
-    background: var(--bg-rail); border-right: 1px solid var(--border-soft);
-  }
-  .brand { padding: 20px 18px 14px; }
-  .brand h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text); }
-  .brand p { margin: 4px 0 0; font-size: 12px; color: var(--faint); font-family: var(--mono); }
-  #rail-scroll { flex: 1; overflow-y: auto; padding: 0 10px 10px; }
-  .rail-item {
-    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
-    padding: 8px 10px; margin: 1px 0; border: 0; border-radius: 8px; cursor: pointer;
-    background: transparent; color: var(--dim); font: inherit; font-size: 13px;
-  }
-  .rail-item:hover { background: var(--bg-hover); }
-  .rail-item.active { background: var(--bg-active); color: var(--text); }
-  .rail-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--gray); }
-  .dot.running { background: var(--green); }
+  /* ---------- status dots ---------- */
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dot-idle); }
+  .dot.running { background: var(--green); animation: pulse 2.4s ease-in-out infinite; }
   .dot.blocked { background: var(--red); }
-  .dot.done { background: var(--gray); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+  .st.blocked { color: var(--red); }
   .badge {
-    flex: none; min-width: 17px; padding: 1px 5px; border-radius: 9px; text-align: center;
-    background: var(--bg-bubble); border: 1px solid var(--border); color: var(--text);
-    font-size: 11px; line-height: 15px; display: none;
+    flex: none; min-width: 18px; padding: 0 5px; border-radius: 4px; text-align: center;
+    background: var(--raised-2); border: 1px solid #3a3a44; color: var(--text);
+    font-family: var(--mono); font-size: 10.5px; line-height: 16px;
   }
-  .badge.on { display: block; }
-  .section-label { padding: 16px 10px 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
-  .section-label .count { float: right; font-family: var(--mono); text-transform: none; letter-spacing: 0; }
-  .rail-foot { padding: 12px 18px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--faint); display: flex; align-items: center; gap: 8px; }
-  .linklike {
-    margin: 4px 0 0 10px; padding: 4px 8px; background: none; border: 0; cursor: pointer;
-    color: var(--faint); font: inherit; font-size: 12px; border-radius: 6px; text-align: left;
+
+  /* ---------- top bar ---------- */
+  #topbar {
+    height: var(--tb-h); flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; border-bottom: 1px solid var(--border-soft); position: relative; z-index: 60;
   }
-  .linklike:hover { color: var(--dim); background: var(--bg-hover); }
+  .wordmark { font-size: 11px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+  #project { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+  .flex-spacer { flex: 1; }
+  .bridge { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); white-space: nowrap; }
 
-  /* ---------- main column ---------- */
-  #maincol { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #head { padding: 14px 24px; border-bottom: 1px solid var(--border-soft); }
-  #head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-  #head p { margin: 2px 0 0; font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #log { flex: 1; overflow-y: auto; }
-  .col { max-width: 760px; margin: 0 auto; padding: 28px 24px 20px; display: flex; flex-direction: column; gap: 18px; }
-  .empty { color: var(--faint); text-align: center; padding: 48px 0; font-size: 13px; }
+  /* ---------- mobile live bar ---------- */
+  #livebar { display: none; }
 
-  .msg { max-width: 82%; }
-  .msg .meta { font-size: 11px; color: var(--faint); margin-bottom: 3px; }
-  .msg.user { align-self: flex-end; }
-  .msg.user .bubble { background: var(--bg-bubble); border: 1px solid var(--border); border-radius: 12px; padding: 9px 13px; white-space: pre-wrap; word-wrap: break-word; }
+  /* ---------- shell ---------- */
+  #shell { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w); }
+
+  /* ---------- hero conversation ---------- */
+  #hero { min-width: 0; display: flex; flex-direction: column; position: relative; }
+  #head {
+    flex: none; display: flex; align-items: baseline; gap: 12px;
+    padding: 12px 24px; border-bottom: 1px solid var(--border-soft);
+  }
+  #head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+  #win-meta { margin-left: auto; font-size: 11px; color: var(--dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #log { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+  .col { max-width: var(--measure); margin: 0 auto; padding: 28px 24px 16px; display: flex; flex-direction: column; gap: 20px; }
+
+  .msg { max-width: min(78%, 560px); }
+  .msg.user { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .msg.user .bubble {
+    background: var(--bubble); border: 1px solid var(--border); border-radius: 14px;
+    padding: 10px 14px; white-space: pre-wrap; overflow-wrap: break-word;
+  }
   .msg.user.pending .bubble { opacity: .55; }
   .msg.user.failed .bubble { border-color: var(--red); }
-  .msg.assistant { align-self: flex-start; max-width: 100%; white-space: pre-wrap; word-wrap: break-word; }
-  .msg.assistant .meta { font-size: 11px; color: var(--faint); margin-bottom: 4px; }
+  .msg.user.failed .meta { color: var(--red); }
+  .msg.assistant { align-self: flex-start; max-width: 100%; }
+  .meta { font-size: 11px; color: var(--dim); }
+  .msg.assistant .meta { text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; margin-bottom: 4px; }
+  .atext { white-space: pre-wrap; overflow-wrap: break-word; }
 
-  .evt { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-  .evt.tool { color: var(--faint); }
-  .evt.tool .tname { color: var(--dim); }
-  .evt .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
-  .evt.report { border-left: 2px solid var(--border); padding-left: 10px; font-family: inherit; font-size: 13px; color: var(--text); }
-  .evt.report .rstatus { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-right: 6px; }
-  .evt.report[data-status="blocked"] { border-left-color: var(--red); }
-  .evt.report[data-status="blocked"] .rstatus { color: var(--red); }
+  .evt { border-left: 2px solid var(--border); padding: 2px 0 2px 12px; overflow-wrap: break-word; font-size: 13px; color: var(--body-2); }
+  .evt.tool { display: flex; gap: 8px; min-width: 0; border-left-color: var(--border-soft); font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .evt.tool .tname { color: var(--muted); flex: none; }
+  .evt.tool .targs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .evt.report .rstatus, .evt.task .rstatus {
+    font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); margin-right: 8px;
+  }
   .evt.report[data-status="ready"] { border-left-color: var(--green); }
   .evt.report[data-status="ready"] .rstatus { color: var(--green); }
-  .evt.task { border-left: 2px solid var(--border); padding-left: 10px; font-family: inherit; font-size: 13px; color: var(--dim); }
-  .evt.task .rstatus { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-right: 6px; }
-  .evt.settled { color: var(--faint); }
-  .result-block { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
-  .result-block .rlabel { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
-  .result-block pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; color: var(--text); }
-  .sysline { align-self: center; font-size: 11.5px; color: var(--faint); }
+  .evt.report[data-status="blocked"] { border-left-color: var(--red); }
+  .evt.report[data-status="blocked"] .rstatus { color: var(--red); }
+  .evt.task { color: var(--muted); }
+  .evt.settled { border-left: 0; padding-left: 0; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--dim); }
 
-  /* ---------- composer ---------- */
-  #composer { border-top: 1px solid var(--border-soft); padding: 14px 24px 18px; }
-  .comp-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
-  #input {
-    flex: 1; resize: none; background: var(--bg-input); color: var(--text);
-    border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px;
-    font: inherit; line-height: 1.5; max-height: 160px; outline: none;
+  .result-block { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .rb-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+  .result-block pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; }
+  .sysline { align-self: center; font-size: 11.5px; color: var(--dim); text-align: center; }
+  .empty { align-self: center; color: var(--dim); text-align: center; padding: 56px 0; font-size: 13px; }
+
+  #jump, #sjump {
+    position: absolute; right: 24px; bottom: 96px; z-index: 5;
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
+    background: var(--raised-2); color: var(--muted); font: 12px var(--sans); cursor: pointer;
   }
-  #input:focus { border-color: #3a3a41; }
-  #input::placeholder { color: var(--faint); }
-  #send {
-    flex: none; background: var(--btn); color: #0b0b0c; border: 0; border-radius: 10px;
-    padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  #jump:hover, #sjump:hover { color: var(--text); border-color: #3d3d47; }
+
+  /* ---------- composers ---------- */
+  #composer, #scomposer { flex: none; border-top: 1px solid var(--border-soft); padding: 12px 24px 16px; background: var(--bg); }
+  .comp-inner { max-width: var(--measure); margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+  textarea {
+    flex: 1; min-width: 0; resize: none; background: var(--input-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    font: 14px/1.5 var(--sans); max-height: 160px; outline: none;
   }
-  #send:disabled { background: #2a2a2f; color: var(--faint); cursor: default; }
-  ::-webkit-scrollbar { width: 10px; }
-  ::-webkit-scrollbar-thumb { background: #232327; border-radius: 5px; border: 2px solid var(--bg); }
-  ::-webkit-scrollbar-track { background: transparent; }
+  textarea:focus { border-color: #3d3d47; }
+  textarea::placeholder { color: var(--dim); }
+  .send {
+    flex: none; height: 43px; padding: 0 16px; border: 0; border-radius: 9px;
+    background: var(--btn-bg); color: var(--btn-fg); font: 600 13px var(--sans); cursor: pointer;
+  }
+  .send:disabled { background: #1d1d23; color: #6e6e79; cursor: default; }
+
+  /* ---------- live work panel ---------- */
+  #panel {
+    min-height: 0; display: flex; flex-direction: column;
+    background: var(--panel); border-left: 1px solid var(--border-soft);
+  }
+  .panel-head {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px 10px;
+  }
+  .label { font-size: 10.5px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  #panel-count { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  #panel-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px; }
+  .card {
+    display: grid; width: 100%; text-align: left; margin: 2px 0; padding: 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "dot name badge time" "sub sub sub sub" "tick tick tick tick";
+    align-items: center; column-gap: 8px; row-gap: 2px;
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    color: var(--text); font: inherit; cursor: pointer;
+  }
+  .card:hover { background: var(--raised); }
+  .card.active { background: var(--raised-2); border-color: var(--border); }
+  .card .dot { grid-area: dot; }
+  .card-name { grid-area: name; min-width: 0; font-family: var(--mono); font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-badge { grid-area: badge; }
+  .card-time { grid-area: time; font-family: var(--mono); font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .card-sub { grid-area: sub; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-ticker { grid-area: tick; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .linklike {
+    display: block; width: calc(100% - 4px); margin: 8px 2px 2px; padding: 6px 8px;
+    background: none; border: 0; border-radius: 6px; color: var(--dim);
+    font: 12px var(--sans); cursor: pointer; text-align: left;
+  }
+  .linklike:hover { color: var(--muted); background: var(--raised); }
+  .panel-empty { padding: 20px 10px; color: var(--dim); font-size: 12px; }
+
+  /* ---------- slide-over transcript ---------- */
+  #backdrop {
+    position: fixed; inset: var(--tb-h) 0 0 0; background: rgba(0, 0, 0, .55); z-index: 45;
+    opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s linear .2s;
+  }
+  #backdrop.on { opacity: 1; visibility: visible; transition: opacity .2s ease; }
+  #slideover {
+    position: fixed; top: var(--tb-h); right: 0; bottom: 0; width: min(480px, 100%);
+    display: flex; flex-direction: column; z-index: 50;
+    background: var(--panel); border-left: 1px solid var(--border-soft);
+    box-shadow: -24px 0 48px rgba(0, 0, 0, .45);
+    transform: translateX(103%); visibility: hidden;
+    transition: transform .24s var(--ease), visibility 0s linear .24s;
+  }
+  #slideover.open { transform: none; visibility: visible; transition: transform .24s var(--ease); }
+  .so-head {
+    flex: none; display: grid; align-items: center; column-gap: 10px; row-gap: 4px;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    padding: 14px 16px 12px; border-bottom: 1px solid var(--border-soft);
+  }
+  .so-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  #so-id { font-family: var(--mono); font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #so-sub { font-family: var(--mono); font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #so-time { font-family: var(--mono); font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .iconbtn {
+    width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--dim); cursor: pointer;
+  }
+  .iconbtn:hover { color: var(--text); background: var(--raised); border-color: var(--border); }
+  #so-label {
+    grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  #slog { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .so-col { padding: 16px 16px 12px; gap: 16px; }
+  #sjump { right: 16px; bottom: 88px; }
+  #scomposer { padding: 12px 16px 16px; }
+  #scomposer .comp-inner { max-width: none; }
+
+  /* ---------- breakpoints ---------- */
+  @media (max-width: 1079px) {
+    :root { --panel-w: 280px; }
+  }
+  @media (max-width: 719px) {
+    #shell { grid-template-columns: minmax(0, 1fr); }
+    #livebar {
+      display: flex; align-items: center; gap: 10px; flex: none; height: var(--lb-h); width: 100%;
+      padding: 0 16px; background: var(--bg); border: 0; border-bottom: 1px solid var(--border-soft);
+      color: var(--muted); font: 11px var(--mono); cursor: pointer; text-align: left;
+    }
+    .lb-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    #livebar svg { transition: transform .2s var(--ease); }
+    #livebar.open svg { transform: rotate(90deg); }
+    #panel {
+      position: fixed; top: calc(var(--tb-h) + var(--lb-h)); left: 0; right: 0; bottom: 0; z-index: 40;
+      border-left: 0; box-shadow: none;
+      transform: translateX(103%); visibility: hidden;
+      transition: transform .24s var(--ease), visibility 0s linear .24s;
+    }
+    #panel.open { transform: none; visibility: visible; transition: transform .24s var(--ease); }
+    .col { padding: 20px 16px 12px; }
+    #composer { padding: 10px 12px 12px; }
+    #jump { right: 16px; }
+    #topbar #project { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
 </style>
 </head>
 <body>
-<aside id="rail">
-  <div class="brand">
-    <h1>Mission Control</h1>
-    <p id="project">—</p>
-  </div>
-  <div id="rail-scroll">
-    <button class="rail-item active" data-win="main">
-      <span class="dot running" id="main-dot"></span>
-      <span class="name">Coordinator</span>
-      <span class="badge" id="main-badge"></span>
+<header id="topbar">
+  <span class="wordmark">Mission Control</span>
+  <span id="project" class="mono">&mdash;</span>
+  <span class="flex-spacer"></span>
+  <span class="bridge"><span class="dot" id="bridge-dot"></span><span id="bridge-status" class="mono">connecting</span></span>
+</header>
+
+<button id="livebar" type="button" aria-expanded="false" aria-controls="panel">
+  <span class="dot" id="livebar-dot"></span>
+  <span id="livebar-text">no live work</span>
+  <span class="lb-right">
+    <span class="badge" id="livebar-badge" hidden></span>
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+</button>
+
+<div id="shell">
+  <main id="hero">
+    <header id="head">
+      <h2>Coordinator</h2>
+      <span id="win-meta"></span>
+    </header>
+    <div id="log"><div class="col" id="logcol"></div></div>
+    <button id="jump" type="button" hidden>Jump to latest</button>
+    <form id="composer">
+      <div class="comp-inner">
+        <textarea id="input" rows="1" placeholder="Message the coordinator"></textarea>
+        <button id="send" class="send" type="submit" disabled>Send</button>
+      </div>
+    </form>
+  </main>
+
+  <aside id="panel" aria-label="Live subagent work">
+    <div class="panel-head">
+      <span class="label">Live work</span>
+      <span id="panel-count"></span>
+    </div>
+    <div id="panel-scroll">
+      <div id="cards"></div>
+      <button id="done-toggle" class="linklike" type="button" hidden></button>
+      <div id="done-cards" hidden></div>
+      <div id="panel-empty" class="panel-empty" hidden>No subagents yet &mdash; spawned agents appear here.</div>
+    </div>
+  </aside>
+</div>
+
+<div id="backdrop"></div>
+
+<section id="slideover" aria-label="Subagent transcript">
+  <header class="so-head">
+    <span class="dot" id="so-dot"></span>
+    <div class="so-title">
+      <span id="so-id"></span>
+      <span id="so-sub"></span>
+    </div>
+    <span id="so-time"></span>
+    <button id="so-close" class="iconbtn" type="button" aria-label="Close transcript">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
     </button>
-    <div class="section-label">Subagents <span class="count" id="sub-count"></span></div>
-    <div id="sub-list"></div>
-    <button class="linklike" id="done-toggle" hidden>Show finished</button>
-    <div id="done-list" hidden></div>
-  </div>
-  <div class="rail-foot"><span class="dot running"></span><span id="bridge-status">bridge · 127.0.0.1</span></div>
-</aside>
-<main id="maincol">
-  <header id="head">
-    <h2 id="win-title">Coordinator</h2>
-    <p id="win-meta"></p>
+    <p id="so-label"></p>
   </header>
-  <div id="log"><div class="col" id="logcol"></div></div>
-  <form id="composer">
+  <div id="slog"><div class="col so-col" id="slogcol"></div></div>
+  <button id="sjump" type="button" hidden>Jump to latest</button>
+  <form id="scomposer">
     <div class="comp-inner">
-      <textarea id="input" rows="1" placeholder="Message the coordinator"></textarea>
-      <button id="send" type="submit" disabled>Send</button>
+      <textarea id="sinput" rows="1" placeholder="Reply"></textarea>
+      <button id="ssend" class="send" type="submit" disabled>Send</button>
     </div>
   </form>
-</main>
+</section>
+
 <script>
 "use strict";
 (() => {
   const $ = (s) => document.querySelector(s);
-  const railItem = (win) => document.querySelector(`.rail-item[data-win="${CSS.escape(win)}"]`);
+
+  // ---------- state ----------
   const state = {
-    project: "", subs: new Map(), active: "main",
-    wins: new Map(),          // win -> {items, cursor, pollId, lastActivity}
-    unread: new Map(),        // win -> count
-    prevActivity: new Map(),  // win -> mtime
+    subs: new Map(),          // id -> SubagentView (latest /state)
+    openSub: null,            // slide-over target id | null
+    panelOpen: false,         // mobile drawer
+    wins: new Map(),          // id -> { items, cursor, resultText, done }
+    unread: new Map(),        // id -> new-line count since last open
+    prevActivity: new Map(),  // id -> lastActivity (fallback unread path)
+    firstSeen: new Map(),     // id -> epoch ms first observed (elapsed base)
     doneShown: false,
+    bridgeDown: false,
   };
+  const logOkAt = new Map();  // id -> epoch ms of last successful sub-log poll
+  const cardEls = new Map();  // id -> card element record
+
   const win = (id) => {
-    if (!state.wins.has(id)) state.wins.set(id, { items: [], cursor: null, lastActivity: 0 });
-    return state.wins.get(id);
+    let w = state.wins.get(id);
+    if (!w) { w = { items: [], cursor: null, resultText: null, done: false }; state.wins.set(id, w); }
+    return w;
   };
 
   // ---------- helpers ----------
@@ -187,277 +367,562 @@
     if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
     return `${Math.floor(s / 86400)}d ago`;
   }
-  function scrollSticky(el, fn) {
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    fn();
-    if (near) el.scrollTop = el.scrollHeight;
+  function fmtElapsed(ms) {
+    const t = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    const p = (n) => String(n).padStart(2, "0");
+    return h ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
   }
 
-  // ---------- rail ----------
-  function subItem(s) {
-    const b = document.createElement("button");
-    b.className = "rail-item" + (state.active === s.id ? " active" : "");
-    b.dataset.win = s.id;
-    const dot = document.createElement("span"); dot.className = "dot " + s.status;
-    const name = document.createElement("span"); name.className = "name";
-    name.textContent = s.label ? s.label : s.id;
-    b.append(dot, name);
-    const n = state.unread.get(s.id) ?? 0;
-    if (n > 0 && state.active !== s.id) {
-      const badge = document.createElement("span"); badge.className = "badge on"; badge.textContent = String(n);
-      b.append(badge);
-    }
-    b.addEventListener("click", () => activate(s.id));
-    return b;
+  // stick-to-bottom scrollers
+  function makeScroller(scrollEl, colEl, jumpBtn) {
+    const s = { stick: true };
+    const near = () => scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
+    scrollEl.addEventListener("scroll", () => {
+      s.stick = near();
+      if (jumpBtn) jumpBtn.hidden = s.stick;
+    }, { passive: true });
+    if (jumpBtn) jumpBtn.addEventListener("click", () => {
+      s.stick = true; jumpBtn.hidden = true; scrollEl.scrollTop = scrollEl.scrollHeight;
+    });
+    s.add = (node) => {
+      colEl.append(node);
+      if (s.stick) scrollEl.scrollTop = scrollEl.scrollHeight;
+      else if (jumpBtn) jumpBtn.hidden = false;
+    };
+    s.reset = () => { colEl.textContent = ""; };
+    s.toBottom = () => { s.stick = true; if (jumpBtn) jumpBtn.hidden = true; scrollEl.scrollTop = scrollEl.scrollHeight; };
+    return s;
   }
-  function renderRail(data) {
-    $("#project").textContent = data.project;
-    const subs = data.subagents ?? [];
-    state.subs = new Map(subs.map((s) => [s.id, s]));
-    for (const s of subs) {
-      const prev = state.prevActivity.get(s.id) ?? 0;
-      if (s.lastActivity > prev) {
-        if (state.active !== s.id && state.prevActivity.has(s.id)) {
-          state.unread.set(s.id, (state.unread.get(s.id) ?? 0) + 1);
-        }
-        state.prevActivity.set(s.id, s.lastActivity);
+  const mainSc = makeScroller($("#log"), $("#logcol"), $("#jump"));
+  const subSc = makeScroller($("#slog"), $("#slogcol"), $("#sjump"));
+
+  // ---------- unread / title ----------
+  function updateBadges() {
+    let total = 0;
+    for (const [id, rec] of cardEls) {
+      const n = state.unread.get(id) ?? 0;
+      total += n;
+      rec.badge.hidden = n <= 0;
+      rec.badge.textContent = n > 99 ? "99+" : String(n);
+    }
+    const lb = $("#livebar-badge");
+    lb.hidden = total <= 0;
+    lb.textContent = total > 99 ? "99+" : String(total);
+    document.title = total > 0 ? `(${total}) Mission Control` : "Mission Control";
+  }
+  function bumpUnread(id, n) {
+    if (!n || state.openSub === id) return;
+    state.unread.set(id, (state.unread.get(id) ?? 0) + n);
+    updateBadges();
+  }
+
+  // ---------- live work panel ----------
+  function buildCard(id) {
+    const root = document.createElement("button");
+    root.type = "button";
+    root.className = "card";
+    root.dataset.win = id;
+    root.innerHTML =
+      '<span class="dot"></span>' +
+      '<span class="card-name"></span>' +
+      '<span class="badge card-badge" hidden></span>' +
+      '<span class="card-time"></span>' +
+      '<span class="card-sub"></span>' +
+      '<span class="card-ticker"></span>';
+    const rec = {
+      root,
+      dot: root.querySelector(".dot"),
+      name: root.querySelector(".card-name"),
+      time: root.querySelector(".card-time"),
+      sub: root.querySelector(".card-sub"),
+      ticker: root.querySelector(".card-ticker"),
+      badge: root.querySelector(".card-badge"),
+      tickerText: null,
+    };
+    root.addEventListener("click", () => toggleSub(id));
+    return rec;
+  }
+  function tickerText(s) {
+    const w = state.wins.get(s.id);
+    const items = w?.items ?? [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === "tool") return "\u203a " + it.name + "  " + (it.text || "");
+      if (it.kind === "assistant") return it.text;
+      if (it.kind === "report") return it.name + ": " + it.text;
+      if (it.kind === "event" && it.name === "task") return it.text;
+    }
+    return s.lastExcerpt || s.label || "";
+  }
+  function fillStatus(el, s) {
+    el.textContent = "";
+    const st = document.createElement("span");
+    st.className = "st " + (s?.status ?? "");
+    st.textContent = s?.status ?? "\u2014";
+    el.append(st);
+    if (s?.model) el.append(document.createTextNode(" \u00b7 " + s.model));
+  }
+  function updateCard(rec, s) {
+    rec.dot.className = "dot " + s.status;
+    rec.name.textContent = s.id;
+    if (s.status === "done") {
+      rec.time.textContent = s.lastActivity ? relTime(s.lastActivity) : "";
+    } else {
+      const fs = state.firstSeen.get(s.id);
+      rec.time.textContent = fs ? fmtElapsed(Date.now() - fs) : "";
+    }
+    fillStatus(rec.sub, s);
+    const txt = tickerText(s);
+    if (txt !== rec.tickerText) {
+      rec.tickerText = txt;
+      rec.ticker.textContent = txt;
+      if (s.status === "running" && rec.ticker.animate) {
+        rec.ticker.animate([{ opacity: .25 }, { opacity: 1 }], { duration: 280, easing: "ease-out" });
       }
     }
-    const list = $("#sub-list"); list.textContent = "";
-    const doneList = $("#done-list"); doneList.textContent = "";
+    rec.root.classList.toggle("active", state.openSub === s.id);
+    rec.root.title = [s.id, s.label, s.model].filter(Boolean).join("\n");
+  }
+  function orderInto(el, list) {
+    const sig = list.map((s) => s.id).join("|");
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
+    for (const s of list) el.append(cardEls.get(s.id).root);
+  }
+  function updateLivebarStatus(active) {
+    const running = active.filter((s) => s.status === "running").length;
+    const blocked = active.filter((s) => s.status === "blocked").length;
+    $("#livebar-text").textContent =
+      blocked ? `${running} running \u00b7 ${blocked} blocked` : running ? `${running} running` : "no live work";
+    $("#livebar-dot").className = "dot " + (blocked ? "blocked" : running ? "running" : "");
+  }
+  function syncPanel(subs) {
+    for (const id of [...cardEls.keys()]) {
+      if (!state.subs.has(id)) { cardEls.get(id).root.remove(); cardEls.delete(id); }
+    }
+    for (const s of subs) if (!cardEls.has(s.id)) cardEls.set(s.id, buildCard(s.id));
+    for (const s of subs) updateCard(cardEls.get(s.id), s);
     const active = subs.filter((s) => s.status !== "done");
     const done = subs.filter((s) => s.status === "done");
-    for (const s of active) list.append(subItem(s));
-    for (const s of done) doneList.append(subItem(s));
-    $("#sub-count").textContent = active.length ? `${active.length} active` : "none";
+    orderInto($("#cards"), active);
+    orderInto($("#done-cards"), done);
+    $("#panel-count").textContent = active.length ? `${active.length} live` : "idle";
     const toggle = $("#done-toggle");
     toggle.hidden = done.length === 0;
     toggle.textContent = state.doneShown ? `Hide finished (${done.length})` : `Show finished (${done.length})`;
-    doneList.hidden = !state.doneShown;
-    const mBadge = $("#main-badge");
-    const mn = state.unread.get("main") ?? 0;
-    mBadge.classList.toggle("on", mn > 0 && state.active !== "main");
-    mBadge.textContent = String(mn);
-    $("#main-dot").className = "dot running";
+    $("#done-cards").hidden = !state.doneShown;
+    $("#panel-empty").hidden = subs.length > 0;
+    updateLivebarStatus(active);
+    updateBadges();
   }
 
-  // ---------- window rendering ----------
-  const logcol = $("#logcol"), logEl = $("#log");
-  function activate(id) {
-    state.active = id;
-    state.unread.delete(id);
-    for (const el of document.querySelectorAll(".rail-item")) el.classList.toggle("active", el.dataset.win === id);
-    const w = win(id);
-    logcol.textContent = "";
-    if (id === "main") {
-      $("#win-title").textContent = "Coordinator";
-      $("#input").placeholder = "Message the coordinator";
-      for (const item of w.items) logcol.append(renderMainItem(item));
-      renderHeadMain();
-      $("#main-badge").classList.remove("on");
-    } else {
-      const s = state.subs.get(id);
-      $("#win-title").textContent = id;
-      $("#input").placeholder = s && s.status === "done" ? "This subagent finished — reply goes via the coordinator" : "Reply to this subagent";
-      for (const item of w.items) logcol.append(renderSubLine(item));
-      renderHeadSub(s);
-    }
-    renderResultBlock();
-    logEl.scrollTop = logEl.scrollHeight;
-    pollLogNow();
-  }
-  function renderHeadMain() {
-    const w = win("main");
-    $("#win-meta").textContent = w.lastActivity ? `last activity ${relTime(w.lastActivity)}` : "";
-  }
-  function renderHeadSub(s) {
-    if (!s) { $("#win-meta").textContent = ""; return; }
-    const bits = [s.status, s.model, s.label, s.lastActivity ? `activity ${relTime(s.lastActivity)}` : null].filter(Boolean);
-    $("#win-meta").textContent = bits.join(" · ");
-  }
-  function metaLine(kind, ts, label) {
-    const m = document.createElement("div"); m.className = "meta";
-    m.textContent = (label ?? (kind === "user" ? "You" : "Coordinator")) + (ts ? ` · ${relTime(ts)}` : "");
-    return m;
-  }
+  // ---------- transcript rendering ----------
   function renderMainItem(item) {
     const d = document.createElement("div");
     d.className = "msg " + item.kind + (item.pending ? " pending" : "") + (item.failed ? " failed" : "");
     if (item.kind === "user") {
-      const b = document.createElement("div"); b.className = "bubble"; b.textContent = item.text;
+      const b = document.createElement("div");
+      b.className = "bubble";
+      b.textContent = item.text;
       d.append(b);
+      if (item.failed) {
+        const m = document.createElement("div");
+        m.className = "meta";
+        m.textContent = "not delivered";
+        d.append(m);
+      }
     } else {
-      d.append(metaLine("assistant", item.ts));
-      const t = document.createElement("div"); t.style.whiteSpace = "pre-wrap"; t.textContent = item.text;
+      const m = document.createElement("div");
+      m.className = "meta";
+      if (item.ts) m.dataset.ts = String(item.ts);
+      m.textContent = "coordinator" + (item.ts ? " \u00b7 " + relTime(item.ts) : "");
+      d.append(m);
+      const t = document.createElement("div");
+      t.className = "atext";
+      t.textContent = item.text;
       d.append(t);
     }
     return d;
   }
   function renderSubLine(line) {
     if (line.kind === "assistant") {
-      const d = document.createElement("div"); d.className = "msg assistant";
-      d.append(metaLine("assistant", null, "Agent"));
-      const t = document.createElement("div"); t.style.whiteSpace = "pre-wrap"; t.textContent = line.text;
+      const d = document.createElement("div");
+      d.className = "msg assistant";
+      const t = document.createElement("div");
+      t.className = "atext";
+      t.textContent = line.text;
       d.append(t);
       return d;
     }
     const d = document.createElement("div");
     if (line.kind === "report") {
-      d.className = "evt report"; d.dataset.status = line.name;
-      const st = document.createElement("span"); st.className = "rstatus"; st.textContent = line.name;
+      d.className = "evt report";
+      d.dataset.status = line.name;
+      const st = document.createElement("span");
+      st.className = "rstatus";
+      st.textContent = line.name;
       d.append(st, document.createTextNode(line.text));
     } else if (line.kind === "tool") {
       d.className = "evt tool";
-      const n = document.createElement("span"); n.className = "tname"; n.textContent = "› " + line.name;
-      const a = document.createElement("span"); a.className = "truncate"; a.textContent = " " + (line.text || "");
+      const n = document.createElement("span");
+      n.className = "tname";
+      n.textContent = "\u203a " + line.name;
+      const a = document.createElement("span");
+      a.className = "targs";
+      a.textContent = line.text || "";
       d.append(n, a);
     } else if (line.kind === "event" && line.name === "task") {
       d.className = "evt task";
-      const st = document.createElement("span"); st.className = "rstatus"; st.textContent = "task";
+      const st = document.createElement("span");
+      st.className = "rstatus";
+      st.textContent = "task";
       d.append(st, document.createTextNode(line.text));
     } else {
-      d.className = "evt settled"; d.textContent = line.name === "settled" ? "— settled —" : (line.name ?? "");
+      d.className = "evt settled";
+      d.textContent = "\u2014 settled \u2014";
     }
     return d;
   }
-  function renderResultBlock() {
-    logcol.querySelector(".result-block")?.remove();
-    if (state.active === "main") return;
-    const s = state.subs.get(state.active);
-    const w = win(state.active);
-    if (!s || !s.result || !w.resultText) return;
-    const d = document.createElement("div"); d.className = "result-block";
-    const l = document.createElement("div"); l.className = "rlabel"; l.textContent = "Result";
-    const pre = document.createElement("pre"); pre.textContent = w.resultText;
-    d.append(l, pre);
-    logcol.append(d);
+  function refreshMainNode(it) {
+    const w = win("main");
+    const idx = w.items.indexOf(it);
+    if (idx < 0) return;
+    const el = $("#logcol").children[idx];
+    if (el) {
+      $("#logcol").replaceChild(renderMainItem(it), el);
+      if (mainSc.stick) $("#log").scrollTop = $("#log").scrollHeight;
+    }
+  }
+  function sweepPending() {
+    const w = win("main");
+    for (const it of w.items) {
+      if (it.pending && it.ts && Date.now() - it.ts > 60000) {
+        it.pending = false;
+        it.failed = true;
+        refreshMainNode(it);
+      }
+    }
+  }
+  function refreshAges() {
+    for (const m of document.querySelectorAll("#logcol .msg.assistant .meta[data-ts]")) {
+      const ts = Number(m.dataset.ts);
+      if (Number.isFinite(ts) && ts > 0) m.textContent = "coordinator \u00b7 " + relTime(ts);
+    }
   }
 
+  function rebuildMain() {
+    const w = win("main");
+    mainSc.reset();
+    if (!w.items.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No messages yet. Say hello \u2014 the coordinator replies here.";
+      $("#logcol").append(e);
+    } else {
+      for (const it of w.items) $("#logcol").append(renderMainItem(it));
+    }
+    mainSc.toBottom();
+  }
+  function placeResult() {
+    $("#slogcol").querySelector(".result-block")?.remove();
+    const id = state.openSub;
+    if (!id) return;
+    const w = win(id);
+    if (!w.resultText) return;
+    const d = document.createElement("div");
+    d.className = "result-block";
+    const l = document.createElement("div");
+    l.className = "rb-label";
+    l.textContent = "Result";
+    const pre = document.createElement("pre");
+    pre.textContent = w.resultText;
+    d.append(l, pre);
+    $("#slogcol").append(d);
+  }
+  function rebuildSub() {
+    const id = state.openSub;
+    if (!id) return;
+    const w = win(id);
+    subSc.reset();
+    if (!w.items.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = w.done ? "Finished. Result below." : "No events yet.";
+      $("#slogcol").append(e);
+    } else {
+      for (const ln of w.items) $("#slogcol").append(renderSubLine(ln));
+    }
+    placeResult();
+    subSc.toBottom();
+  }
+
+  // ---------- slide-over ----------
+  function updateSoHeader(s) {
+    if (!s) return;
+    $("#so-dot").className = "dot " + s.status;
+    fillStatus($("#so-sub"), s);
+    $("#so-time").textContent = s.status === "done" ? (s.lastActivity ? relTime(s.lastActivity) : "") : "";
+    $("#so-label").textContent = s.label ?? "";
+  }
+  function syncBackdrop() {
+    $("#backdrop").classList.toggle("on", !!(state.openSub && window.innerWidth < 1080));
+  }
+  function openSub(id) {
+    state.openSub = id;
+    state.unread.delete(id);
+    updateBadges();
+    updateSoHeader(state.subs.get(id));
+    $("#so-id").textContent = id;
+    const s = state.subs.get(id);
+    $("#sinput").placeholder = s && s.status === "done"
+      ? "This subagent finished \u2014 replies go via the coordinator"
+      : `Reply to ${id}`;
+    rebuildSub();
+    $("#slideover").classList.add("open");
+    syncBackdrop();
+    for (const [cid, rec] of cardEls) rec.root.classList.toggle("active", cid === id);
+    pollWin(id);
+    if (window.innerWidth >= 1080) $("#sinput").focus({ preventScroll: true });
+  }
+  function closeSub() {
+    state.openSub = null;
+    $("#slideover").classList.remove("open");
+    syncBackdrop();
+    for (const rec of cardEls.values()) rec.root.classList.remove("active");
+  }
+  function toggleSub(id) { state.openSub === id ? closeSub() : openSub(id); }
+
   // ---------- polling ----------
-  let bridgeDown = false;
   async function pollState() {
     let data;
     try {
       const r = await api("/state");
       data = r.body;
       if (!r.ok || !data) throw new Error(r.code);
-      if (bridgeDown) { bridgeDown = false; $("#bridge-status").textContent = "bridge · 127.0.0.1"; }
+      if (state.bridgeDown) {
+        state.bridgeDown = false;
+        $("#bridge-dot").className = "dot running";
+        $("#bridge-status").textContent = "bridge \u00b7 127.0.0.1";
+      }
     } catch {
-      if (!bridgeDown) { bridgeDown = true; $("#bridge-status").textContent = "bridge offline"; }
+      if (!state.bridgeDown) {
+        state.bridgeDown = true;
+        $("#bridge-dot").className = "dot blocked";
+        $("#bridge-status").textContent = "bridge offline";
+      }
       return;
     }
-    const prevMain = state.prevActivity.get("main") ?? 0;
-    if (data.main?.sessionMtime > prevMain) {
-      if (state.active !== "main" && state.prevActivity.has("main")) state.unread.set("main", (state.unread.get("main") ?? 0) + 1);
-      state.prevActivity.set("main", data.main.sessionMtime);
+    $("#project").textContent = data.project;
+    const subs = data.subagents ?? [];
+    state.subs = new Map(subs.map((s) => [s.id, s]));
+    const now = data.now ?? Date.now();
+    for (const s of subs) if (!state.firstSeen.has(s.id)) state.firstSeen.set(s.id, now);
+    // fallback unread signal for subagents whose log polling is not landing
+    for (const s of subs) {
+      if (s.status === "done") continue;
+      if (now - (logOkAt.get(s.id) ?? 0) < 10000) continue;
+      const prev = state.prevActivity.get(s.id) ?? 0;
+      if (s.lastActivity > prev) {
+        if (state.prevActivity.has(s.id)) bumpUnread(s.id, 1);
+        state.prevActivity.set(s.id, s.lastActivity);
+      }
     }
-    win("main").lastActivity = data.main?.sessionMtime ?? 0;
-    if (state.active === "main") renderHeadMain();
-    renderRail(data);
-    if (state.active !== "main") renderHeadSub(state.subs.get(state.active));
-  }
-  async function pollLogNow() {
-    const id = state.active;
-    const w = win(id);
-    if (id === "main") {
-      const after = w.cursor === null ? "" : `?after=${w.cursor}`;
-      const r = await api(`/main-log${after}`);
-      if (!r.ok || !r.body) return;
-      const b = r.body;
-      w.cursor = b.cursor;
-      if (b.reset) { w.items = []; logcol.textContent = ""; }
-      for (const item of b.items ?? []) {
-        // dedupe optimistic copies
-        const idx = w.items.findIndex((x) => x.pending && x.kind === "user" && x.text === item.text);
-        if (idx >= 0) { w.items.splice(idx, 1); logcol.children[idx]?.remove(); }
-        w.items.push(item);
-        scrollSticky(logEl, () => logcol.append(renderMainItem(item)));
-      }
-      if (b.reset && !(b.items ?? []).length) {
-        logcol.textContent = "";
-        const e = document.createElement("div"); e.className = "empty";
-        e.textContent = "No web messages yet. Say hello — the coordinator replies here.";
-        logcol.append(e);
-      }
-    } else {
-      const after = w.cursor === null ? "" : `?after=${w.cursor}`;
-      const r = await api(`/sub-log?id=${encodeURIComponent(id)}${after}`);
-      if (!r.ok || !r.body) return;
-      const b = r.body;
-      w.cursor = b.cursor;
-      if (b.result) w.resultText = b.result;
-      if (b.reset) { w.items = []; logcol.textContent = ""; }
-      for (const line of b.lines ?? []) {
-        w.items.push(line);
-        scrollSticky(logEl, () => logcol.append(renderSubLine(line)));
-      }
-      if (b.reset && !(b.lines ?? []).length) {
-        logcol.textContent = "";
-        const e = document.createElement("div"); e.className = "empty";
-        e.textContent = b.done ? "Finished. Result below." : "No events yet.";
-        logcol.append(e);
-      }
-      renderResultBlock();
-    }
+    syncPanel(subs);
+    const mtime = data.main?.sessionMtime;
+    $("#win-meta").textContent = mtime ? `last activity ${relTime(mtime)}` : "";
+    if (state.openSub) updateSoHeader(state.subs.get(state.openSub));
+    sweepPending();
+    refreshAges();
   }
 
-  // ---------- composer ----------
-  const input = $("#input"), sendBtn = $("#send");
-  function syncSend() { sendBtn.disabled = input.value.trim().length === 0; }
-  input.addEventListener("input", () => {
-    syncSend();
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 160) + "px";
-  });
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#composer").requestSubmit(); }
-  });
-  $("#composer").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = ""; input.style.height = "auto"; syncSend();
-    const target = state.active === "main" ? "main" : `subagent:${state.active}`;
-    if (state.active === "main") {
-      const optimistic = { kind: "user", text, ts: Date.now(), pending: true };
-      win("main").items.push(optimistic);
-      logcol.querySelector(".empty")?.remove();
-      scrollSticky(logEl, () => logcol.append(renderMainItem(optimistic)));
-    }
-    const r = await api("/message", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, text }),
-    });
-    if (state.active === "main") {
-      const w = win("main");
-      const it = [...w.items].reverse().find((x) => x.pending && x.text === text);
-      if (it) {
-        if (r.ok) { it.pending = false; }
-        else { it.failed = true; it.pending = false; }
-        for (const [i, x] of w.items.entries()) {
-          if (x === it) {
-            const el = logcol.children[i];
-            if (el) { el.classList.toggle("pending", it.pending); el.classList.toggle("failed", it.failed); }
+  async function pollWin(id) {
+    const w = win(id);
+    // /main-log takes ?after; /sub-log already carries ?id= so the cursor joins with &
+    const after = w.cursor === null ? "" : `${id === "main" ? "?" : "&"}after=${w.cursor}`;
+    const r = id === "main"
+      ? await api(`/main-log${after}`)
+      : await api(`/sub-log?id=${encodeURIComponent(id)}${after}`);
+    if (!r.ok || !r.body) return;
+    if (id !== "main") logOkAt.set(id, Date.now());
+    const b = r.body;
+    w.cursor = b.cursor;
+
+    if (id === "main") {
+      if (b.reset) {
+        w.items = (b.items ?? []).slice();
+        rebuildMain();
+      } else {
+        const fresh = [];
+        for (const item of b.items ?? []) {
+          const idx = w.items.findIndex((x) => x.pending && x.kind === "user" && x.text === item.text);
+          if (idx >= 0) {
+            w.items.splice(idx, 1);
+            $("#logcol").children[idx]?.remove();
+            w.items.splice(idx, 0, item);
+            const ref = $("#logcol").children[idx];
+            const node = renderMainItem(item);
+            if (ref) $("#logcol").insertBefore(node, ref); else $("#logcol").append(node);
+          } else {
+            w.items.push(item);
+            fresh.push(item);
           }
         }
+        if (w.items.length) $("#logcol").querySelector(".empty")?.remove();
+        if (fresh.length) {
+          for (const it of fresh) $("#logcol").append(renderMainItem(it));
+          if (mainSc.stick) $("#log").scrollTop = $("#log").scrollHeight;
+        }
       }
-    } else {
-      const note = document.createElement("div");
-      note.className = "sysline";
-      note.textContent = r.ok
-        ? "Forwarded to the coordinator for delivery to this subagent."
-        : `Not delivered: ${r.body?.error ?? r.code}`;
-      logcol.append(note);
-      logEl.scrollTop = logEl.scrollHeight;
+      if (w.items.length > 600) { w.items = w.items.slice(-600); rebuildMain(); }
+      return;
     }
+
+    // subagent window
+    w.done = !!b.done;
+    if (b.result != null) w.resultText = b.result;
+    if (b.reset) {
+      w.items = (b.lines ?? []).slice();
+      if (state.openSub === id) rebuildSub();
+    } else {
+      const fresh = [];
+      for (const ln of b.lines ?? []) { w.items.push(ln); fresh.push(ln); }
+      if (fresh.length) {
+        bumpUnread(id, fresh.length);
+        if (state.openSub === id) {
+          $("#slogcol").querySelector(".empty")?.remove();
+          for (const ln of fresh) subSc.add(renderSubLine(ln));
+          placeResult();
+        }
+      }
+    }
+    if (w.items.length > 2000) {
+      w.items = w.items.slice(-2000);
+      if (state.openSub === id) rebuildSub();
+    }
+  }
+
+  async function pollLogs() {
+    const targets = new Set(["main"]);
+    for (const s of state.subs.values()) if (s.status !== "done") targets.add(s.id);
+    if (state.openSub) targets.add(state.openSub);
+    await Promise.allSettled([...targets].map((id) => pollWin(id)));
+  }
+
+  // ---------- elapsed tick ----------
+  setInterval(() => {
+    if (document.hidden) return;
+    const now = Date.now();
+    for (const s of state.subs.values()) {
+      if (s.status === "done") continue;
+      const rec = cardEls.get(s.id);
+      const fs = state.firstSeen.get(s.id);
+      if (rec && fs) rec.time.textContent = fmtElapsed(now - fs);
+    }
+    if (state.openSub) {
+      const s = state.subs.get(state.openSub);
+      const fs = state.firstSeen.get(state.openSub);
+      if (s && s.status !== "done" && fs) $("#so-time").textContent = fmtElapsed(now - fs);
+    }
+  }, 1000);
+
+  // ---------- composers ----------
+  function autosize(el) {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+  }
+  function wireComposer(inputEl, btn, onSubmit) {
+    const sync = () => { btn.disabled = inputEl.value.trim().length === 0; };
+    inputEl.addEventListener("input", () => { sync(); autosize(inputEl); });
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); inputEl.form.requestSubmit(); }
+    });
+    sync();
+    return sync;
+  }
+
+  const input = $("#input"), sendBtn = $("#send");
+  let sendingMain = false;
+  const syncMain = wireComposer(input, sendBtn, null);
+  $("#composer").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (sendingMain) return;
+    const text = input.value.trim();
+    if (!text) return;
+    sendingMain = true;
+    sendBtn.disabled = true;
+    input.value = "";
+    autosize(input);
+    const w = win("main");
+    $("#logcol").querySelector(".empty")?.remove();
+    const optimistic = { kind: "user", text, ts: Date.now(), pending: true, failed: false };
+    w.items.push(optimistic);
+    mainSc.add(renderMainItem(optimistic));
+    const r = await api("/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: "main", text }),
+    });
+    if (!r.ok) {
+      optimistic.pending = false;
+      optimistic.failed = true;
+      refreshMainNode(optimistic);
+    }
+    sendingMain = false;
+    syncMain();
   });
 
-  $("#done-toggle").addEventListener("click", () => { state.doneShown = !state.doneShown; pollState(); });
+  const sinput = $("#sinput"), ssend = $("#ssend");
+  let sendingSub = false;
+  const syncSub = wireComposer(sinput, ssend, null);
+  $("#scomposer").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (sendingSub || !state.openSub) return;
+    const text = sinput.value.trim();
+    if (!text) return;
+    sendingSub = true;
+    ssend.disabled = true;
+    sinput.value = "";
+    autosize(sinput);
+    const r = await api("/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: "subagent:" + state.openSub, text }),
+    });
+    const note = document.createElement("div");
+    note.className = "sysline";
+    note.textContent = r.ok
+      ? "Forwarded to the coordinator for delivery."
+      : `Not delivered: ${r.body?.error ?? r.code}`;
+    subSc.add(note);
+    sendingSub = false;
+    syncSub();
+  });
+
+  // ---------- chrome controls ----------
+  $("#so-close").addEventListener("click", closeSub);
+  $("#backdrop").addEventListener("click", closeSub);
+  $("#done-toggle").addEventListener("click", () => {
+    state.doneShown = !state.doneShown;
+    syncPanel([...state.subs.values()]);
+  });
+  $("#livebar").addEventListener("click", () => {
+    state.panelOpen = !state.panelOpen;
+    $("#panel").classList.toggle("open", state.panelOpen);
+    $("#livebar").classList.toggle("open", state.panelOpen);
+    $("#livebar").setAttribute("aria-expanded", String(state.panelOpen));
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (state.openSub) closeSub();
+    else if (state.panelOpen) $("#livebar").click();
+  });
+  window.addEventListener("resize", syncBackdrop);
 
   // ---------- boot ----------
-  pollState().then(() => activate("main"));
+  pollState().then(pollLogs);
   setInterval(pollState, 3000);
-  setInterval(() => pollLogNow(), 2000);
+  setInterval(pollLogs, 2000);
 })();
 </script>
 </body>
