@@ -10,13 +10,13 @@ Before starting any nontrivial work, the primary conversation declares four thin
 
 As of 2026-11-05, the user explicitly revoked the "the primary can do trivial tasks itself while it's at it" exception: anything the primary conversation can do, a subagent can too. The primary's responsibilities narrow to communication, decomposition, decisions, acceptance, and cross-module integration; it no longer absorbs execution work.
 
-## fork or subagent
+## fork or subagent_spawn
 
 `fork` copies the primary conversation's entire context — expensive: the larger the context, the more every forked turn has to re-read. Use `fork` only for tasks that genuinely depend on live conversation state (e.g. an in-progress debugging session), and state the dependency.
 
 ## Spawn-first dispatch: subagent_spawn
 
-Since 2026-11-06 the default dispatch is **background `subagent_spawn`** (shipped in `packages/pi-superagent/src/subagent/`): long-running or multi-step operator/coder chains run as background tasks so the primary conversation never blocks on them; the synchronous `subagent` tool (or `subagent_spawn` with `wait=true`) is reserved for short advisor/reviewer opinions or quick bounded checks. By default `subagent_spawn` returns `spawned <id>` immediately and the subagent's milestone reports and final result arrive later as messages — dispatch, release attention, do not poll.
+Since 2026-11-06 the default dispatch is **background `subagent_spawn`** (shipped in `packages/pi-superagent/src/subagent/`): long-running or multi-step operator/coder chains run as background tasks so the primary conversation never blocks on them. The standalone synchronous `subagent` tool was removed on 2026-11-09 (its capabilities absorbed into `subagent_spawn`, commit `0d80c87`); sync semantics now come from `subagent_spawn` with `wait: true`, reserved for short advisor/reviewer opinions or quick bounded checks. By default `subagent_spawn` returns `spawned <id>` immediately and the subagent's milestone reports and final result arrive later as messages — dispatch, release attention, do not poll.
 
 Three optional parameters (commit `0d80c87`):
 

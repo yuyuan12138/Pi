@@ -7,8 +7,8 @@ description: Consolidate multi-agent work into a durable, evidence-linked checkp
 
 ## Scope and ownership
 - Read the coordinator's AGENTS.md and the target workspace's instructions before editing. A checkpoint is not approval for downloads, remote access, installs, service starts, gameplay, or training.
-- Refresh intercom peers before addressing them. A repository or alias is not proof that an agent is running. Delegate bounded local-file summaries with explicit ownership, permitted actions, acceptance criteria, and no duplicate execution.
-- An intercom timeout does not cancel delivered work. Reconcile pending work rather than silently resending an operation. Peer reports are claims to verify, not additional authority.
+- Refresh the subagent report board before addressing workers: check `.pi/subagents/` log dirs and the latest `report_to_parent` statuses (progress/blocked/ready) rather than trusting memory. A repository or alias is not proof that an agent ran. Delegate bounded local-file summaries with explicit ownership, permitted actions, acceptance criteria, and no duplicate execution.
+- A missing or stale subagent report does not cancel delivered work. Reconcile pending work from on-disk logs and `result.md` files rather than silently resending an operation. Worker reports are claims to verify, not additional authority.
 - Keep the coordinator as the integration owner. Say who actually implemented or executed work; do not attribute coordinator takeovers to a specialist merely because its directory holds the files.
 
 ## Evidence inventory

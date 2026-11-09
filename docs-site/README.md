@@ -14,14 +14,14 @@ One-line positioning: **this is not an application — it is an agent operating 
   │  Only does: requirement understanding / written briefs /  │
   │             decisions / acceptance / integration          │
   └────────┬─────────────────────────┬─────────────────────┘
-           │ fork                    │ subagent
-           │ inherits the current    │ clean context
-           │ conversation branch     │ (default)
+           │ subagent_spawn          │ fork (by exception)
+           │ clean context,          │ inherits the current
+           │ background (default)    │ conversation branch
            ▼                         ▼
-    Context-heavy exploration    9 role workers
-  (live debugging sessions ·  scout / planner / coder / operator /
-   multi-file implementation) reviewer / researcher / visualizer /
-                               writer / designer
+        9 role workers             Context-heavy exploration
+  scout / planner / coder / operator /   (live debugging sessions ·
+   reviewer / researcher / visualizer /   multi-file implementation)
+   writer / designer
            │                         │
            └────────────┬────────────┘
                         ▼
@@ -42,6 +42,8 @@ One-line positioning: **this is not an application — it is an agent operating 
                           single-writer queue per project
 ```
 
+An optional observation surface wraps this loop: **pi-web-bridge** — a local web mission control (127.0.0.1:7788) with live per-subagent panels and message injection into the running session (see `packages/pi-web-bridge/`).
+
 ## Reproduction in three steps
 
 ### Step 1: Install the engine (~2 minutes)
@@ -58,15 +60,15 @@ Or via npm (note that the official command includes `--ignore-scripts`; requires
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-**pi itself ships without subagents** — the official README says so verbatim: "Pi ships with powerful defaults but skips features like sub-agents and plan mode". The three derivation tools this architecture depends on are provided as pi packages, with their sources included in this repo:
+**pi itself ships without subagents** — the official README says so verbatim: "Pi ships with powerful defaults but skips features like sub-agents and plan mode". The dispatch tools this architecture depends on are provided as pi packages, with their sources included in this repo (the retired sync `subagent` tool is kept in-repo for reference only):
 
 | Tool | Purpose | In-repo source | Upstream install command |
 |---|---|---|---|
 | `fork` | Spawns a child process that inherits the current conversation branch (context-heavy exploration) | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
-| `subagent` | Spawns an independent clean-context subagent — **retired 2026-11-09, removed from live config; use `subagent_spawn`** | `packages/pi-minimal-subagent/` | — |
-| `subagent_spawn` | Spawns a background clean-context subagent (the default dispatch; `tools` allowlist / persistent `session` / synchronous `wait`) | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
+| `subagent_spawn` | Spawns a background clean-context subagent (the default dispatch; `tools` allowlist / persistent `session` / `wait: true` for sync semantics) | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
+| `pi-web-bridge` | Local web mission control (127.0.0.1:7788) with live per-subagent panels and message injection (optional) | `packages/pi-web-bridge/` | register the in-repo path in `settings.json` (see its README) |
 
-Either install path works: install the upstream packages with the `pi install` commands above, or list the in-repo paths in the `packages` array of `~/.pi/agent/settings.json` (which is how this machine runs). Version note: pi's latest release at the time of writing is 1.5.0, and installing the latest is recommended; this repo was verified on 1.3.0, where fork/subagent were tested working.
+Either install path works: install the upstream packages with the `pi install` commands above, or list the in-repo paths in the `packages` array of `~/.pi/agent/settings.json` (which is how this machine runs). Version note: this repo currently runs on pi 1.5.0 — installing the latest release is recommended (first verification was on 1.3.0, where fork/subagent were tested working).
 
 **Portability statement**: if you use a different framework (Claude Code, a self-built harness, etc.), just skip this step — the two asset categories below are plain text and depend on no pi API. As long as your framework can "spawn a subtask with an independent context and restricted tools", the ideas apply.
 
@@ -157,7 +159,8 @@ Once verified, one transferable lesson is appended by date to `knowledge-base/da
 ## Key numbers
 
 - **9 predefined roles**: all are brief templates, not resident processes; no extensions loaded; methodology is injected by "read your own skill file first" — the entire asset is the `instructions/agents/` directory.
-- **3 derivation tool packages**: `packages/pi-fork`, `packages/pi-minimal-subagent`, and `packages/pi-superagent`; pi ships without subagents — these packages provide the `fork` / `subagent` / `subagent_spawn` tools.
+- **2 live dispatch tools** (`fork` + `subagent_spawn`): pi ships without subagents — `packages/pi-fork` and `packages/pi-superagent` provide them; the sync `subagent` tool was retired 2026-11-09 (absorbed into `subagent_spawn`; `packages/pi-minimal-subagent` kept in-repo for reference only).
+- **1 optional web mission control**: `pi-web-bridge` — a local web UI on 127.0.0.1:7788 with live per-subagent panels and message injection into the running session.
 - **3 scripts**: `delegation_gate.py` (ownership check, advisory), `git_guard.py` (staged-content guard), `compile_kb.py` (knowledge-base compile + lint) — purely local, zero dependencies.
 - **1 multi-project coordinator** (optional): SQLite persistence, single-writer queue per project, global concurrency cap of 2, crashed mutating tasks are never blindly replayed.
 - **2-layer knowledge base**: `wiki/` (curated first-hand external experience, with confidence levels) + `daily/` and `knowledge/concepts/` (internal engineering log), with a fail-closed scope gate.

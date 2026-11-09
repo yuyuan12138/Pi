@@ -1,6 +1,6 @@
 # Multi-project coordinator: pi-project-coordinator
 
-> **Reproduction notes**: source and tests live in `packages/pi-project-coordinator/`, with zero external dependencies (SQLite via Node's built-in `node:sqlite`). Offline tests: `node --test tools/test_project_coordinator.ts` (9 passed, 0 failed); the real-CLI smoke test is opt-in via `PI_COORDINATOR_SMOKE=1`. This is an **optional component** — single-project reproduction does not need it; install it only if you want one coordinator conversation to route multiple projects. The safety gates listed here (model calls off by default, prompt accepted ≠ done, crashed mutating tasks are not replayed) are behaviors implemented in the package's code, not configuration switches.
+> **Reproduction notes**: source and tests live in `packages/pi-project-coordinator/`, with zero external dependencies (SQLite via Node's built-in `node:sqlite`). Offline tests: `node --test tools/test_project_coordinator.ts` (18 tests; one is the opt-in real-CLI smoke test, skipped unless `PI_COORDINATOR_SMOKE=1`). This is an **optional component** — single-project reproduction does not need it; install it only if you want one coordinator conversation to route multiple projects. The safety gates listed here (model calls off by default, prompt accepted ≠ done, crashed mutating tasks are not replayed) are behaviors implemented in the package's code, not configuration switches.
 
 ## Positioning
 
@@ -22,4 +22,4 @@ Lets one long-lived coordinator conversation route user requests to "one primary
 
 ## Status
 
-The offline test suite is 9 passed, 0 failed; real Pi CLI smoke tests covered spawn / protocol / session identity (no real prompt was run). Not yet implemented: wiring into a live coordinator conversation, registering real projects, Telegram thread bridging, and takeover rules for already-running sessions.
+The offline test suite registers 18 tests (one, the real-CLI smoke test, is skipped unless `PI_COORDINATOR_SMOKE=1`); real Pi CLI smoke tests covered spawn / protocol / session identity (no real prompt was run). Not yet implemented: wiring into a live coordinator conversation, registering real projects, Telegram thread bridging, and takeover rules for already-running sessions.

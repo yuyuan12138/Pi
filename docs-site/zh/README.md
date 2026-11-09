@@ -11,13 +11,13 @@
       │         主对话 primary（每项目一个，cwd = 项目根）          │
       │    只做：需求理解 / 书面任务书 / 决策 / 验收 / 集成          │
       └────────┬─────────────────────────┬─────────────────────┘
-               │ fork                    │ subagent
-               │ 继承当前对话分支          │ 干净上下文（默认）
+               │ subagent_spawn          │ fork（例外）
+               │ 干净上下文、后台（默认）  │ 继承当前对话分支
                ▼                         ▼
-        上下文密集型探索              9 类角色 worker
-     （调试现场·多文件实现）    scout / planner / coder / operator /
-                               reviewer / researcher / visualizer /
-                               writer / designer
+        9 类角色 worker                上下文密集型探索
+  scout / planner / coder / operator /  （调试现场·多文件实现）
+   reviewer / researcher / visualizer /
+   writer / designer
                │                         │
                └────────────┬────────────┘
                             ▼
@@ -36,6 +36,8 @@
    项目 C 主对话 ──┘    registry · 确定性路由 · 每项目单写队列
 ```
 
+这套循环外还包了一层可选的观测面：**pi-web-bridge**——本地网页任务控制台（127.0.0.1:7788），带实时子代理面板和向运行中会话注入消息的能力（见 `packages/pi-web-bridge/`）。
+
 ## 三步复现
 
 ### 第一步：装引擎（约 2 分钟）
@@ -52,15 +54,16 @@ curl -fsSL https://pi.dev/install.sh | sh
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-**pi 本体不带子代理**——官方 README 原话："Pi ships with powerful defaults but skips features like sub-agents and plan mode"。本架构依赖的三个派生工具以 pi 包形式提供，本仓库内就带源码：
+**pi 本体不带子代理**——官方 README 原话："Pi ships with powerful defaults but skips features like sub-agents and plan mode"。本架构依赖的派工工具以 pi 包形式提供，本仓库内就带源码（已退役的同步 `subagent` 工具仅留作参考）：
 
 | 工具 | 作用 | 仓库内源码 | 上游安装命令 |
 |---|---|---|---|
 | `fork` | 派生继承当前对话分支的子进程（上下文密集型探索） | `packages/pi-fork/` | `pi install git:github.com/elpapi42/pi-fork` |
-| `subagent` | 派生干净上下文的独立子代理 | `packages/pi-minimal-subagent/` | `pi install npm:pi-minimal-subagent` |
-| `subagent_spawn` | 派生后台干净上下文子代理（默认派工方式；`tools` 白名单 / 持久 `session` / 同步 `wait`） | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
+| `subagent` | 同步派生干净上下文的独立子代理——**已于 2026-11-09 退役并从运行配置移除；改用 `subagent_spawn`** | `packages/pi-minimal-subagent/` | — |
+| `subagent_spawn` | 派生后台干净上下文子代理（默认派工方式；`tools` 白名单 / 持久 `session` / `wait: true` 同步语义） | `packages/pi-superagent/` | `pi install git:github.com/aicodewith-team/pi-superagent` |
+| `pi-web-bridge` | 本地网页任务控制台（127.0.0.1:7788），实时子代理面板 + 消息注入（可选） | `packages/pi-web-bridge/` | 在 `settings.json` 注册仓库内路径（见其 README） |
 
-两种装法任选：用上面的 `pi install` 命令装上游包，或把仓库内路径写进 `~/.pi/agent/settings.json` 的 `packages` 数组（本机即如此）。版本注记：写作时 pi 最新版 1.5.0，建议装最新版；本仓库验证环境为 1.3.0，fork/subagent 在 1.3.0 实测可用。
+两种装法任选：用上面的 `pi install` 命令装上游包，或把仓库内路径写进 `~/.pi/agent/settings.json` 的 `packages` 数组（本机即如此）。版本注记：本仓库当前运行在 pi 1.5.0，建议装最新版（早期验证环境为 1.3.0，fork/subagent 在 1.3.0 实测可用）。
 
 **理念可移植声明**：如果你用其他框架（Claude Code、自研 harness 等），跳过本步即可——下面两类资产是纯文本，不依赖 pi 的任何 API，只要你的框架能「派生一个带独立上下文、可用工具受限的子任务」就能套用。
 
@@ -147,7 +150,8 @@ python3 tools/delegation_gate.py --category implementation --owner subagent
 ## 关键数字
 
 - **9 个预定义角色**：全部是任务书模板而非常驻进程，不加载扩展，靠「先读自己的 skill 文件」注入方法论——资产即 `instructions/agents/` 一个目录。
-- **3 个派生工具包**：`packages/pi-fork`、`packages/pi-minimal-subagent` 与 `packages/pi-superagent`，pi 本体不带子代理，装这些包才有 `fork` / `subagent` / `subagent_spawn` 工具。
+- **2 个在役派工工具**（`fork` + `subagent_spawn`）：pi 本体不带子代理，由 `packages/pi-fork` 与 `packages/pi-superagent` 提供；同步 `subagent` 工具已于 2026-11-09 退役（能力并入 `subagent_spawn`；`packages/pi-minimal-subagent` 仅留作仓库内参考）。
+- **1 个可选网页任务控制台**：`pi-web-bridge`——本地 web UI（127.0.0.1:7788），实时子代理面板 + 向运行中会话注入消息。
 - **3 个脚本**：`delegation_gate.py`（归属校验，建议性）、`git_guard.py`（暂存区守卫）、`compile_kb.py`（知识库编译 + lint）——纯本地、零依赖。
 - **1 个多项目协调器**（可选）：SQLite 持久化、每项目单写队列、全局并发上限 2、变更类任务崩溃后永不盲目重放。
 - **2 层知识库**：`wiki/`（外部一手经验，带置信度）+ `daily/` 与 `knowledge/concepts/`（内部工程日志），scope gate fail-closed。

@@ -10,8 +10,10 @@ the user does not need to name a role or manually start assistants.
 
 ### Preferred coding worker and bounded attempts
 - User-approved preference (2026-11-02): for bounded coding and test-authoring
-  tasks, dispatch a clean-context `subagent` explicitly selecting
-  `model: "training-coder/Qwen3-5"`. Keep the primary model unchanged. Send
+  tasks, dispatch a clean-context subagent via `subagent_spawn` explicitly
+  selecting `model: "training-coder/GLM-5.3-Flash"` (or export
+  `PI_SUBAGENT_MODEL=training-coder/GLM-5.3-Flash` so the manager's default
+  covers it). Keep the primary model unchanged. Send
   only task-relevant context; the self-hosted endpoint is an optional backend,
   not a required dependency. Its current context limit is 65,536 tokens.
 - **Best-of-N parallel candidates is the default** (user policy, near-unlimited

@@ -98,7 +98,14 @@ are ONE quoted string — no `--` before negative coordinates).
 - Per-run identity: the bot spawns as `Sword<run_id-suffix>` (e.g. `Sword05a7dc63`) with a run-unique
   uuid in stats/playerdata, so counts from previous runs cannot be mistaken for this run's.
 - Other subcommands: `serverstate`, `waitready [max_s]`, `rcon '<cmd>'`, `clearbox X0 Y0 Z0 X1 Y1 Z1 BLOCK`,
-  `stopserver` (graceful rcon stop — saves the world), `startserver`, `chmodworld`.
+  `stopserver` (graceful rcon stop — saves the world), `startserver`, `chmodworld`, `buildpillars`
+  (resets the spawn area: fill-clears the spawn box, restores the grass surface, setblocks 3 pillars
+  — 2 dirt layers + a jungle_log top each — then verifies every block and prints `PILLARS_OK` /
+  `PILLARS_MISMATCH`; use it instead of hand-building the pillar fixture).
+- **clearbox is one fill, not a loop**: `clearbox -168 68 -579 -162 75 -573 air` (same thing as
+  `rcon 'fill -168 68 -579 -162 75 -573 air'`) clears the whole box in a single command. The response
+  `Successfully filled N` doubles as the debris count — N tells you exactly how many blocks were
+  cleared. Never replace this with a per-block setblock loop (slow, and it hides the debris count).
 - Known limitation (pre-existing, unfixed): JVM umask 002 means files the server creates DURING the
   episode are 664. The collector never reads region/poi/entities, but if the model successfully crafts
   the goal item, a JVM-created `stats/<uuid>.json` may be group-writable → final collect rejects →
@@ -117,6 +124,14 @@ are ONE quoted string — no `--` before negative coordinates).
   before retrying; never restart blind.
 - Uncoded `episode_failed`: reproduce READ-ONLY on the remote (reuse the deployed `remote_episode`
   module) before touching anything — the 648afb15 stats-dir bug was proven this way.
+- **`no_safe_route` is a stop, not a crash** (post-38dfb38): when the pathfinder rejects a route,
+  the safety monitor records a non-sticky `routeFault {reason, node}` and PHYSICALLY STOPS the bot
+  (clears the goal, stops digging, clears control states) WITHOUT tripping or quitting — no sticky
+  fault, no close, no quit, the bot stays connected. The port folds the stop into
+  `no_safe_route: route node N rejected: <reason>` / `route rejected: <reason>` in the goto receipt.
+  Precondition to remember: the bot will NOT move again until the model issues a new goto — treat
+  the receipt as "stopped at the wall, still alive", not as a terminal error. Escalation: 3
+  consecutive rejected routes with no validated path in between DO trip `unsafe_route_loop` and quit.
 - ssh_once per-call record JSONs are evidence: keep stems meaningful, cite them in operator records.
 
 ## 6. Prompt-lab iteration rules

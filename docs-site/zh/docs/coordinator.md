@@ -1,6 +1,6 @@
 # 多项目协调器 pi-project-coordinator
 
-> **复现要点**：源码与测试都在 `packages/pi-project-coordinator/`，零外部依赖（SQLite 用 Node 内置 `node:sqlite`）。离线测试：`node --test tools/test_project_coordinator.ts`（9 过 0 挂）；真实 CLI 冒烟是 opt-in 的 `PI_COORDINATOR_SMOKE=1`。这是**可选组件**——单项目复现不需要它，只有当你想让一个协调者对话路由多个项目时才装。文中列的安全门（模型调用默认关、接受 prompt ≠ 完成、变更类崩溃不重放）是包内代码实现的行为，不是配置开关。
+> **复现要点**：源码与测试都在 `packages/pi-project-coordinator/`，零外部依赖（SQLite 用 Node 内置 `node:sqlite`）。离线测试：`node --test tools/test_project_coordinator.ts`（18 个用例，其中真实 CLI 冒烟为 opt-in，不设 `PI_COORDINATOR_SMOKE=1` 时跳过）。这是**可选组件**——单项目复现不需要它，只有当你想让一个协调者对话路由多个项目时才装。文中列的安全门（模型调用默认关、接受 prompt ≠ 完成、变更类崩溃不重放）是包内代码实现的行为，不是配置开关。
 
 ## 定位
 
@@ -22,4 +22,4 @@
 
 ## 现状
 
-离线测试套件 9 过 0 挂；真实 Pi CLI 冒烟验证过 spawn / 协议 / 会话身份（未跑真实 prompt）。尚未实现：接入活的协调者对话、注册真实项目、Telegram 分线程桥接、已运行会话的接管规则。
+离线测试套件共 18 个用例（其中真实 CLI 冒烟用例不设 `PI_COORDINATOR_SMOKE=1` 时跳过）；真实 Pi CLI 冒烟验证过 spawn / 协议 / 会话身份（未跑真实 prompt）。尚未实现：接入活的协调者对话、注册真实项目、Telegram 分线程桥接、已运行会话的接管规则。

@@ -10,13 +10,13 @@
 
 2026-11-05 起用户明确废止了「琐碎任务主对话顺手自己做」的例外：主对话能做的，子代理也能做。主对话的职责收敛为沟通、拆解、决策、验收与跨模块集成，不再吸收执行工作。
 
-## fork 还是 subagent
+## fork 还是 subagent_spawn
 
 `fork` 会复制主对话的全部上下文，代价高：上下文越大，每次 fork 都要重读一遍。只有真正依赖活对话状态（如正在进行的调试现场）才用 `fork`，并说明依赖。
 
 ## spawn 优先派工：subagent_spawn
 
-2026-11-06 起默认派工方式是**后台 `subagent_spawn`**（由 `packages/pi-superagent/src/subagent/` 提供）：长任务或多步 operator/coder 链一律作为后台任务运行，主对话不再阻塞等待；同步 `subagent` 工具（或 `subagent_spawn` 的 `wait=true`）只留给短小的 advisor/reviewer 意见或快速有界检查。默认情况下 `subagent_spawn` 立即返回 `spawned <id>`，子代理的里程碑报告和最终结果之后以消息形式送达——派发、释放注意力、不要轮询。
+2026-11-06 起默认派工方式是**后台 `subagent_spawn`**（由 `packages/pi-superagent/src/subagent/` 提供）：长任务或多步 operator/coder 链一律作为后台任务运行，主对话不再阻塞等待。独立的同步 `subagent` 工具已于 2026-11-09 移除（能力并入 `subagent_spawn`，commit `0d80c87`）；同步语义现在来自 `subagent_spawn` 的 `wait: true`，只留给短小的 advisor/reviewer 意见或快速有界检查。默认情况下 `subagent_spawn` 立即返回 `spawned <id>`，子代理的里程碑报告和最终结果之后以消息形式送达——派发、释放注意力、不要轮询。
 
 三个可选参数（commit `0d80c87`）：
 

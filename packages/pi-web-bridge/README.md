@@ -5,14 +5,36 @@ session and read/reply to per-subagent threads from the browser. Dark, quiet,
 single-file UI — no framework, no external resources, no npm runtime deps
 (Node stdlib only).
 
+The v2 layout is a **hero conversation + right LIVE WORK panel** (no left rail):
+
+- **Hero conversation (left/center)** — the coordinator window: chat log (user
+  bubbles, assistant text, tool/report events), a collapsible usage panel, and
+  the "Message the coordinator" composer.
+- **LIVE WORK panel (right)** — one card per subagent: a status dot that pulses
+  while `running`, the agent id, an unread badge counting new lines since you
+  last opened it, elapsed/last-activity time, a `status · tokens · model` line,
+  and a mono ticker showing the latest event (tool call, assistant text, or
+  milestone report). Finished agents fold behind a "Show done" toggle.
+- **Slide-over transcript** — clicking a card slides a full transcript over the
+  page: status header, its own usage panel, the event log, and a reply composer
+  (POSTs to `/message` with the subagent target; delivered two-hop via the
+  coordinator).
+- **Mobile** — the panel collapses into a live-bar at the top (status dot +
+  `N running · M blocked` text + total unread badge); tapping it opens the
+  panel as a drawer.
+
 ```
-┌────────────┬──────────────────────────────────────────────┐
-│ rail       │  Coordinator window / subagent windows       │
-│  ● Coordinator                                           │
-│  ● sa42    │  chat log …                                  │
-│  ● sa43    │                                              │
-│  Show done │  [ reply box → POST /message ]               │
-└────────────┴──────────────────────────────────────────────┘
+┌────────────────────────────────────────┬─────────────────────┐
+│ Coordinator (hero conversation)        │ LIVE WORK           │
+│                                        │ ● sa42        (2)   │
+│   [user bubble]                        │   fix-auth  3m ·    │
+│   [assistant reply]                    │   running · 45k tok │
+│                                        │   › bash pytest -q  │
+│ [ Message the coordinator        Send ]│ ● sa43  pulse…      │
+│                                        │   › report: progress│
+└────────────────────────────────────────┴─────────────────────┘
+       card click → slide-over transcript + reply composer
+       (mobile: live-bar "2 running · 1 blocked" opens the drawer)
 ```
 
 ## How it works

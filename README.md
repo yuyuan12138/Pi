@@ -126,13 +126,14 @@ The dispatch layer tunes itself the same way work is dispatched — with a human
 | Path | What it is |
 |---|---|
 | `packages/` | Vendored Pi extensions, source-tracked and loaded directly from here (see table below). |
+| `packages/pi-web-bridge/` | Web mission control (127.0.0.1:7788) for the running session — coordinator conversation, live per-subagent panels, message injection. |
 | `extensions-src/memory-index/` | Source of the `pi-memory-index` FTS5 extension (installed at `~/.pi/agent/extensions/memory-index/`). |
 | `instructions/` | Operating rules: `PROJECT-AGENTS.md`, `DELEGATION-ROUTING.md`, `TURN-BON-DISPATCH.md`, `GENERAL-ARCHITECTURE.md`. |
 | `instructions/agents/` | The nine role folders (brief template + skills + experience log). |
 | `knowledge-base/` | Four-layer knowledge base with compile/lint scripts and gates (independent repo). |
 | `docs-site/` | Reproducible architecture guide — English with Chinese mirror, plus single-page `index.html`. |
 | `tools/` | `delegation_gate.py` (advisory ownership check), harness/coordination tools, test suites. |
-| `.pi/skills/` | Coordinator skills: `workspace-checkpoint`, `mc-rsi-episode`, `vultr-vps-ops`, `info-router-sources`, `wps-cloud-sheet`. |
+| `.pi/skills/` | Coordinator skills: `workspace-checkpoint`, `mc-rsi-episode`, `vultr-vps-ops`, `info-router-sources`, `wps-cloud-sheet`, `notion-migration`, `hbench-ab`. |
 | `remote-agent/` | Independent legacy repo (operations records kept for provenance). |
 | `research-agent/`, `internet-search-agent/` | Independent legacy repos: paper registry, and bounded public-source search (dependency-free `tools/search.py`). |
 | `harness2/` | Observe-mode harness-optimization loop (v0). |
@@ -140,18 +141,19 @@ The dispatch layer tunes itself the same way work is dispatched — with a human
 
 ## Installed Pi extensions
 
-One npm package plus seven locally vendored/local extensions (loaded directly from `packages/` so the running Pi always matches committed source); `pi-memory-index` loads from the user extensions dir.
+One npm package plus eight locally vendored/local extensions (loaded directly from `packages/` so the running Pi always matches committed source); `pi-memory-index` loads from the user extensions dir.
 
 | Extension | Origin | Role |
 |---|---|---|
 | `pi-telegram` | npm:`@llblab/pi-telegram` | Telegram bridge with source-gated delivery and a FIFO queue. |
-| `pi-superagent` | vendored (DeepSeek `dsh-superagent` port), security-adapted | **Primary dispatch layer**: `subagent_spawn` headless workers + `report_to_parent` milestone protocol; `fanout` (1–3) best-of-N, `isolate` worktrees, tool allowlists, depth-3 recursion, per-agent budget, lineage; worker hardening (`--no-extensions --no-mcp --no-approve --offline`, credential denylist blocking `auth.json`/`models.json`, cwd confinement). Worker model = the session model (currently **GLM-5.3-Flash via a local vLLM tunnel**; `PI_SUBAGENT_MODEL` overrides). |
+| `pi-superagent` | vendored (DeepSeek `dsh-superagent` port), security-adapted | **Primary dispatch layer**: `subagent_spawn` headless workers + `report_to_parent` milestone protocol; `fanout` (1–3) best-of-N, `isolate` worktrees, tool allowlists, depth-3 recursion, per-agent budget, lineage; worker hardening (`--no-extensions --no-mcp --no-approve --offline`, credential denylist blocking `auth.json`/`models.json`, cwd confinement). Worker model: explicit `model` spawn arg > `PI_SUBAGENT_MODEL` env > fallback alias (currently **training-coder/GLM-5.3-Flash** via a local vLLM tunnel) — the session model is NOT inherited, so export `PI_SUBAGENT_MODEL=training-coder/GLM-5.3-Flash` if you rely on the fallback. |
 | `pi-fork` | vendored (`elpapi42/pi-fork`) | `fork` tool: context-heavy delegated work in an isolated worktree; children get no MCP/extra extensions. |
 | `pi-minimal-subagent` | vendored (npm 0.1.0, adapted) | Sync `subagent` tool — **removed from live config 2026-11-09** (kept in-repo for reference); capabilities absorbed into `subagent_spawn`. |
 | `pi-observational-memory` | vendored (npm 3.1.4, V3) | Session observations/reflections/compaction memory. |
 | `pi-usage-log` | local | Per-turn token/cost JSONL + `/usage` command; offline, write failures never break a session. |
 | `pi-delegation-gate` | local | Real `tool_call` interception: `fork` without a stated context dependency is blocked; allowed forks are logged. |
 | `pi-memory-index` | local (`extensions-src/`) | Cross-session SQLite FTS5 `memory_search` over distilled memory; credential-screened, project-scoped, jieba CJK tokenization. |
+| `pi-web-bridge` | local (since `fe02dda`) | Web mission control: a local web UI on 127.0.0.1:7788 (hero coordinator conversation + right LIVE WORK panel with per-subagent status, slide-over transcripts with reply composer) injected into the running session; subagent replies ride the coordinator's `subagent_message` fallback. |
 
 ## Reproduce / quickstart
 
