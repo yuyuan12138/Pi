@@ -157,7 +157,36 @@
 
   .result-block { border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; background: #0f0f13; }
   .rb-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
-  .result-block pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; }
+  .result-block > pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; }
+  .result-block .atext { font-size: 12.5px; }
+
+  /* ---------- markdown in assistant messages ---------- */
+  /* All elements scope under .atext; fenced code blocks and tables reuse the
+     inset panel treatment of .result-block. Rendered by renderMarkdown(),
+     which emits no whitespace between tags — .atext keeps white-space:
+     pre-wrap so plain-text runs still render exactly as before. */
+  .atext > :first-child { margin-top: 0; }
+  .atext > :last-child { margin-bottom: 0; }
+  .atext p { margin: 6px 0; }
+  .atext h3 { margin: 14px 0 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .atext strong { color: var(--text); font-weight: 650; }
+  .atext a { color: var(--text); text-decoration: underline; text-decoration-color: #4a4a56; text-underline-offset: 2px; transition: text-decoration-color .15s var(--ease); }
+  .atext a:hover { text-decoration-color: var(--muted); }
+  .atext code { font-family: var(--mono); font-size: .9em; background: #1d1d24; border: 1px solid var(--border-soft); border-radius: 5px; padding: .08em .35em; overflow-wrap: break-word; }
+  .atext ul, .atext ol { margin: 6px 0; padding-left: 20px; }
+  .atext li { margin: 2px 0; }
+  .atext li::marker { color: var(--dim); }
+  .atext blockquote { margin: 6px 0; padding: 1px 0 1px 12px; border-left: 2px solid var(--border); color: var(--muted); }
+  .atext hr { border: 0; border-top: 1px solid var(--border-soft); margin: 12px 0; }
+  .md-code { margin: 8px 0; border: 1px solid var(--border-soft); border-radius: 10px; background: #0f0f13; overflow: hidden; }
+  .md-code-head { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); padding: 6px 12px 5px; border-bottom: 1px solid var(--border-soft); }
+  .md-code pre { margin: 0; padding: 9px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre; overflow-x: auto; }
+  .md-code code { background: none; border: 0; padding: 0; font-size: inherit; }
+  .md-table { margin: 8px 0; border: 1px solid var(--border-soft); border-radius: 10px; background: #0f0f13; overflow-x: auto; }
+  .md-table table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .md-table th { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .md-table td { padding: 6px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .md-table tr:last-child td { border-bottom: 0; }
   .sysline { align-self: center; font-size: 11.5px; color: var(--dim); text-align: center; }
   .empty { align-self: center; color: var(--dim); text-align: center; padding: 64px 0; font-size: 13px; letter-spacing: .01em; }
 
@@ -977,6 +1006,126 @@
     applyUsageOpen(key);
   }
 
+  // ---------- markdown rendering (escape-first) ----------
+  /**
+   * Compact markdown renderer for assistant text: no libraries, no network.
+   * SECURITY MODEL — escape-first: every raw character is HTML-escaped BEFORE
+   * any markdown transform, so raw input can never reach innerHTML as markup;
+   * the only tags in the output are the ones built below. Link hrefs accept
+   * only http/https URLs (anything else — javascript:, data:, relative —
+   * renders as literal text) and always carry target="_blank"
+   * rel="noopener noreferrer".
+   *
+   * Supported subset:
+   *   fenced code blocks ``` (info string = header label; an unclosed fence —
+   *     the live-streaming case — renders as an open code block), inline code
+   *     `x`, **bold**, *italic*, _italic_, ***bold italic***,
+   *     [text](https://…) links, bullet lists (- * +) and ordered lists
+   *     (1. / 1)) — flat only, blockquotes > (up to 4 levels), ATX headings
+   *     # … ###### (all rendered as h3-style labels), thematic breaks
+   *     --- *** ___, and pipe tables (2+ columns with a | --- | separator).
+   * NOT supported (passes through as plain escaped text): images, reference
+   * links and link titles, autolinks <url>, task lists, strikethrough,
+   * nested/loose/multi-line list items, Setext headings, footnotes, HTML
+   * (impossible by construction), syntax highlighting. Pipes are cell
+   * separators (\| escaping and balanced-paren URLs are approximated).
+   */
+  function mdEscape(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function mdEmphasis(s) {
+    s = s.replace(/\*\*\*([^*\n]+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+    s = s.replace(/\*\*([^*\n]+?)\*\*/g, (m, b) => /^\s|\s$/.test(b) ? m : "<strong>" + b + "</strong>");
+    s = s.replace(/__([^_\n]+?)__/g, (m, b) => /^\s|\s$/.test(b) ? m : "<strong>" + b + "</strong>");
+    s = s.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, (m, pre, b) => /^\s|\s$/.test(b) ? m : pre + "<em>" + b + "</em>");
+    s = s.replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, (m, pre, b) => /^\s|\s$/.test(b) ? m : pre + "<em>" + b + "</em>");
+    return s;
+  }
+  function mdInline(s) {
+    // \x00 stash: code spans and links are extracted first so their contents
+    // never receive further formatting; raw \x00 bytes were stripped from the
+    // input up front, so placeholders cannot collide with user text.
+    const stash = [];
+    s = s.replace(/`([^`\n]+)`/g, (m, code) => {
+      stash.push("<code>" + code + "</code>");
+      return "\x00" + (stash.length - 1) + "\x00";
+    });
+    s = s.replace(/!?\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, url) => {
+      if (m[0] === "!") return m; // images unsupported: keep the literal text
+      stash.push('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + mdEmphasis(text) + "</a>");
+      return "\x00" + (stash.length - 1) + "\x00";
+    });
+    s = mdEmphasis(s);
+    for (let n = 0; n < 10 && s.includes("\x00"); n++) {
+      s = s.replace(/\x00(\d+)\x00/g, (m, i) => stash[Number(i)] ?? "");
+    }
+    return s.split("\x00").join(""); // defensive: never emit control bytes
+  }
+  const mdUl = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
+  const mdTableSep = (l) => /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$/.test(l);
+  function mdBlocks(lines, depth) {
+    const out = [];
+    let i = 0;
+    const startsBlock = (l, at) =>
+      /^```/.test(l) || /^#{1,6}\s+/.test(l) || /^&gt;/.test(l) || mdUl.test(l) ||
+      /^\s*(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/.test(l) ||
+      (l.includes("|") && at + 1 < lines.length && mdTableSep(lines[at + 1]));
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+      // fenced code: consume to the closing fence — or to EOF, which renders
+      // as an open block so a mid-stream fence never flickers in as text
+      if (/^```/.test(line)) {
+        const lang = line.slice(3).trim().split(/\s+/)[0] || "code";
+        i++;
+        const body = [];
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) { body.push(lines[i]); i++; }
+        const open = i >= lines.length;
+        if (!open) i++;
+        out.push('<div class="md-code"><div class="md-code-head">' + lang + (open ? " &middot; open" : "") + '</div><pre><code>' + body.join("\n") + "</code></pre></div>");
+        continue;
+      }
+      let m = /^#{1,6}\s+(.*)$/.exec(line);
+      if (m) { out.push("<h3>" + mdInline(m[1]) + "</h3>"); i++; continue; }
+      if (line.includes("|") && i + 1 < lines.length && mdTableSep(lines[i + 1])) {
+        const cells = (l) => l.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => mdInline(c.trim()));
+        const head = cells(line);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].trim() && lines[i].includes("|")) { rows.push(cells(lines[i])); i++; }
+        out.push('<div class="md-table"><table><thead><tr>' + head.map((h) => "<th>" + h + "</th>").join("") + "</tr></thead><tbody>" +
+          rows.map((r) => "<tr>" + r.map((c) => "<td>" + c + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>");
+        continue;
+      }
+      if (/^\s*(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/.test(line)) { out.push("<hr>"); i++; continue; }
+      if (/^&gt;/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^&gt;/.test(lines[i])) { buf.push(lines[i].replace(/^&gt;\s?/, "")); i++; }
+        out.push("<blockquote>" + (depth < 4 ? mdBlocks(buf, depth + 1) : buf.map(mdInline).join("<br>")) + "</blockquote>");
+        continue;
+      }
+      if (mdUl.test(line)) {
+        const ordered = /^\s*\d{1,9}[.)]\s+/.test(line);
+        const items = [];
+        while (i < lines.length && mdUl.test(lines[i])) { items.push(lines[i].replace(mdUl, "")); i++; }
+        out.push("<" + (ordered ? "ol" : "ul") + ">" + items.map((t) => "<li>" + mdInline(t) + "</li>").join("") + "</" + (ordered ? "ol" : "ul") + ">");
+        continue;
+      }
+      // paragraph: soft line breaks become <br>; block starters end it
+      const parts = [mdInline(line)];
+      i++;
+      while (i < lines.length && lines[i].trim() && !startsBlock(lines[i], i)) { parts.push(mdInline(lines[i])); i++; }
+      out.push("<p>" + parts.join("<br>") + "</p>");
+    }
+    return out.join("");
+  }
+  function renderMarkdown(raw) {
+    const lines = mdEscape(String(raw ?? "").replace(/\x00/g, "")).split(/\r\n|\r|\n/);
+    return mdBlocks(lines, 0);
+  }
+  window.__renderMarkdown = renderMarkdown; // in-page hook for render-integrity probes
+
   // ---------- transcript rendering ----------
   function renderMainItem(item) {
     if (item.kind === "tool") {
@@ -1025,7 +1174,7 @@
       d.append(m);
       const t = document.createElement("div");
       t.className = "atext";
-      t.textContent = item.text;
+      t.innerHTML = renderMarkdown(item.text); // escape-first markdown (user bubbles stay plain text)
       d.append(t);
     }
     return d;
@@ -1036,7 +1185,7 @@
       d.className = "msg assistant";
       const t = document.createElement("div");
       t.className = "atext";
-      t.textContent = line.text;
+      t.innerHTML = renderMarkdown(line.text);
       d.append(t);
       return d;
     }
@@ -1166,8 +1315,8 @@
     else if (wasStreaming) live.settledAt = Date.now();
     const changed = live.text !== snap.text;
     if (changed) {
-      live.text = snap.text;
-      live.el.querySelector(".atext").textContent = snap.text;
+      live.text = snap.text; // RAW text is kept for dedupe — liveConsume/`consumed` must never compare rendered HTML
+      live.el.querySelector(".atext").innerHTML = renderMarkdown(snap.text); // fence-aware: an unclosed ``` renders as an open block
     }
     live.el.classList.toggle("streaming", !!snap.streaming);
     live.el.querySelector(".meta").textContent = "coordinator" + (snap.streaming ? " \u00b7 streaming" : "");
@@ -1221,9 +1370,10 @@
     const l = document.createElement("div");
     l.className = "rb-label";
     l.textContent = "Result";
-    const pre = document.createElement("pre");
-    pre.textContent = w.resultText;
-    d.append(l, pre);
+    const body = document.createElement("div");
+    body.className = "atext rb-body";
+    body.innerHTML = renderMarkdown(w.resultText); // result blocks render markdown like assistant messages
+    d.append(l, body);
     $("#slogcol").append(d);
   }
   function rebuildSub() {
