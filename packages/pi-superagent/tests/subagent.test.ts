@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { SubagentManager } from "../src/subagent/manager.ts";
+import { basename, dirname, join } from "node:path";
+import { SubagentManager, allocEventsDirName, dirToken } from "../src/subagent/manager.ts";
 import type { ChildLike, SpawnFn } from "../src/subagent/types.ts";
 
 /** Fake `pi --mode rpc`: scripted events per prompt. */
@@ -341,5 +342,104 @@ describe("fanout / recursion / budget / lineage", () => {
     const { m } = await setup(happy("ok"), {}, { PI_SPAWN_BUDGET: "1" });
     await m.spawn({ task: "a" });
     await expect(m.spawn({ task: "b" })).rejects.toThrow("budget exhausted");
+  });
+});
+
+describe("per-dispatch events directories (root fix for numeric id collisions)", () => {
+  it("no-session dispatch gets a suffixed unique dir (sa1-k3f9 style) with the display id unchanged", async () => {
+    const { m, dir } = await setup(happy("ok"));
+    const i = await m.spawn({ task: "t" });
+    expect(i.id).toBe("sa1"); // numeric id stays the display id reported to the coordinator
+    expect(dirname(i.logDir)).toBe(dir);
+    expect(basename(i.logDir)).toMatch(/^sa1-[a-z0-9]{4}$/); // 4-char filesystem-safe token
+    expect(existsSync(i.logDir)).toBe(true);
+  });
+
+  it("a named session id becomes the events directory verbatim, display id unchanged", async () => {
+    const { m, dir } = await setup(happy("ok"));
+    const i = await m.spawn({ task: "t", session: "arch-zh-x1" });
+    expect(i.id).toBe("sa1");
+    expect(i.logDir).toBe(join(dir, "arch-zh-x1"));
+    expect(existsSync(i.logDir)).toBe(true);
+  });
+
+  it("does not reuse an existing dir with the same name: re-derives and leaves the old era untouched", async () => {
+    const { m, dir } = await setup(happy("ok"));
+    const oldDir = join(dir, "sa1"); // historical era dir from another conversation
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(join(oldDir, "events.jsonl"), "OLD ERA\n");
+    const i = await m.spawn({ task: "t" });
+    expect(i.id).toBe("sa1");
+    expect(i.logDir).not.toBe(oldDir);
+    expect(basename(i.logDir)).toMatch(/^sa1-[a-z0-9]{4}$/);
+    expect(readFileSync(join(oldDir, "events.jsonl"), "utf8")).toBe("OLD ERA\n");
+    await m.waitFor(i.id);
+    expect(existsSync(join(i.logDir, "events.jsonl"))).toBe(true); // new worker wrote to its own dir
+  });
+
+  it("old bare-numeric era dirs stay readable and intact while new dispatches allocate alongside", async () => {
+    const { m, dir } = await setup(happy("ok"));
+    for (const name of ["sa1", "sa2", "sa27"]) {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, "result.md"), `era ${name}\n`);
+    }
+    const i = await m.spawn({ task: "t" });
+    const { m: m2 } = await setup(happy("ok"), { baseDir: dir }); // a second conversation-era manager over the same disk
+    const j = await m2.spawn({ task: "t2" });
+    for (const name of ["sa1", "sa2", "sa27"]) {
+      expect(readFileSync(join(dir, name, "result.md"), "utf8")).toBe(`era ${name}\n`); // still readable, unmodified
+    }
+    expect(existsSync(i.logDir)).toBe(true);
+    expect(existsSync(j.logDir)).toBe(true);
+    expect(basename(j.logDir)).toMatch(/^sa1-[a-z0-9]{4}$/); // the second manager's sa1 does not collide either
+    expect(j.logDir).not.toBe(i.logDir);
+  });
+
+  it("fanout members get unique suffixed dirs while keeping their display ids", async () => {
+    const { m } = await setup(happy("ok"));
+    const first = await m.spawn({ task: "t", fanout: 3 });
+    expect(first.id).toBe("sa1-a");
+    const list = m.list();
+    expect(list.map((i) => i.id).sort()).toEqual(["sa1-a", "sa1-b", "sa1-c"]); // display ids unchanged
+    expect(basename(list[0].logDir)).toMatch(/^sa1-a-[a-z0-9]{4}$/);
+    expect(basename(list[1].logDir)).toMatch(/^sa1-b-[a-z0-9]{4}$/);
+    expect(basename(list[2].logDir)).toMatch(/^sa1-c-[a-z0-9]{4}$/);
+    expect(new Set(list.map((i) => i.logDir)).size).toBe(3);
+  });
+
+  it("spawns keep byte-identical worker args, env and lineage despite the dir rename", async () => {
+    const { m, spawned, envs } = await setup(happy("ok"), {}, { PI_SUBAGENT_ID: "sa9-b", PI_SPAWN_DEPTH: "2", PI_SPAWN_CHAIN: "sa9" });
+    const g = await m.spawn({ task: "t" });
+    expect(g.id).toBe("sa9-b-sa1");
+    expect(basename(g.logDir)).toMatch(/^sa9-b-sa1-[a-z0-9]{4}$/); // dir unique, id prefix intact
+    expect(g.spawnedBy).toEqual(["sa9", "sa9-b"]);
+    expect(g.depth).toBe(3);
+    expect(envs[0].PI_SPAWN_DEPTH).toBe("3");
+    expect(envs[0].PI_SPAWN_CHAIN).toBe("sa9,sa9-b");
+    expect(envs[0].PI_SUBAGENT_ID).toBe("sa9-b-sa1");
+    expect(spawned[0]).toEqual(["pi", "--mode", "rpc", "--no-extensions", "--no-mcp", "--no-approve", "--offline", "-e", "/ext/index.ts", "--no-session", "--model", expect.any(String)]);
+  });
+
+  it("dirToken: 4 fs-safe chars, deterministic, varies with time, pid and salt", () => {
+    const t = dirToken(1_700_000_000_000, 4242);
+    expect(t).toMatch(/^[a-z0-9]{4}$/);
+    expect(dirToken(1_700_000_000_000, 4242)).toBe(t);
+    expect(dirToken(1_700_000_000_001, 4242)).not.toBe(t);
+    expect(dirToken(1_700_000_000_000, 4243)).not.toBe(t);
+    expect(dirToken(1_700_000_000_000, 4242, 1)).not.toBe(t);
+    expect(dirToken(5, 1)).toMatch(/^[a-z0-9]{4}$/); // tiny inputs still pad to 4 chars
+  });
+
+  it("allocEventsDirName: session verbatim when free, re-derived with a token on collision", () => {
+    expect(allocEventsDirName("sa1", "arch-zh-x1", () => false, () => "k3f9")).toBe("arch-zh-x1");
+    expect(allocEventsDirName("sa1", "arch-zh-x1", (n) => n === "arch-zh-x1", () => "k3f9")).toBe("arch-zh-x1-k3f9");
+    expect(allocEventsDirName("sa1", "arch-zh-x1", (n) => n === "arch-zh-x1" || n === "arch-zh-x1-k3f9", (s) => (s === 0 ? "k3f9" : "q7w2"))).toBe("arch-zh-x1-q7w2");
+  });
+
+  it("allocEventsDirName: no-session suffix, re-derive once on collision, never return an existing name", () => {
+    expect(allocEventsDirName("sa27", undefined, () => false, () => "k3f9")).toBe("sa27-k3f9");
+    expect(allocEventsDirName("sa27", undefined, (n) => n === "sa27-k3f9", (s) => (s === 0 ? "k3f9" : "q7w2"))).toBe("sa27-q7w2");
+    const taken = new Set(["sa27-k3f9", "sa27-q7w2", "sa27-aaaa"]);
+    expect(allocEventsDirName("sa27", undefined, (n) => taken.has(n), (s) => ["k3f9", "q7w2", "aaaa"][s] ?? "zzzz")).toBe("sa27-zzzz");
   });
 });

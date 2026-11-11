@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ChildLike, FanoutMemberResult, Report, ReportStatus, SpawnFn, SpawnOptions, SubagentInfo } from "./types.ts";
 import type { Exec } from "../types.ts";
@@ -37,6 +37,40 @@ interface FanoutGroup {
   combined?: FanoutMemberResult[];   // set once every member is terminal
   waiters: ((combined: FanoutMemberResult[]) => void)[];
   notified: boolean;        // combined background report delivered?
+}
+
+/**
+ * Compact 4-char filesystem-safe token (base36) mixing a timestamp, a pid and a salt — the
+ * per-dispatch uniqueness suffix for events directories. Deterministic for identical inputs.
+ */
+export function dirToken(now: number, pid: number, salt = 0): string {
+  let h = 0x811c9dc5; // FNV-1a
+  const s = `${now.toString(36)}:${pid.toString(36)}:${salt.toString(36)}`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36).padStart(4, "0").slice(-4);
+}
+
+/**
+ * Unique on-disk events directory name for one dispatch (root fix for numeric id collisions:
+ * bare sequential ids like "sa27" were reused across conversations/eras). A named session
+ * becomes the directory verbatim (e.g. "arch-zh-x1"); otherwise the display id gets a compact
+ * uniqueness token (e.g. "sa27-k3f9", token from timestamp+pid). Every name is verified against
+ * the disk: an existing name is re-derived once with a fresh token, and a further collision
+ * (practically unreachable) keeps deriving with fresh salts — an existing directory is never
+ * merged into. The display id reported to the coordinator is unaffected; only the directory.
+ */
+export function allocEventsDirName(
+  id: string,
+  session: string | undefined,
+  exists: (name: string) => boolean,
+  token: (salt: number) => string,
+): string {
+  const base = session ?? id;
+  if (session && !exists(base)) return base;
+  for (let salt = 0; ; salt++) {
+    const name = `${base}-${token(salt)}`;
+    if (!exists(name)) return name;
+  }
 }
 
 /** Built-in tools a spawned child may be given (matches pi-minimal-subagent's child-allowed set). */
@@ -159,7 +193,17 @@ export class SubagentManager {
     try {
       for (let i = 0; i < n; i++) {
         const id = memberIds[i];
-        const logDir = join(this.o.baseDir, id);
+        // Per-dispatch unique events directory (root fix for numeric id collisions): the
+        // sequential display id stays bare for reports/lineage, but the on-disk dir is checked
+        // against existing dirs (historical eras, other conversations) before use — a colliding
+        // name is re-derived, never merged into.
+        const dirName = allocEventsDirName(
+          id,
+          opts.session,
+          (name) => existsSync(join(this.o.baseDir, name)),
+          (salt) => dirToken(this.now(), process.pid, salt),
+        );
+        const logDir = join(this.o.baseDir, dirName);
         mkdirSync(logDir, { recursive: true });
         const info: SubagentInfo = { id, label: opts.label ?? opts.task.slice(0, 40), task: opts.task, state: "queued", cwd: opts.cwd ?? this.o.baseDir, model: opts.model, tools: opts.tools, session: opts.session, reports: [], logDir, toolCalls: 0, spawnedBy: [...this.childSpawnedBy], depth: this.childDepth };
         if (n > 1) info.fanout = { groupId: base, total: n, index: i, memberIds };

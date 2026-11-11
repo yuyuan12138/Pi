@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,12 +50,13 @@ describe("subagent recursion (real pi, depth-2 chain)", () => {
       // The grandchild really ran and wrote the marker file.
       expect(await readFile(marker, "utf8")).toContain("GRANDCHILD_OK");
       // The grandchild is tracked by the child's own manager under the shared base dir with a
-      // tree-unique id (<childId>-<n> = sa1-sa1) and its result was logged.
-      const gdDir = join(dir, ".pi", "subagents", "sa1-sa1");
-      expect(existsSync(gdDir)).toBe(true);
-      expect(existsSync(join(gdDir, "result.md"))).toBe(true);
+      // tree-unique id (sa1-sa1) and a per-dispatch unique events dir (sa1-sa1-<token>), and its
+      // result was logged. The child's own dir is likewise sa1-<token>.
+      const gdDirName = readdirSync(join(dir, ".pi", "subagents")).find((n) => n.startsWith("sa1-sa1-"));
+      expect(gdDirName).toBeTruthy();
+      expect(existsSync(join(dir, ".pi", "subagents", gdDirName!, "result.md"))).toBe(true);
       // The child's transcript proves true recursion: it called subagent_spawn itself.
-      const transcript = await readFile(join(dir, ".pi", "subagents", "sa1", "transcript.log"), "utf8");
+      const transcript = await readFile(join(child.logDir, "transcript.log"), "utf8");
       expect(transcript).toContain("[tool] subagent_spawn");
     } finally {
       process.env.PI_SUBAGENT_MODEL = prevModel;
