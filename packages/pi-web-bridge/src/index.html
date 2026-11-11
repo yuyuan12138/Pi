@@ -557,8 +557,9 @@
   #orgpage {
     flex: 1; min-height: 0; min-width: 0; overflow: hidden;
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "head" "legend" "view" "detail";
+    grid-template-columns: minmax(0, 1fr); /* explicit 0-min track: no area can size to max-content */
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "head" "tabs" "legend" "view" "detail";
     background: var(--bg);
   }
   #org-head {
@@ -573,6 +574,18 @@
   }
   #org-head h2::before { content: ""; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); flex: none; }
   #org-meta { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* project view selector: Overview + per-project buckets */
+  #org-tabs { grid-area: tabs; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 24px; border-bottom: 1px solid var(--line-2); }
+  .ochip {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 20px; padding: 1px 10px;
+    border: 1px solid var(--line); border-radius: 999px; white-space: nowrap;
+    font: 500 10px var(--mono); letter-spacing: .06em; color: var(--t2); background: none; cursor: pointer;
+    transition: color .15s var(--ease), border-color .15s var(--ease), background-color .15s var(--ease);
+  }
+  .ochip:hover { color: var(--t0); border-color: rgba(255, 255, 255, .2); }
+  .ochip.on { color: var(--t0); background: var(--raise-2); }
+  .ochip.quiet { border-style: dashed; }
+  .ochip .cdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--t3); }
   .org-legend {
     grid-area: legend; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
     padding: 9px 24px; border-bottom: 1px solid var(--line-2);
@@ -610,6 +623,7 @@
   .onode .ostatus { fill: var(--t3); }
   .onode.running .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
   .onode.blocked .ostatus { fill: var(--warn); }
+  .onode .oaccent { fill: none; }
   .onode .oid { fill: var(--t0); font-size: 10px; letter-spacing: .02em; }
   .onode.done .oid { fill: var(--t1); }
   .cnode .oid { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
@@ -635,8 +649,8 @@
   @media (min-width: 1080px) {
     #orgpage {
       grid-template-columns: minmax(0, 1fr) 320px;
-      grid-template-rows: auto auto minmax(0, 1fr);
-      grid-template-areas: "head head" "legend detail" "view detail";
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      grid-template-areas: "head head" "tabs tabs" "legend detail" "view detail";
     }
     #org-detail { border-top: 0; border-left: 1px solid var(--line); }
   }
@@ -753,6 +767,7 @@
     <h2>Org Graph</h2>
     <span id="org-meta" class="mono">connecting&hellip;</span>
   </header>
+  <div id="org-tabs" role="tablist" aria-label="Project views"></div>
   <div class="org-legend" aria-label="Legend">
     <span class="lg-title">Expertise</span>
     <span class="lg-group"><span class="lgb hue-intel">scout</span><span class="lgb hue-intel">researcher</span><span class="lgb hue-intel">planner</span></span>
@@ -784,8 +799,8 @@
 <!-- clone sources for the SVG tree (HTML-parsed, so nodes carry the SVG
      namespace without ever constructing one in JS); never displayed -->
 <div id="org-tpl" hidden aria-hidden="true">
-  <svg data-tpl="onode"><g class="onode"><rect class="obox" width="150" height="30" rx="8"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
-  <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="150" height="30" rx="8"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
+  <svg data-tpl="onode"><g class="onode"><rect class="obox" width="150" height="30" rx="8"/><rect class="oaccent" x="1" y="26" width="148" height="3" rx="1.5"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
+  <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="150" height="30" rx="8"/><rect class="oaccent" x="1" y="26" width="148" height="3" rx="1.5"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
   <svg data-tpl="oedge"><path class="oedge"/></svg>
 </div>
 
@@ -841,6 +856,8 @@
     firstSeen: new Map(),     // id -> epoch ms first observed (elapsed base)
     doneShown: false,
     bridgeDown: false,
+    projectName: null,        // /state project (bridge's own project)
+    projects: [],             // /projects registry snapshot (display names + working chips)
     usageOpen: new Map(),     // "main" | sub id -> collapsed/expanded (default: main collapsed, subs expanded)
   };
   const logOkAt = new Map();  // id -> epoch ms of last successful sub-log poll
@@ -1011,8 +1028,12 @@
   // Parent derivation mirrors the server scanner convention (resolveAncestry
   // in state.ts): "sa13-a" is a child of "sa13" when sa13 is present in the
   // same scan; when the prefix-parent is absent the nesting stays honest as an
-  // unknown-parent root (dashed dispatch edge) — never invented.
+  // unknown-parent root (dashed dispatch edge) — never invented. Bare
+  // "role-<name>" ids are role instances, not children of a "role" agent: no
+  // prefix-parent is derived for them (deeper ids like "role-coder-a" still
+  // resolve to their role-instance parent by the same prefix rule).
   function orgDeriveParent(id, ids) {
+    if (id.startsWith("role-") && !id.slice(5).includes("-")) return { parent: null, known: false };
     const cut = id.lastIndexOf("-");
     if (cut <= 0) return { parent: null, known: false };
     const parent = id.slice(0, cut);
@@ -1047,7 +1068,40 @@
   }
   // Build the spawn tree from /state subagents. Depth emerges from lineage;
   // ids whose prefix-parent is absent stay depth-0 roots flagged parentHint.
-  function orgBuildTree(subs) {
+  // Project attribution: an explicit per-sub `project` string wins; otherwise
+  // the sub inherits the bridge's own project (the /state scanner reads only
+  // this project's .pi/subagents dir — structural fact, not a guess); with
+  // neither, the sub is unattributed.
+  const ORG_UNATTRIBUTED = "__unattributed__";
+  function orgAttribution(sub, bridgeProject) {
+    const p = sub?.project;
+    if (typeof p === "string" && p.trim()) return p.trim();
+    if (typeof bridgeProject === "string" && bridgeProject.trim()) return bridgeProject.trim();
+    return null;
+  }
+  function orgGroupByProject(subs, bridgeProject) {
+    const groups = new Map();
+    for (const s of Array.isArray(subs) ? subs : []) {
+      const k = orgAttribution(s, bridgeProject) ?? ORG_UNATTRIBUTED;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(s);
+    }
+    const keys = [...groups.keys()].filter((k) => k !== ORG_UNATTRIBUTED).sort(orgNaturalCompare);
+    if (groups.has(ORG_UNATTRIBUTED)) keys.push(ORG_UNATTRIBUTED);
+    return { keys, groups };
+  }
+  // Stable per-project hue for the overview tint. Hash-based (no registry
+  // lookup), biased AWAY from the signal-green band (130–185°) so project
+  // color coding can never be mistaken for the "live" state color.
+  function orgProjectHue(name) {
+    const s = String(name ?? "");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    h = h % 360;
+    if (h >= 130 && h <= 185) h = (h + 75) % 360;
+    return h;
+  }
+  function orgBuildTree(subs, bridgeProject) {
     const list = Array.isArray(subs) ? subs : [];
     const ids = new Set(list.map((s) => String(s.id)));
     const nodes = new Map();
@@ -1064,6 +1118,7 @@
         parent: lin.known ? lin.parent : null,
         parentHint: lin.known ? null : lin.parent,
         knownParent: lin.known,
+        project: orgAttribution(s, bridgeProject),
         role: orgClassifyRole(String(s.id), s.label, s.session),
         depth: 0,
         children: [],
@@ -1130,7 +1185,7 @@
           id: n.id, x: n.x, y: n.y, w: L.nodeW, h: L.nodeH, depth: n.depth,
           parent: n.parent, parentHint: n.parentHint, role: n.role, status: n.status,
           model: n.model, label: n.label, usage: n.usage, lastActivity: n.lastActivity,
-          childIds: n.childIds,
+          project: n.project, childIds: n.childIds,
         })),
       edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
       width, height, maxDepth: tree.maxDepth,
@@ -2149,6 +2204,14 @@
     const r = await api("/projects");
     if (!r.ok || !r.body) return; // transient failure: keep the current view
     const projects = Array.isArray(r.body.projects) ? r.body.projects : [];
+    state.projects = projects;
+    // project display names / working chips feed the #/org selector: re-render
+    // it when the registry snapshot actually changes (rare; 3s cadence guard)
+    const psig = JSON.stringify(projects.map((p) => [p.id, p.displayName, p.lastActivity ?? null]));
+    if (psig !== org.projectsSig) {
+      org.projectsSig = psig;
+      if (document.body.dataset.route === "org") renderOrg();
+    }
     const note = typeof r.body.note === "string" ? r.body.note : null;
     const sig = JSON.stringify([projects, note]);
     if (sig === projectsSig) return;
@@ -2191,7 +2254,7 @@
   // ---------- org graph page (#/org) ----------
   // Dynamic spawn tree from live lineage (pure model above). The SVG is
   // rebuilt only when /state changes; hover/pin just toggles classes.
-  const org = { sig: null, model: null, sel: null, hover: null, applied: undefined };
+  const org = { sig: null, model: null, sel: null, hover: null, applied: undefined, view: "__all__", projectsSig: null };
 
   function orgSync(subs) {
     const sig = JSON.stringify(subs.map((s) => [s.id, s.status, s.model, s.label, s.session ?? null, s.usage?.totalTokens ?? null]));
@@ -2209,9 +2272,64 @@
     return $("#org-tpl").querySelector(`[data-tpl="${name}"]`)?.firstElementChild ?? null;
   }
 
+  function orgProjectDisplay(key) {
+    for (const p of state.projects ?? []) {
+      if (p && p.id === key && p.displayName) return p.displayName;
+      if (p && p.displayName && p.displayName === key) return p.displayName;
+    }
+    return null;
+  }
+
+  function orgRenderTabs(keys, groups, bridge) {
+    const box = $("#org-tabs");
+    box.textContent = "";
+    const made = new Set();
+    const mk = (key, label, hue, quiet) => {
+      if (made.has(key)) return;
+      made.add(key);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ochip" + (org.view === key ? " on" : "") + (quiet ? " quiet" : "");
+      b.dataset.view = key;
+      if (hue !== null && hue !== undefined) {
+        const d = document.createElement("i");
+        d.className = "cdot";
+        d.style.background = `hsl(${hue} 55% 60%)`;
+        b.append(d);
+      }
+      b.append(document.createTextNode(label));
+      b.addEventListener("click", () => {
+        if (org.view === key) return;
+        org.view = key;
+        org.sel = null;
+        org.hover = null;
+        renderOrg();
+      });
+      box.append(b);
+    };
+    mk("__all__", "Overview", null, false);
+    for (const key of keys) {
+      mk(key, key === ORG_UNATTRIBUTED ? "unattributed" : (orgProjectDisplay(key) ?? key), orgProjectHue(key), false);
+    }
+    // registry projects with fresh journal activity but no subagents visible to
+    // this bridge: quiet chip whose view explains itself (honest empty state)
+    for (const p of state.projects ?? []) {
+      if (!p || typeof p.id !== "string" || groups.has(p.id) || p.id === bridge) continue;
+      if (projectChipState(p) !== "working") continue;
+      mk(p.id, orgProjectDisplay(p.id) ?? p.displayName ?? p.id, orgProjectHue(p.id), true);
+    }
+    // the active view always keeps its chip, even if its bucket just vanished
+    if (org.view !== "__all__" && !made.has(org.view)) {
+      mk(org.view, org.view === ORG_UNATTRIBUTED ? "unattributed" : (orgProjectDisplay(org.view) ?? org.view), orgProjectHue(org.view), true);
+    }
+  }
+
   function renderOrg() {
     const subs = [...state.subs.values()];
-    const model = orgLayoutTree(orgBuildTree(subs));
+    const bridge = typeof state.projectName === "string" && state.projectName.trim() ? state.projectName.trim() : null;
+    const { keys, groups } = orgGroupByProject(subs, bridge);
+    const pool = org.view === "__all__" ? subs : (groups.get(org.view) ?? []);
+    const model = orgLayoutTree(orgBuildTree(pool, bridge));
     org.model = model;
     const svg = $("#orgsvg");
     svg.setAttribute("width", String(model.width));
@@ -2233,12 +2351,22 @@
       if (e.dashed) path.classList.add("dashed");
       edgesG.append(path);
     }
+    // per-project hue accents (subtle bottom bar + background tint); the
+    // signal-green "live" hues are excluded from the hash space
+    const paintProject = (g, key) => {
+      const acc = g.querySelector(".oaccent");
+      if (!key) { acc.remove(); return; }
+      const hue = orgProjectHue(key);
+      acc.setAttribute("fill", `hsl(${hue} 55% 60% / .55)`);
+      g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .045)`;
+    };
     // entry node: the coordinator (amber only while the bridge itself is down)
     const c = model.coordinator;
     const cg = orgTpl("cnode").cloneNode(true);
     cg.setAttribute("data-node", "__coord__");
     cg.setAttribute("transform", `translate(${c.x - c.w / 2}, ${c.y})`);
     cg.classList.add(state.bridgeDown ? "blocked" : "running");
+    paintProject(cg, bridge);
     cg.querySelector(".oid").textContent = "coordinator";
     cg.querySelector("title").textContent = "coordinator\nmain session \u2014 dispatches subagents, receives reports";
     nodesG.append(cg);
@@ -2247,17 +2375,34 @@
       g.setAttribute("data-node", n.id);
       g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
       g.classList.add(n.status);
+      paintProject(g, n.project);
       // single short line: dot + "id \u00b7 status" — everything else lives in the detail panel
       g.querySelector(".oid").textContent = `${orgTrunc(n.id, 11)} \u00b7 ${n.status}`;
       g.querySelector("title").textContent = [n.id, n.label, n.model].filter(Boolean).join("\n");
       nodesG.append(g);
     }
-    const live = subs.filter((s) => s.status !== "done").length;
-    $("#org-meta").textContent = subs.length
-      ? `${live} live \u00b7 ${subs.length - live} done \u00b7 max depth d${model.maxDepth}`
-      : "no live work";
-    $("#org-note").hidden = subs.length > 0;
-    $("#org-viewport").classList.toggle("idle", subs.length === 0);
+    orgRenderTabs(keys, groups, bridge);
+    // meta + empty state, per view
+    const viewName = org.view === "__all__" ? null : (orgProjectDisplay(org.view) ?? org.view);
+    const live = pool.filter((s) => s.status !== "done").length;
+    const done = pool.length - live;
+    const note = $("#org-note");
+    if (!pool.length) {
+      $("#org-meta").textContent = viewName ? `no live work in ${viewName}` : "no live work";
+      note.querySelector(".n-main").textContent = viewName ? `no live work in ${viewName}` : "no live decomposition \u2014 spawn something";
+      note.querySelector(".n-sub").textContent = viewName
+        ? (bridge && org.view !== bridge && org.view !== ORG_UNATTRIBUTED
+          ? `this bridge serves ${bridge} \u2014 its /state may not cover other projects' workers`
+          : "spawn something in this project")
+        : "finished spawn trees stay visible while their logs exist on disk";
+      note.hidden = false;
+    } else {
+      $("#org-meta").textContent = viewName
+        ? `${live} live \u00b7 ${done} done \u00b7 max depth d${model.maxDepth}`
+        : `${live} live \u00b7 ${done} done \u00b7 ${keys.length} project${keys.length === 1 ? "" : "s"} \u00b7 max depth d${model.maxDepth}`;
+      note.hidden = true;
+    }
+    $("#org-viewport").classList.toggle("idle", pool.length === 0);
     applyOrgFocus(true);
   }
 
@@ -2333,6 +2478,7 @@
     if (Number.isFinite(u.costTotal) && u.costTotal > 0) usageBits.push(`$${Number(u.costTotal).toFixed(4)}`);
     if (Number.isFinite(u.toolCalls) && u.toolCalls > 0) usageBits.push(plural(u.toolCalls, "tool call"));
     row("Status", [n.status, n.model].filter(Boolean).join(" \u00b7 "));
+    row("Project", n.project ? (orgProjectDisplay(n.project) ?? n.project) : "\u2014 unattributed");
     row("Role", n.role ? `${n.role}${orgRoleGroupOf(n.role) ? " \u00b7 " + orgRoleGroupOf(n.role).name : " \u00b7 ad hoc"}` : "\u2014");
     row("Lineage", n.parent
       ? `d${n.depth} \u00b7 spawned by ${n.parent}`
@@ -2396,6 +2542,7 @@
       return;
     }
     $("#project").textContent = data.project;
+    state.projectName = typeof data.project === "string" ? data.project : null;
     mainSessionStart = parseSessionStart(data.main?.sessionFile) ?? mainSessionStart;
     const subs = data.subagents ?? [];
     state.subs = new Map(subs.map((s) => [s.id, s]));

@@ -14,22 +14,26 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgBuildTree, orgLayoutTree, ORG_LAYOUT, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgAttribution, orgGroupByProject, orgProjectHue, orgBuildTree, orgLayoutTree, ORG_LAYOUT, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
   orgRoleGroupOf: (role: string) => { id: string; name: string; roles: string[] } | null;
   orgDeriveParent: (id: string, ids: Set<string>) => { parent: string | null; known: boolean };
   orgClassifyRole: (id: string, label: string | null, session: string | null) => string | null;
+  ORG_UNATTRIBUTED: string;
+  orgAttribution: (sub: { project?: unknown } | null, bridgeProject: string | null) => string | null;
+  orgGroupByProject: (subs: Array<Record<string, unknown>>, bridgeProject: string | null) => { keys: string[]; groups: Map<string, Array<Record<string, unknown>>> };
+  orgProjectHue: (name: string | null) => number;
   orgNaturalCompare: (a: string, b: string) => number;
-  orgBuildTree: (subs: Array<Record<string, unknown>>) => {
-    nodes: Map<string, Node & { children: Node[]; depth: number; parent: string | null; parentHint: string | null; role: string | null }>;
+  orgBuildTree: (subs: Array<Record<string, unknown>>, bridgeProject?: string | null) => {
+    nodes: Map<string, Node & { children: Node[]; depth: number; parent: string | null; parentHint: string | null; role: string | null; project: string | null }>;
     roots: Node[];
     maxDepth: number;
   };
   orgLayoutTree: (tree: ReturnType<typeof org.orgBuildTree>) => {
     coordinator: { id: string; x: number; y: number };
-    nodes: Array<{ id: string; x: number; y: number; depth: number; parent: string | null; parentHint: string | null; role: string | null; status: string; childIds: string[] }>;
+    nodes: Array<{ id: string; x: number; y: number; depth: number; parent: string | null; parentHint: string | null; role: string | null; status: string; project: string | null; childIds: string[] }>;
     edges: Array<{ from: string; to: string; dashed: boolean; key: string }>;
     width: number;
     height: number;
@@ -62,6 +66,11 @@ describe("org lineage derivation (mirrors server resolveAncestry)", () => {
   });
   test("plain id has no parent", () => {
     assert.deepEqual(org.orgDeriveParent("sa1", ids), { parent: null, known: false });
+  });
+  test("role- namespace ids are role instances, not children of a 'role' agent", () => {
+    assert.deepEqual(org.orgDeriveParent("role-coder", ids), { parent: null, known: false });
+    // their own fanout children still map to them
+    assert.deepEqual(org.orgDeriveParent("role-coder-a", new Set(["role-coder", "role-coder-a"])), { parent: "role-coder", known: true });
   });
   test("prefix-parent absent from the scan stays unknown, never invented", () => {
     assert.deepEqual(org.orgDeriveParent("sa9-x", ids), { parent: "sa9", known: false });
@@ -97,6 +106,47 @@ describe("standing roles legend partition", () => {
   });
 });
 
+describe("project attribution and grouping", () => {
+  test("explicit per-sub project wins, then bridge inheritance, else unattributed", () => {
+    assert.equal(org.orgAttribution({ project: "alpha" }, "bridge"), "alpha");
+    assert.equal(org.orgAttribution({ project: "  beta  " }, null), "beta");
+    assert.equal(org.orgAttribution({}, "bridge"), "bridge");
+    assert.equal(org.orgAttribution({}, null), null);
+    assert.equal(org.orgAttribution({ project: "   " }, "bridge"), "bridge"); // blank is not attribution
+  });
+  test("grouping: attributed keys sorted, unattributed last, never guessed", () => {
+    const { keys, groups } = org.orgGroupByProject(
+      [sub("sa3", { project: "beta" }), sub("sa1", { project: "alpha" }), sub("sa2")],
+      "bridge",
+    );
+    assert.deepEqual(keys, ["alpha", "beta", "bridge"]);
+    assert.equal(groups.get("alpha")![0].id, "sa1");
+    assert.equal(groups.get("bridge")![0].id, "sa2");
+    const un = org.orgGroupByProject([sub("sa9")], null);
+    assert.deepEqual(un.keys, [org.ORG_UNATTRIBUTED]);
+    assert.equal(un.groups.get(org.ORG_UNATTRIBUTED)!.length, 1);
+  });
+  test("project hue: deterministic and never in the signal-green band", () => {
+    assert.equal(org.orgProjectHue("alpha"), org.orgProjectHue("alpha"));
+    for (let i = 0; i < 300; i++) {
+      const h = org.orgProjectHue(`project-${i}`);
+      assert.ok(h >= 0 && h < 360 && !(h >= 130 && h <= 185), `hue ${h} for project-${i}`);
+    }
+    assert.equal(org.orgProjectHue(null), org.orgProjectHue("")); // degenerate inputs still stable
+  });
+  test("buildTree carries attribution; bridge inheritance applies", () => {
+    const tree = org.orgBuildTree([sub("sa1", { project: "alpha" }), sub("sa2")], "bridge");
+    assert.equal(tree.nodes.get("sa1")!.project, "alpha");
+    assert.equal(tree.nodes.get("sa2")!.project, "bridge");
+    const noBridge = org.orgBuildTree([sub("sa2")]);
+    assert.equal(noBridge.nodes.get("sa2")!.project, null);
+  });
+  test("layout passes project through for the tint pass", () => {
+    const model = org.orgLayoutTree(org.orgBuildTree([sub("sa1", { project: "alpha" })], "bridge"));
+    assert.equal(model.nodes[0].project, "alpha");
+  });
+});
+
 describe("spawn tree building", () => {
   test("depth emerges from lineage, branch by branch (uneven tree)", () => {
     const tree = org.orgBuildTree([
@@ -120,6 +170,14 @@ describe("spawn tree building", () => {
     assert.equal(n.parentHint, "sa9");
     assert.equal(n.depth, 0);
     assert.equal(tree.maxDepth, 0);
+  });
+  test("project view: parents from other projects become honest dashed roots", () => {
+    // in alpha's view, sa2 (beta) is absent, so sa2-sa1's parent is not in the subset
+    const tree = org.orgBuildTree([sub("sa2-sa1", { project: "alpha" })], "bridge");
+    const n = tree.nodes.get("sa2-sa1")!;
+    assert.equal(n.parent, null);
+    assert.equal(n.parentHint, "sa2");
+    assert.equal(n.depth, 0);
   });
   test("empty scan -> no nodes, idle model", () => {
     const tree = org.orgBuildTree([]);
