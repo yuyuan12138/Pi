@@ -73,15 +73,15 @@ function row(overrides: Partial<JournalRowLike> & { taskId: string; phase: strin
 // ---------- registry parse ----------
 
 describe("parseRegistry", () => {
-  test("maps valid registry JSON, dropping aliases/sessionId", () => {
+  test("maps valid registry JSON, keeping aliases but dropping sessionId", () => {
     const projects = parseRegistry(REGISTRY);
     assert.equal(projects.length, 3);
-    assert.deepEqual(projects[0], { id: "alpha", displayName: "Alpha platform", root: "/tmp/alpha", status: "registered", registeredAt: "2026-11-01T00:00:00.000Z" });
+    assert.deepEqual(projects[0], { id: "alpha", displayName: "Alpha platform", root: "/tmp/alpha", aliases: ["a", "阿尔法"], subprojects: [], status: "registered", registeredAt: "2026-11-01T00:00:00.000Z" });
   });
 
   test("defaults displayName to id and coerces missing fields to null", () => {
     const projects = parseRegistry(JSON.stringify({ projects: [{ id: "solo" }] }));
-    assert.deepEqual(projects, [{ id: "solo", displayName: "solo", root: "", status: null, registeredAt: null }]);
+    assert.deepEqual(projects, [{ id: "solo", displayName: "solo", root: "", aliases: [], subprojects: [], status: null, registeredAt: null }]);
   });
 
   test("skips malformed entries but keeps valid ones", () => {

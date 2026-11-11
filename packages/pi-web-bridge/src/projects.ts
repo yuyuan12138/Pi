@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 
 /**
@@ -28,6 +29,10 @@ export interface CoordinatorProject {
   id: string;
   displayName: string;
   root: string;
+  /** Registry alias list (e.g. ["minecraft", "mc", "sword", "我的世界"]). */
+  aliases: string[];
+  /** Registry subproject tree — recursive (a subproject can nest its own). */
+  subprojects: SubprojectRef[];
   /** Registry status string (e.g. "registered"); null when the field is absent. */
   status: string | null;
   registeredAt: string | null;
@@ -45,6 +50,20 @@ export interface ProjectView extends CoordinatorProject {
   /** Omitted when the project has no attributable journal rows ("no data"). */
   lastActivity?: string;
   lastJournalStatus?: string;
+  /** Newest project-space work record: a <root>/work subdirectory RECORD.md, if any. */
+  work?: ProjectWorkHint;
+}
+
+/** One project-space work record, parsed down to what a one-line activity needs. */
+export interface ProjectWorkHint {
+  /** Work directory name under the project root's work dir (e.g. "2026-11-11-graph-schema-backfill"). */
+  dir: string;
+  /** First `# ` heading of RECORD.md, else the directory name. */
+  title: string | null;
+  /** Worker instance id from the `**Worker**:` line (e.g. "role-tech-lead.minecraft"). */
+  worker: string | null;
+  /** RECORD.md mtime, ISO. */
+  at: string;
 }
 
 export interface ProjectsSnapshot {
@@ -88,6 +107,29 @@ export const JOURNAL_WINDOW = 400;
  * entries, and [] for any garbage input (missing row, corrupt JSON, wrong
  * shape). `id` is the only required field; everything else coerces to null.
  */
+/** A subproject in the registry tree — recursive to arbitrary depth. */
+export interface SubprojectRef {
+  id: string;
+  displayName: string;
+  aliases: string[];
+  subprojects: SubprojectRef[];
+}
+
+function normSubprojects(raw: unknown): SubprojectRef[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SubprojectRef[] = [];
+  for (const entry of raw as Array<Record<string, unknown>>) {
+    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
+    out.push({
+      id: entry.id,
+      displayName: typeof entry.displayName === "string" && entry.displayName ? entry.displayName : entry.id,
+      aliases: Array.isArray(entry.aliases) ? entry.aliases.filter((a): a is string => typeof a === "string" && !!a.trim()) : [],
+      subprojects: normSubprojects(entry.subprojects),
+    });
+  }
+  return out;
+}
+
 export function parseRegistry(raw: unknown): CoordinatorProject[] {
   if (typeof raw !== "string") return [];
   let parsed: unknown;
@@ -102,11 +144,42 @@ export function parseRegistry(raw: unknown): CoordinatorProject[] {
       id: e.id,
       displayName: typeof e.displayName === "string" && e.displayName ? e.displayName : e.id,
       root: typeof e.root === "string" ? e.root : "",
+      aliases: Array.isArray(e.aliases) ? e.aliases.filter((a): a is string => typeof a === "string" && !!a.trim()) : [],
+      subprojects: normSubprojects(e.subprojects),
       status: typeof e.status === "string" ? e.status : null,
       registeredAt: typeof e.registeredAt === "string" ? e.registeredAt : null,
     });
   }
   return out;
+}
+
+/**
+ * Newest project-space work record for a registered project root:
+ * the RECORD.md (in the root's work dir) with the newest mtime, parsed down
+ * to the title heading + worker instance id. Read-only, bounded (only `stat`s
+ * one entry per work dir + reads the first 4KB of one file); any problem -> null.
+ */
+export function projectWorkHint(root: string): ProjectWorkHint | null {
+  if (!root || typeof root !== "string") return null;
+  try {
+    const workDir = join(root, "work");
+    let best: { rec: string; mtimeMs: number; dir: string } | null = null;
+    for (const ent of readdirSync(workDir, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const rec = join(workDir, ent.name, "RECORD.md");
+      try {
+        const st = statSync(rec);
+        if (st.isFile() && (!best || st.mtimeMs > best.mtimeMs)) best = { rec, mtimeMs: st.mtimeMs, dir: ent.name };
+      } catch { /* no RECORD.md in this work dir */ }
+    }
+    if (!best) return null;
+    const head = readFileSync(best.rec, "utf8").slice(0, 4096);
+    const title = /^#\s+(.+)$/m.exec(head)?.[1]?.trim() || best.dir;
+    const worker = /\*\*Worker\*\*:\s*`([^`]+)`/.exec(head)?.[1]?.trim() || null;
+    return { dir: best.dir, title, worker, at: new Date(best.mtimeMs).toISOString() };
+  } catch {
+    return null;
+  }
 }
 
 /** Extract `projectId` from a `received`-phase task envelope (`journal.detail`); null when absent/unparseable. */
@@ -168,6 +241,8 @@ function readOnce(dbPath: string): ProjectsSnapshot {
       const a = activity.get(p.id);
       const view: ProjectView = { ...p };
       if (a) { view.lastActivity = a.lastActivity; view.lastJournalStatus = a.lastJournalStatus; }
+      const w = p.root ? projectWorkHint(p.root) : null;
+      if (w) view.work = w;
       return view;
     });
     return { projects: views };

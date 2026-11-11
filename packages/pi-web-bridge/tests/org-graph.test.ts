@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -30,8 +30,14 @@ const org = new Function(
   orgClassifyRole: (id: string, label: string | null, session: string | null) => string | null;
   orgNaturalCompare: (a: string, b: string) => number;
   orgTrunc: (s: string | null, n: number) => string;
-  orgAttribution: (sub: { project?: unknown } | null, bridgeProject: string | null) => string | null;
-  orgGroupByProject: (subs: Array<Record<string, unknown>>, bridgeProject: string | null) => { keys: string[]; groups: Map<string, Array<Record<string, unknown>>> };
+  orgAttribution: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
+  orgProjectOf: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
+  orgRoleShort: (w: unknown) => string | null;
+  orgTruncW: (s: unknown, maxUnits: number) => string;
+  ORG_SUBPROJECT_SNAPSHOT: Array<{ project: string; id: string; displayName: string; tokens: string[] }>;
+  orgSubprojectTree: (entry: Record<string, unknown> | null, key: string) => Array<Record<string, unknown>>;
+  orgSubprojectPathOf: (s: Record<string, unknown> | null, tree: Array<Record<string, unknown>>) => string[] | null;
+  orgGroupByProject: (subs: Array<Record<string, unknown>>, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => { keys: string[]; groups: Map<string, Array<Record<string, unknown>>> };
   orgProjectHue: (name: string | null) => number;
   orgLabelPrefix: (label: string | null) => string | null;
   orgDayOf: (ts: unknown) => string;
@@ -156,21 +162,53 @@ describe("standing roles legend partition", () => {
 });
 
 describe("project attribution and grouping", () => {
-  test("explicit per-sub project wins, then bridge inheritance, else unattributed", () => {
-    assert.equal(org.orgAttribution({ project: "alpha" }, "bridge"), "alpha");
-    assert.equal(org.orgAttribution({ project: "  beta  " }, null), "beta");
-    assert.equal(org.orgAttribution({}, "bridge"), "bridge");
-    assert.equal(org.orgAttribution({}, null), null);
-    assert.equal(org.orgAttribution({ project: "   " }, "bridge"), "bridge"); // blank is not attribution
+  test("explicit per-sub project wins; the bridge's own project is NOT a fallback", () => {
+    assert.equal(org.orgAttribution({ project: "alpha" }, [], null), "alpha");
+    assert.equal(org.orgAttribution({ project: "  beta  " }, null, null), "beta");
+    assert.equal(org.orgAttribution({ project: "   " }, [], null), null); // blank is not attribution
+    assert.equal(org.orgAttribution({}, [], null), null); // no evidence -> honest unattributed
+  });
+  test("session @project segment resolves against registry + manifest pseudo-projects", () => {
+    const registry = [{ id: "minecraft", displayName: "MC", aliases: [], root: "" }];
+    assert.equal(org.orgProjectOf({ id: "x1", session: "role-tech-lead@minecraft.rsi" }, registry, null), "minecraft");
+    assert.equal(org.orgProjectOf({ id: "x2", session: "role-coder-2@PiAgents.bridge" }, registry, null), "PiAgents.bridge");
+  });
+  test("manifest snapshot: dispatch id + task token (reused ids need the token)", () => {
+    assert.equal(org.orgProjectOf({ id: "sa13-a", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }, [], null), "PiAgents.harness");
+    // sa14 was BOTH minecraft RSI fixes and an AGENT-ORG design pass — token decides
+    assert.equal(org.orgProjectOf({ id: "sa14", label: "任务：closed-loop RSI driver defect fixes (wave_loop.py)" }, [], null), "minecraft");
+    assert.equal(org.orgProjectOf({ id: "sa14", label: "任务：AGENT-ORG rev: decomposition protocol" }, [], null), "PiAgents-org");
+    // same id, unrelated label -> no attribution (never yesterday's project)
+    assert.equal(org.orgProjectOf({ id: "sa14", label: "任务：在飞书里给 bot 发一条测试消息" }, [], null), null);
+  });
+  test("a label naming TWO projects is cross-project -> honest unattributed", () => {
+    const registry = [
+      { id: "medical", displayName: "Medical platform", root: "", aliases: ["medical", "医疗"] },
+      { id: "minecraft", displayName: "MC", root: "", aliases: ["minecraft", "mc"] },
+    ];
+    // the feishu meeting-report mentions both MC and 医疗平台 — not medical work
+    assert.equal(org.orgProjectOf({ id: "sa16", label: "任务：在飞书新建一个 docx 文档《组会汇报》，整理 MC 和医疗平台的工作" }, registry, null), null);
+    assert.equal(org.orgProjectOf({ id: "w9", label: "任务：按甲方规范改医疗管理系统的筛查判别逻辑" }, registry, null), "medical");
+  });
+  test("label evidence: registry root paths and aliases (word-boundary for ASCII)", () => {
+    const registry = [
+      { id: "medical", displayName: "Medical platform", root: "/Users/yuyuan/projects/mobile-medical/medical-system", aliases: ["medical", "医疗"] },
+      { id: "minecraft", displayName: "MC", root: "/Users/yuyuan/PiAgents/remote-agent/operations/20261029", aliases: ["minecraft", "mc"] },
+    ];
+    assert.equal(org.orgProjectOf({ id: "w1", label: "任务：按甲方规范改医疗管理系统的筛查判别逻辑" }, registry, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "w2", label: "Wave-33 HOT: replace the staircase-pit doctrine" }, registry, null), "minecraft");
+    assert.equal(org.orgProjectOf({ id: "w3", label: "Review the quarterly numbers carefully" }, registry, null), null); // no alias hit -> null
+    assert.equal(org.orgProjectOf({ id: "w4", label: "Design the org-graph page mockup" }, registry, null), "PiAgents.bridge"); // pseudo-project alias
   });
   test("grouping: attributed keys sorted, unattributed last, never guessed", () => {
     const { keys, groups } = org.orgGroupByProject(
       [sub("sa3", { project: "beta" }), sub("sa1", { project: "alpha" }), sub("sa2")],
-      "bridge",
+      [],
+      null,
     );
-    assert.deepEqual(keys, ["alpha", "beta", "bridge"]);
+    assert.deepEqual(keys, ["alpha", "beta", org.ORG_UNATTRIBUTED]);
     assert.equal(groups.get("alpha")![0].id, "sa1");
-    const un = org.orgGroupByProject([sub("sa9")], null);
+    const un = org.orgGroupByProject([sub("sa9")], null, null);
     assert.deepEqual(un.keys, [org.ORG_UNATTRIBUTED]);
   });
   test("project hue: deterministic and never in the signal-green band", () => {
@@ -255,6 +293,98 @@ describe("humanized label rules (no raw keys ever)", () => {
   });
 });
 
+describe("recursive subproject hierarchy", () => {
+  const TREE = [
+    { id: "core", displayName: "Core Pipeline", aliases: [], tokens: [], children: [
+      { id: "parser", displayName: "Parser", aliases: ["parser"], tokens: [], children: [] },
+    ] },
+    { id: "ops", displayName: "Ops", aliases: [], tokens: [], children: [] },
+  ];
+  test("orgSubprojectTree: registry tree passes through + snapshot appends + dedupes", () => {
+    const tree = org.orgSubprojectTree({ subprojects: TREE }, "alpha");
+    assert.deepEqual(tree.map((n) => n.id), ["core", "ops"]);
+    const med = org.orgSubprojectTree({}, "medical");
+    assert.deepEqual(med.map((n) => n.id), ["three-tier-screening"]); // snapshot-only project
+    const both = org.orgSubprojectTree({ subprojects: [{ id: "three-tier-screening", displayName: "TT" }] }, "medical");
+    assert.equal(both.length, 1); // snapshot does not duplicate a registry id
+  });
+  test("orgSubprojectPathOf: explicit id at depth 2, tokens, ambiguity, prefix collapse", () => {
+    assert.deepEqual(org.orgSubprojectPathOf({ project: "parser" }, TREE), ["core", "parser"]);
+    assert.deepEqual(org.orgSubprojectPathOf({ project: "ops" }, TREE), ["ops"]);
+    assert.deepEqual(org.orgSubprojectPathOf({ label: "fix the parser queue" }, TREE), ["core", "parser"]);
+    assert.equal(org.orgSubprojectPathOf({ label: "nothing matches here" }, TREE), null);
+    // label matches BOTH ops and parser -> ambiguous -> null
+    const amb = [{ ...TREE[0], aliases: ["shared"], children: [] }, { ...TREE[1], aliases: ["shared"], children: [] }];
+    assert.equal(org.orgSubprojectPathOf({ label: "the shared queue" }, amb), null);
+    // ancestor + descendant both match -> collapse to the deeper path
+    const deep = [{ id: "core", displayName: "Core", aliases: ["core"], tokens: [], children: [
+      { id: "leaf", displayName: "Leaf", aliases: ["core"], tokens: [], children: [] },
+    ] }];
+    assert.deepEqual(org.orgSubprojectPathOf({ label: "core work" }, deep), ["core", "leaf"]);
+    // medical snapshot: label evidence routes to three-tier-screening
+    assert.deepEqual(org.orgSubprojectPathOf({ label: "任务：在已有的 feature/three-tier-screening 分支上对齐编码" }, org.orgSubprojectTree({}, "medical")), ["three-tier-screening"]);
+  });
+  // registry wire format: nested `subprojects` arrays (orgSubprojectTree
+  // normalizes them to `children` internally)
+  const REG_TREE = [
+    { id: "core", displayName: "Core Pipeline", subprojects: [
+      { id: "parser", displayName: "Parser", subprojects: [] },
+    ] },
+    { id: "ops", displayName: "Ops", subprojects: [] },
+  ];
+  test("orgSubprojectTarget: recursive explicit routing", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha", aliases: [], root: "", subprojects: REG_TREE }];
+    assert.deepEqual(org.orgSubprojectTarget({ project: "parser" }, registry), { project: "alpha", subproject: "parser" });
+    assert.deepEqual(org.orgSubprojectTarget({ project: "core" }, registry), { project: "alpha", subproject: "core" });
+    assert.deepEqual(org.orgSubprojectTarget({ project: "alpha" }, registry), null); // the project itself is not a sub
+  });
+  test("orgProjectOf: an explicit subproject id attributes to its ROOT project", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha", aliases: [], root: "", subprojects: REG_TREE }];
+    assert.equal(org.orgProjectOf({ id: "w1", project: "parser", label: "" }, registry, null), "alpha");
+  });
+  test("orgBuildModel: nested crews/dispatches attach to their innermost subproject", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", aliases: [], root: "", lastActivity: iso(60_000), subprojects: REG_TREE }];
+    const m = org.orgBuildModel(
+      [sub("sa60", { project: "parser" }), sub("sa61", { project: "core" }), sub("sa62", { project: "alpha", label: "plain alpha work" })],
+      "bridge", registry, "alpha", NOW,
+    );
+    const core = m.nodes.get("__sub:alpha:core")!;
+    const parser = m.nodes.get("__sub:alpha:core.parser")!;
+    assert.ok(core && parser);
+    assert.equal(parser.parent, core.id); // sub-sub nests under its parent sub
+    const coreInst = core.children.find((c) => c.kind === "instance")!;
+    const parserInst = parser.children.find((c) => c.kind === "instance")!;
+    const rootInst = (m.nodes.get("__proj:alpha")!.children).find((c) => c.kind === "instance")!;
+    assert.ok(coreInst && parserInst && rootInst);
+    assert.equal(coreInst.subproject, "core");
+    assert.equal(parserInst.subproject, "parser");
+    assert.equal(rootInst.subproject, null); // directly under the project
+    // instance ids carry the sp trail so same aggregation keys never collide
+    assert.match(coreInst.id, /__inst:alpha:core:/);
+    assert.match(parserInst.id, /__inst:alpha:core\.parser:/);
+  });
+  test("orgBuildModel: an empty subproject still renders as a capsule under its parent", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", aliases: [], root: "", lastActivity: iso(60_000), subprojects: TREE }];
+    const m = org.orgBuildModel([sub("sa1", { label: "plain work" })], "bridge", registry, "alpha", NOW);
+    const ops = m.nodes.get("__sub:alpha:ops")!;
+    assert.ok(ops && ops.children.length === 0);
+  });
+});
+
+describe("width-aware truncation (CJK counts double)", () => {
+  test("mixed-script labels fit a fixed pixel budget", () => {
+    const long = "继续 Minecraft RSI 木剑循环，用土柱布局修复掉落几何卡死";
+    const cut = org.orgTruncW(long, 21);
+    assert.ok(cut.endsWith("\u2026"));
+    // units: CJK x2 + ASCII x1 must not exceed the budget
+    let units = 0;
+    for (const ch of cut.replace("\u2026", "")) units += /[\u2e80-\u9fff\uff00-\uffef\u3000-\u303f]/.test(ch) ? 2 : 1;
+    assert.ok(units <= 21, `units=${units}`);
+    assert.equal(org.orgTruncW("short", 21), "short");
+    assert.equal(org.orgTruncW("tech-lead · Backfill graph.json to GRAPH-SCHEMA v1", 21), "tech-lead · Backfill\u2026");
+  });
+});
+
 describe("working-registry rule (project layer population)", () => {
   const reg = [
     { id: "alpha", lastActivity: iso(5 * 60_000) }, // working
@@ -296,11 +426,11 @@ describe("hierarchy model: coordinator -> projects -> instance crews -> dispatch
   const model = org.orgBuildModel(subs, "bridge", registry, null, NOW);
 
   test("project layer: registry projects (bucketed or working) + extra buckets, in payload order", () => {
-    assert.deepEqual(model.projKeys, ["alpha", "beta", "gamma", "bridge"]);
+    assert.deepEqual(model.projKeys, ["alpha", "beta", "gamma", org.ORG_UNATTRIBUTED]);
     const proj = [...model.nodes.values()].filter((n) => n.kind === "project");
     assert.equal(proj.length, 4);
     assert.equal(model.nodes.get("__proj:alpha")!.display, "Alpha Colony");
-    assert.equal(model.nodes.get("__proj:bridge")!.registry, null);
+    assert.equal(model.nodes.get("__proj:" + org.ORG_UNATTRIBUTED)!.registry, null);
   });
   test("3 dispatches with one session = ONE instance node (aggregated, counted)", () => {
     const insts = [...model.nodes.values()].filter((n) => n.kind === "instance");
@@ -329,7 +459,7 @@ describe("hierarchy model: coordinator -> projects -> instance crews -> dispatch
     assert.equal(model.nodes.get("__inst:alpha:sess-crew-a")!.dim, false);
   });
   test("fallback clustering: shared label prefix groups; lonely prefixes fall back to day", () => {
-    const p1 = model.nodes.get("__inst:bridge:pre-review-the-quarterly")!;
+    const p1 = model.nodes.get(`__inst:${org.ORG_UNATTRIBUTED}:pre-review-the-quarterly`)!;
     assert.equal(p1.basis, "prefix");
     assert.equal(p1.count, 2); // role-coder + sa3 share the 20-char prefix
     const day = [...model.nodes.values()].find((n) => n.kind === "instance" && n.basis === "day");
@@ -344,7 +474,7 @@ describe("hierarchy model: coordinator -> projects -> instance crews -> dispatch
     const un = org.orgBuildModel([sub("sa9")], null, registry, null, NOW);
     assert.deepEqual(un.projKeys, ["alpha", "gamma", org.ORG_UNATTRIBUTED]);
     const pn = un.nodes.get("__proj:" + org.ORG_UNATTRIBUTED)!;
-    assert.equal(pn.display, "unattributed");
+    assert.equal(pn.display, "unattributed · 1");
     const inst = pn.children.find((c) => c.kind === "instance")!;
     assert.equal(inst.count, 1);
   });

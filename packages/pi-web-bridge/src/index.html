@@ -676,12 +676,6 @@
   .onode.k-subproject { --k: #D580FF; }
   .onode.k-muted { --k: #6e7681; } /* unattributed bucket */
   /* subgraph regions: dark-tinted hash-hue rects with top-left labels */
-  g.oregion { pointer-events: none; transition: opacity .2s var(--ease); }
-  g.oregion .oregion-rect { rx: 12; }
-  #orgsvg.focus g.oregion:not(.hot) { opacity: .12; }
-  g.oregion.hot .oregion-rect { stroke-opacity: .3; }
-  .oregion-rect { fill-opacity: .05; stroke-opacity: .15; stroke-width: 1; }
-  .oregion-label { font-size: 10px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; opacity: .55; }
   /* branch toggle (collapse/expand crews) — restyled to the B tokens */
   .otoggle { cursor: pointer; }
   .otoggle .thit { fill: transparent; stroke: none; }
@@ -876,7 +870,6 @@
   <svg data-tpl="ocard"><g class="onode"><g class="ocard-g"><rect class="ohalo" rx="15"/><rect class="ocard" rx="10"/><rect class="olum" rx="9"/><circle class="oavatar"/><g class="oicon"></g><text class="oname"/><text class="osub"/><circle class="odot"/><circle class="oping"/></g><title/></g></svg>
   <svg data-tpl="oedge"><path class="oedge"/></svg>
   <svg data-tpl="otoggle"><g class="otoggle"><rect class="thit" x="-8" y="-8" width="34" height="20" fill="transparent"/><circle r="7"/><path class="tglyph"/><text class="tcount" x="10" y="10"/></g></svg>
-  <svg data-tpl="oregion"><g class="oregion"><rect class="oregion-rect" rx="12"/><text class="oregion-label"/></g></svg>
 </div>
 
 <div id="backdrop"></div>
@@ -1094,6 +1087,19 @@
     s = String(s ?? "");
     return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
   }
+  // Width-aware truncation: CJK/fullwidth glyphs render ~2x as wide as ASCII,
+  // so a "characters" budget lies for mixed-script labels (28 CJK chars =
+  // 280px in a 164px card). Count CJK as 2 units, ASCII as 1.
+  function orgTruncW(s, maxUnits) {
+    s = String(s ?? "");
+    let units = 0;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.codePointAt(i) ?? 0;
+      units += (c >= 0x2e80 && c <= 0x9fff) || (c >= 0xff00 && c <= 0xffef) || (c >= 0x3000 && c <= 0x303f) ? 2 : 1;
+      if (units > maxUnits) return s.slice(0, i).trimEnd() + "\u2026";
+    }
+    return s;
+  }
   const ORG_ROLES = ["scout", "researcher", "planner", "coder", "operator", "reviewer", "writer", "designer", "visualizer"];
   const ORG_ROLE_GROUPS = [
     { id: "intel", name: "Intelligence", roles: ["scout", "researcher", "planner"] },
@@ -1152,16 +1158,106 @@
   // this project's .pi/subagents dir — structural fact, not a guess); with
   // neither, the sub is unattributed.
   const ORG_UNATTRIBUTED = "__unattributed__";
-  function orgAttribution(sub, bridgeProject) {
-    const p = sub?.project;
-    if (typeof p === "string" && p.trim()) return p.trim();
-    if (typeof bridgeProject === "string" && bridgeProject.trim()) return bridgeProject.trim();
-    return null;
+  // ---- Project attribution ----------------------------------------------
+  // The /state payload carries no per-dispatch project, and the coordinator
+  // journal holds only task envelopes (not dispatch links) — so crews are
+  // attributed by EVIDENCE, in priority order. The bridge's own project name
+  // is deliberately NOT a fallback: that lumped every crew into one bucket.
+  //   (a) explicit spawn-arg project
+  //   (b) role-<...>@<project> session segment (registry or manifest pseudo)
+  //   (c) crew-manifest snapshot: dispatch id + label token (ids are REUSED
+  //       across days, so the label must still carry the task's tokens)
+  //   (d) label evidence: registry root paths + aliases, then domain vocab
+  //   (e) null -> the explicit unattributed bucket + console.info
+  // Manifest pseudo-projects: coordinator-internal efforts with no registry
+  // row (SNAPSHOT 2026-11-11, instructions/CREW-MANIFEST-2026-11-11.md).
+  const ORG_PSEUDO_PROJECTS = {
+    "PiAgents-org": { displayName: "PiAgents org system", aliases: ["agent-org", "roster", "project space", "project-space", "role card", "knowledge base"] },
+    "PiAgents.bridge": { displayName: "PiAgents web bridge", aliases: ["pi-web", "org graph", "org-graph", "mission control", "mission-control", "projects panel", "#/org"] },
+    "PiAgents.harness": { displayName: "PiAgents harness", aliases: ["pi-superagent", "depth cap", "recursive-spawn", "ponytail"] },
+  };
+  // Domain vocabulary the registry aliases lack (the labels speak of
+  // "wave-33", "RSI", "木剑"...) — same manifest/date basis as above.
+  const ORG_PROJECT_EXTRA_ALIASES = {
+    minecraft: ["rsi", "wave", "furnace", "episode", "木剑", "mineflayer", "remote-agent/operations"],
+    medical: ["筛查", "screening"],
+  };
+  // Manifest snapshot: dispatch id -> project, gated by a task token so a
+  // reused id does not inherit yesterday's project. From CREW-MANIFEST.
+  const ORG_CREW_DISPATCH_PROJECTS = [
+    { ids: ["sa13", "sa14"], tok: "rsi|wave_loop|木剑", project: "minecraft" },
+    { ids: ["sa15"], tok: "rsi|c046|episode", project: "minecraft" },
+    { ids: ["sa2"], tok: "sample|minecraft|ops dir", project: "minecraft" },
+    { ids: ["sa4", "sa6", "sa7", "sa8"], tok: "医疗|medical|筛查", project: "medical" },
+    { ids: ["sa5", "sa10"], tok: "minecraft|木剑|rsi|sample space", project: "minecraft" },
+    { ids: ["sa11"], tok: "blog|/piagents/", project: "blog" },
+    { ids: ["sa3"], tok: "project-space|crew manifest", project: "PiAgents-org" },
+    { ids: ["sa12", "sa14", "sa15", "sa17", "sa18", "sa20", "sa21"], tok: "agent-org|roster|memory tier|subproject", project: "PiAgents-org" },
+    { ids: ["sa19"], tok: "dispatch authority|role card", project: "PiAgents-org" },
+    { ids: ["sa16"], tok: "org graph|#/org|projects panel|mission-control", project: "PiAgents.bridge" },
+    { ids: ["sa1"], tok: "#/org|org-graph|hierarchy", project: "PiAgents.bridge" },
+    { ids: ["sa13-a", "sa13-b", "sa13-c"], tok: "depth cap|pi-superagent", project: "PiAgents.harness" },
+  ];
+  function orgNormText(t) { return String(t ?? "").toLowerCase().replace(/\s+/g, " "); }
+  // ASCII aliases match on word boundaries ("mc" must not hit "mockup");
+  // CJK aliases match as substrings.
+  function orgTextMatches(text, alias) {
+    if (!text || !alias) return false;
+    if (!/[a-z0-9]/i.test(alias)) return text.includes(alias.toLowerCase());
+    const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`, "i").test(text);
   }
-  function orgGroupByProject(subs, bridgeProject) {
+  // "role-tech-lead.minecraft" -> "tech-lead" (display form for activity lines).
+  function orgRoleShort(w) { return String(w ?? "").replace(/^role-/, "").split(".")[0] || null; }
+  function orgProjectOf(s, registry, sessionById) {
+    const explicit = typeof s?.project === "string" && s.project.trim() ? s.project.trim() : null;
+    if (explicit) {
+      // an explicit name may be a SUBPROJECT id — attribute to its root project
+      for (const p of Array.isArray(registry) ? registry : []) {
+        const walk = (list) => (Array.isArray(list) ? list : []).some((sp) => sp?.id === explicit || walk(sp?.subprojects));
+        if (walk(p?.subprojects)) return String(p.id);
+      }
+      return explicit;
+    }
+    const sess = (typeof s?.session === "string" && s.session.trim() ? s.session.trim() : null)
+      ?? (typeof sessionById?.get === "function" ? sessionById.get(String(s?.id)) ?? null : null);
+    if (sess && sess.includes("@")) {
+      const right = sess.split("@")[1] ?? "";
+      const regIds = new Set((Array.isArray(registry) ? registry : []).map((p) => p.id));
+      for (const cand of [right.trim(), right.split(".")[0].trim()]) {
+        if (cand && (regIds.has(cand) || ORG_PSEUDO_PROJECTS[cand])) return cand;
+      }
+    }
+    const id = String(s?.id ?? "");
+    for (const e of ORG_CREW_DISPATCH_PROJECTS) {
+      if (e.ids.includes(id) && new RegExp(e.tok, "i").test(String(s?.label ?? ""))) return e.project;
+    }
+    const label = orgNormText(s?.label);
+    if (label) {
+      // collect EVERY project the label names; a dispatch that mentions two or
+      // more projects (e.g. a cross-project 组会汇报 citing "MC 和医疗平台")
+      // is not attributable to one — honest unattributed beats a guess
+      const hits = new Set();
+      for (const p of Array.isArray(registry) ? registry : []) {
+        const aliased = (Array.isArray(p?.aliases) ? p.aliases : []).some((a) => orgTextMatches(label, a))
+          || (ORG_PROJECT_EXTRA_ALIASES[p?.id] ?? []).some((a) => orgTextMatches(label, a));
+        if ((p?.root && label.includes(String(p.root).toLowerCase())) || aliased) hits.add(String(p.id));
+      }
+      if (hits.size === 1) return [...hits][0];
+      if (hits.size > 1) return null;
+      for (const [pid, p] of Object.entries(ORG_PSEUDO_PROJECTS)) {
+        if (p.aliases.some((a) => orgTextMatches(label, a))) return pid;
+      }
+    }
+    return null; // truly unknown -> explicit unattributed bucket
+  }
+  function orgAttribution(s, registry, sessionById) {
+    return orgProjectOf(s, registry, sessionById);
+  }
+  function orgGroupByProject(subs, registry, sessionById) {
     const groups = new Map();
     for (const s of Array.isArray(subs) ? subs : []) {
-      const k = orgAttribution(s, bridgeProject) ?? ORG_UNATTRIBUTED;
+      const k = orgAttribution(s, registry, sessionById) ?? ORG_UNATTRIBUTED;
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(s);
     }
@@ -1273,17 +1369,81 @@
     return Number.isFinite(t) && nowMs - t < ORG_WORKING_MS;
   }
   // v2 path: an agent whose explicit project names a registry subproject is
-  // routed under that subproject node instead of the project node.
+  // routed under that subproject node instead of the project node. RECURSIVE:
+  // a subproject can nest its own (project -> sub -> sub-sub, any depth).
   function orgSubprojectTarget(s, registry) {
     const raw = typeof s?.project === "string" ? s.project.trim() : "";
     if (!raw) return null;
     for (const p of Array.isArray(registry) ? registry : []) {
-      if (!p || !Array.isArray(p.subprojects)) continue;
-      for (const sp of p.subprojects) {
-        if (sp && sp.id === raw) return { project: p.id, subproject: sp.id };
-      }
+      if (!p) continue;
+      const walk = (list) => {
+        for (const sp of Array.isArray(list) ? list : []) {
+          if (sp && sp.id === raw) return { project: p.id, subproject: sp.id };
+          const deep = walk(sp?.subprojects);
+          if (deep) return deep;
+        }
+        return null;
+      };
+      const hit = walk(p.subprojects);
+      if (hit) return hit;
     }
     return null;
+  }
+  // ---- Subproject layer (recursive nesting) ------------------------------
+  // Sources, in order: the registry's .subprojects tree (any depth, passed
+  // through by /projects) and manifest/label evidence below. The coordinator
+  // journal carries only projectId (no subproject field), so nesting beyond
+  // an explicit spawn arg comes from token-gated dispatch labels.
+  // SNAPSHOT 2026-11-11 (medical dispatches name their screening branch).
+  const ORG_SUBPROJECT_SNAPSHOT = [
+    { project: "medical", id: "three-tier-screening", displayName: "Three-tier screening", tokens: ["三层筛查", "three-tier-screening"] },
+  ];
+  // Normalized subproject tree for one project: registry tree + snapshot
+  // entries (deduped by id at any depth).
+  function orgSubprojectTree(entry, key) {
+    const norm = (list) => (Array.isArray(list) ? list : [])
+      .filter((sp) => sp && typeof sp.id === "string")
+      .map((sp) => ({
+        id: String(sp.id),
+        displayName: String(sp.displayName || sp.id),
+        aliases: Array.isArray(sp.aliases) ? sp.aliases : [],
+        tokens: [],
+        children: norm(sp.subprojects),
+      }));
+    const root = norm(entry?.subprojects);
+    const seen = new Set();
+    const mark = (n) => { seen.add(n.id); for (const c of n.children) mark(c); };
+    root.forEach(mark);
+    for (const snap of ORG_SUBPROJECT_SNAPSHOT) {
+      if (snap.project !== key || seen.has(snap.id)) continue;
+      root.push({ id: snap.id, displayName: snap.displayName, aliases: [], tokens: snap.tokens ?? [], children: [] });
+      seen.add(snap.id);
+    }
+    return root;
+  }
+  // Innermost subproject PATH for a dispatch: (a) explicit spawn arg naming a
+  // subproject id, (b) label evidence against sp aliases/tokens. A label that
+  // matches two different subprojects is ambiguous -> null. Paths that are
+  // prefixes of longer matches collapse into the deeper one.
+  function orgSubprojectPathOf(s, tree) {
+    const explicit = typeof s?.project === "string" ? s.project.trim() : "";
+    const label = orgNormText(s?.label);
+    const paths = [];
+    const walk = (nodes, trail) => {
+      for (const sp of nodes) {
+        const here = [...trail, sp.id];
+        if (explicit && sp.id === explicit) paths.push(here);
+        else if (!explicit && label) {
+          const hit = (sp.aliases ?? []).some((a) => orgTextMatches(label, a)) || (sp.tokens ?? []).some((a) => orgTextMatches(label, a));
+          if (hit) paths.push(here);
+        }
+        walk(sp.children, here);
+      }
+    };
+    walk(tree, []);
+    const deep = paths.filter((p) => !paths.some((q) => q !== p && q.length > p.length && q.slice(0, p.length).join("/") === p.join("/")));
+    const uniq = [...new Set(deep.map((p) => p.join("/")))].map((p) => p.split("/"));
+    return uniq.length === 1 ? uniq[0] : null;
   }
   // Build the full hierarchy: coordinator -> project capsules -> INSTANCE
   // nodes (aggregated dispatches) -> (expandable) dispatch nodes — the
@@ -1298,7 +1458,7 @@
     const buckets = new Map(); // projectKey -> [{ sub, subTarget }]
     for (const s of list) {
       const target = orgSubprojectTarget(s, reg);
-      const key = target ? String(target.project) : (orgAttribution(s, bridgeProject) ?? ORG_UNATTRIBUTED);
+      const key = target ? String(target.project) : (orgAttribution(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push({ sub: s, subTarget: target });
     }
@@ -1318,50 +1478,71 @@
     const nodes = new Map();
     let maxSpawnDepth = 0;
     for (const key of projKeys) {
-      const entry = regById.get(key) ?? null;
+      const pseudo = ORG_PSEUDO_PROJECTS[key] ?? null;
+      const entry = regById.get(key) ?? (pseudo ? { id: key, displayName: pseudo.displayName, aliases: pseudo.aliases, root: "", status: "manifest", registeredAt: null } : null);
+      const displayName = orgTruncW(String(entry?.displayName || key), 16);
       const pid = "__proj:" + key;
       const projectNode = {
         id: pid, kind: "project", projectKey: key,
-        display: key === ORG_UNATTRIBUTED ? "unattributed" : String(entry?.displayName || key),
+        display: key === ORG_UNATTRIBUTED ? "unattributed" : displayName,
         registry: entry,
         parent: null, parentHint: null,
         depth: null, row: 1, children: [],
       };
       nodes.set(pid, projectNode);
       const bucket = buckets.get(key) ?? [];
-      const spNodes = new Map();
-      if (entry && Array.isArray(entry.subprojects)) {
-        for (const sp of entry.subprojects) {
-          if (!sp || typeof sp.id !== "string") continue;
-          const spid = "__sub:" + key + ":" + sp.id;
-          const spNode = {
-            id: spid, kind: "subproject", projectKey: key,
-            display: String(sp.displayName || sp.id), registry: sp,
-            parent: pid, parentHint: null, depth: null, row: 0, children: [],
-          };
-          spNodes.set(sp.id, spNode);
-          nodes.set(spid, spNode);
-          projectNode.children.push(spNode);
-        }
+      const spRoots = orgSubprojectTree(entry, key);
+      const spById = new Map(); // "a.b" trail -> spNode
+      const buildSp = (sp, parent, trail) => {
+        const spid = "__sub:" + key + ":" + trail.join(".");
+        const spNode = {
+          id: spid, kind: "subproject", projectKey: key,
+          subprojectId: sp.id, spPath: [...trail], subproject: sp.id,
+          display: orgTruncW(String(sp.displayName || sp.id), 16), registry: sp,
+          parent: parent.id, parentHint: null, depth: null, row: 0, children: [],
+        };
+        nodes.set(spid, spNode);
+        spById.set(trail.join("."), spNode);
+        parent.children.push(spNode);
+        for (const c of sp.children ?? []) buildSp(c, spNode, [...trail, c.id]);
+        return spNode;
+      };
+      for (const sp of spRoots) buildSp(sp, projectNode, [sp.id]);
+      const spNodes = new Map(); // dispatch id -> innermost spNode (null = directly under project)
+      for (const b of bucket) {
+        const path = orgSubprojectPathOf(b.sub, spRoots);
+        spNodes.set(String(b.sub.id), path ? (spById.get(path.join(".")) ?? null) : null);
       }
       // AGGREGATE FIRST: cluster the bucket's dispatches into instances
       // (session key, else shared label prefix, else dispatch day), then draw
       // one instance node per cluster; member dispatches hide until expanded.
+      // Clustering is PER SUBPROJECT: crews under different nested subprojects
+      // never merge, so nested crews/dispatches belong to their innermost node.
       const instOf = new Map(); // dispatch id -> { basis, key, label }
       for (const b of bucket) instOf.set(String(b.sub.id), orgInstanceKeyOf(b.sub, sessionById));
-      // shared-prefix clusters need >= 2 members; lonely prefixes fall back to day
+      const spKey = (b) => (spNodes.get(String(b.sub.id))?.id ?? "");
+      // shared-prefix clusters need >= 2 members WITHIN one subproject group;
+      // lonely prefixes fall back to day
       const preCount = new Map();
-      for (const v of instOf.values()) if (v.basis === "prefix") preCount.set(v.key, (preCount.get(v.key) ?? 0) + 1);
+      for (const b of bucket) {
+        const v = instOf.get(String(b.sub.id));
+        if (v.basis === "prefix") {
+          const gk = spKey(b) + "|" + v.key;
+          preCount.set(gk, (preCount.get(gk) ?? 0) + 1);
+        }
+      }
       const subById = new Map(bucket.map((b) => [String(b.sub.id), b.sub]));
-      for (const [sid, v] of instOf) {
-        if (v.basis === "prefix" && (preCount.get(v.key) ?? 0) < 2) {
+      for (const b of bucket) {
+        const sid = String(b.sub.id);
+        const v = instOf.get(sid);
+        if (v.basis === "prefix" && (preCount.get(spKey(b) + "|" + v.key) ?? 0) < 2) {
           const day = orgDayOf(subById.get(sid)?.lastActivity);
           instOf.set(sid, { basis: "day", key: "day:" + day, label: day });
         }
       }
-      const clusters = new Map(); // instKey -> members[]
+      const clusters = new Map(); // spId|instKey -> members[]
       for (const b of bucket) {
-        const ik = instOf.get(String(b.sub.id)).key;
+        const ik = spKey(b) + "|" + instOf.get(String(b.sub.id)).key;
         if (!clusters.has(ik)) clusters.set(ik, []);
         clusters.get(ik).push(b);
       }
@@ -1375,7 +1556,9 @@
         const members = clusters.get(ik);
         const meta = instOf.get(members[0].sub.id);
         const lastActivity = Math.max(...members.map((m) => m.sub.lastActivity ?? 0));
-        const instId = `__inst:${key}:${meta.key.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+        const spNode = spNodes.get(String(members[0].sub.id)) ?? null;
+        const spTrail = spNode ? spNode.spPath.join(".") + ":" : "";
+        const instId = `__inst:${key}:${spTrail}${meta.key.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
         const anyRunning = members.some((m) => m.sub.status === "running");
         const anyBlocked = members.some((m) => m.sub.status === "blocked");
         const memberRoles = members.map((m) => orgNodeRole(String(m.sub.id), m.sub.label, m.sub.session, sessionById));
@@ -1404,6 +1587,7 @@
         }
         const instNode = {
           id: instId, kind: "instance", projectKey: key,
+          subproject: spNode?.subprojectId ?? null,
           display,
           sub,
           role: instRole,
@@ -1412,11 +1596,11 @@
           status: anyRunning ? "running" : anyBlocked ? "blocked" : "done",
           dim: nowMs - lastActivity >= ORG_DIM_MS,
           memberIds: members.map((m) => String(m.sub.id)),
-          registry: null, parent: pid, parentHint: null,
+          registry: null, parent: spNode ? spNode.id : pid, parentHint: null,
           depth: null, row: 0, children: [],
         };
         nodes.set(instId, instNode);
-        projectNode.children.push(instNode);
+        (spNode ?? projectNode).children.push(instNode);
         bucketDispatches += members.length;
         // member dispatches: spawn lineage among the members; roots hang under
         // the instance node until it is expanded
@@ -1433,7 +1617,7 @@
             parentHint: lin.known ? null : lin.parent,
             knownParent: lin.known,
             hostId: null,
-            project: key, subproject: null,
+            project: key, subproject: spNode?.subprojectId ?? null,
             role: orgNodeRole(String(s.id), s.label, s.session, sessionById),
             sub: null,
             depth: 0, row: 0, children: [],
@@ -1460,9 +1644,26 @@
       }
       const instCount = projectNode.children.filter((c) => c.kind === "instance").length;
       projectNode.status = projectNode.children.some((c) => c.status === "running") ? "running" : "done";
-      projectNode.sub = instCount
-        ? `${instCount} crew${instCount === 1 ? "" : "s"} \u00b7 ${bucketDispatches} dispatch${bucketDispatches === 1 ? "" : "es"}`
-        : "no instance crews";
+      // ACTIVITY LINE — the "在干嘛" answer. Priority: the project-space work
+      // record (server /projects `work` hint: worker role + title), else the
+      // newest dispatch's purpose, else the coordinator journal state.
+      let activity = null;
+      const wh = entry?.work;
+      if (wh && wh.title) {
+        const short = orgRoleShort(wh.worker);
+        activity = (short ? short + " \u00b7 " : "") + orgTruncW(String(wh.title).replace(/^work record\s*[\u2014-]\s*/i, ""), 21);
+      }
+      if (!activity) {
+        const newest = bucket.slice().sort((a, b) => (b.sub.lastActivity ?? 0) - (a.sub.lastActivity ?? 0))[0];
+        const first = newest ? String(newest.sub.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim() : "";
+        if (first) activity = orgTruncW(first, 21);
+      }
+      if (!activity && entry?.lastActivity) {
+        const day = orgHumanDay(Date.parse(entry.lastActivity), nowMs);
+        activity = `journal ${entry.lastJournalStatus ? entry.lastJournalStatus + " \u00b7 " : ""}${day ?? "earlier"}`.trim();
+      }
+      projectNode.sub = activity ?? "no activity yet";
+      if (key === ORG_UNATTRIBUTED) projectNode.display = `unattributed \u00b7 ${bucketDispatches}`;
     }
     // structural rows: coordinator 0, projects 1, subprojects/agents below
     let maxRow = projKeys.length ? 1 : 0;
@@ -1546,7 +1747,7 @@
       id: n.id, kind: n.kind, x: n.x, y: n.y, w, h, row: n.row,
       depth: n.kind === "agent" ? n.depth : null,
       parent: n.parent, parentHint: n.parentHint, hostId: n.hostId ?? null,
-      project: n.kind === "agent" || n.kind === "instance" ? n.project : n.projectKey,
+      project: n.project ?? n.projectKey ?? (n.kind === "coordinator" ? "__coordinator" : ORG_UNATTRIBUTED),
       subproject: n.subproject ?? null,
       display: n.display ?? null, sub: n.sub ?? null, registry: n.registry ?? null,
       role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
@@ -2861,16 +3062,28 @@
   function renderOrg() {
     const subs = [...state.subs.values()];
     const bridge = typeof state.projectName === "string" && state.projectName.trim() ? state.projectName.trim() : null;
-    const { keys, groups } = orgGroupByProject(subs, bridge);
-    const pool = org.view === "__all__" ? subs : (groups.get(org.view) ?? []);
     // join dispatch ids to session ids from the main-log spawn args (the
-    // /state session field is null until the scanner derives it)
+    // /state session field is null until the scanner derives it) — needed
+    // both for pool selection (attribution) and for the model build
     const sessionById = new Map();
     for (const c of win("main").stats?.subagents ?? []) {
       if (c && typeof c.id === "string" && typeof c.session === "string" && c.session.trim()) sessionById.set(c.id, c.session.trim());
     }
+    const { keys, groups } = orgGroupByProject(subs, state.projects, sessionById);
+    const pool = org.view === "__all__" ? subs : (groups.get(org.view) ?? []);
     const fullModel = orgBuildModel(pool, bridge, state.projects, org.view === "__all__" ? null : org.view, Date.now(), sessionById);
     org.fullModel = fullModel;
+    // surface attribution gaps once per unique crew set so the snapshot
+    // tables can be extended instead of failing silently
+    const unattr = fullModel.nodes.get("__proj:" + ORG_UNATTRIBUTED);
+    if (unattr) {
+      const ids = (unattr.children ?? []).flatMap((c) => c.memberIds ?? []);
+      const sig = ids.join(",");
+      if (ids.length && sig !== org.unattrSig) {
+        org.unattrSig = sig;
+        console.info("[org] dispatches without project attribution (extend ORG_CREW_DISPATCH_PROJECTS / registry aliases):", ids.join(", "));
+      }
+    } else org.unattrSig = "";
     // default expansion lives in orgDefaultExpanded (module scope, shared with
     // the click handlers): structural row <= 2, EXCEPT instance nodes — the
     // aggregate layer starts collapsed, dispatches hide until expanded
@@ -2978,7 +3191,7 @@
     };
     // entry node: the coordinator — violet accent, elevated dark card, green pulse
     const c = model.coordinator;
-    const cg = cardNode({ id: "__coord__", x: c.x, y: c.y, w: c.w, h: c.h, display: "coordinator", project: null }, "coordinator", HUES.coord, state.bridgeDown ? "bridge offline" : "main session \u00b7 entry", state.bridgeDown ? "blocked" : "running");
+    const cg = cardNode({ id: "__coord__", x: c.x, y: c.y, w: c.w, h: c.h, display: "coordinator", project: "__coordinator" }, "coordinator", HUES.coord, state.bridgeDown ? "bridge offline" : "main session \u00b7 entry", state.bridgeDown ? "blocked" : "running");
     cg.querySelector("title").textContent = "coordinator\nmain session \u2014 dispatches subagents, receives reports";
     nodesG.append(cg);
     for (const n of model.nodes) {
@@ -3017,42 +3230,10 @@
     // subgraph region rects: one dark-tinted hash-hue rect per project around
     // its visible subtree — drawn only while spans stay rectangular (skip
     // honestly when an expanded subtree interleaves with a neighbour)
-    const byProj = new Map();
-    for (const n of model.nodes) {
-      if (n.kind === "coordinator" || !n.project) continue;
-      if (!byProj.has(n.project)) byProj.set(n.project, []);
-      byProj.get(n.project).push(n);
-    }
-    const spans = [];
-    for (const [pkey, list] of byProj) {
-      if (pkey === "__coord__") continue;
-      const minX = Math.min(...list.map((n) => n.x - n.w / 2)) - 18;
-      const maxX = Math.max(...list.map((n) => n.x + n.w / 2)) + 18;
-      const minY = Math.min(...list.map((n) => n.y)) - 12;
-      const maxY = Math.max(...list.map((n) => n.y + n.h)) + 14;
-      spans.push({ pkey, minX, maxX, minY, maxY, list, display: list[0].kind === "agent" || list[0].kind === "instance" ? (list[0].project) : pkey });
-    }
-    spans.sort((a, b) => a.minX - b.minX);
-    const taken = [];
-    for (const sp of spans) {
-      if (taken.some((t) => sp.minX < t.maxX && sp.maxX > t.minX)) continue; // interleaved: skip honestly
-      taken.push(sp);
-      const g = orgTpl("oregion").cloneNode(true);
-      const hue = sp.pkey === ORG_UNATTRIBUTED ? "#6e7681" : `hsl(${orgProjectHue(sp.pkey)} 65% 62%)`;
-      const rect = g.querySelector(".oregion-rect");
-      rect.setAttribute("x", String(sp.minX));
-      rect.setAttribute("y", String(sp.minY));
-      rect.setAttribute("width", String(sp.maxX - sp.minX));
-      rect.setAttribute("height", String(sp.maxY - sp.minY));
-      rect.setAttribute("fill", hue);
-      rect.setAttribute("stroke", hue);
-      const label = g.querySelector(".oregion-label");
-      label.setAttribute("x", String(sp.minX + 12));
-      label.setAttribute("y", String(sp.minY + 17));
-      label.setAttribute("fill", hue);
-      label.textContent = (sp.display ?? sp.pkey).toUpperCase();
-      regionsG.append(g);
-    }
+    // Region rects were REMOVED by user ruling: the tinted boxes read as
+    // decoration. Grouping stays logical only — which nodes belong to which
+    // project/subproject is expressed by tree nesting (capsule within its
+    // parent's subtree) and the focus/dim closure, not by painted boxes.
     orgRenderTabs(keys, groups, bridge);
     // meta + empty state, per view
     const viewName = org.view === "__all__" ? null : (orgProjectDisplay(org.view) ?? org.view);
