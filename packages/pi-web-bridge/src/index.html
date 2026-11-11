@@ -549,140 +549,169 @@
   }
   @media (max-width: 479px) { .wordmark { display: none; } }
 
-  /* ---------- org graph page (#/org): dynamic spawn tree ----------
-     Depth-banded tidy tree from live lineage — the coordinator is the entry
-     node, every subagent hangs off its derived parent, depth emerges branch
-     by branch (d0/d1/d2 labels). No fixed org layers: the 9 standing roles
-     are a legend; a node's role is a badge derived from id/session/label. */
+  /* ---------- org graph page (#/org) — candidate B "constellation dark" ----------
+     Dark mission-control skin: #0d1117 canvas with 20px dot grid + faint
+     nebula washes + sparse deterministic starfield; dark cards #161b22 with
+     per-kind luminous border tint (5-hue palette) and avatar icons; glowing
+     status dots top-right; cubic-bezier edges; halo selection rings; floating
+     backdrop-blur legend chips. Presentation only — all layout/interaction
+     logic (wrap, collapse, aggregation, focus, fit) is unchanged. */
   #orgpage {
     flex: 1; min-height: 0; min-width: 0; overflow: hidden;
     display: grid;
     grid-template-columns: minmax(0, 1fr); /* explicit 0-min track: no area can size to max-content */
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "head" "tabs" "legend" "view" "detail";
-    background: var(--bg);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "head" "tabs" "view" "detail";
+    background: #0d1117; /* candidate-B canvas */
+    position: relative;
   }
   #org-head {
     grid-area: head; display: flex; align-items: baseline; gap: 12px;
-    padding: 14px 24px 11px; border-bottom: 1px solid var(--line-2);
-    background: rgba(7, 8, 10, .5);
+    padding: 14px 24px 11px; border-bottom: 1px solid rgba(240, 246, 252, .07);
+    background: rgba(13, 17, 23, .72); position: relative; z-index: 4;
   }
   #org-head h2 {
     margin: 0; display: flex; align-items: center; gap: 10px;
     font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .17em;
-    text-transform: uppercase; color: var(--t1);
+    text-transform: uppercase; color: #8b949e;
   }
-  #org-head h2::before { content: ""; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); flex: none; }
-  #org-meta { margin-left: auto; flex: 1; min-width: 0; text-align: right; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #org-head h2::before { content: ""; width: 5px; height: 5px; background: #7863FF; transform: rotate(45deg); flex: none; box-shadow: 0 0 8px rgba(120, 99, 255, .75); }
+  #org-meta { margin-left: auto; flex: 1; min-width: 0; text-align: right; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #8b949e; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* zoom cluster: fit is the default state; +/- and wheel zoom relative to it */
   #org-zoom { display: flex; align-items: center; gap: 4px; flex: none; margin-left: 8px; }
   .ozbtn {
-    min-width: 22px; height: 20px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px;
-    background: none; color: var(--t2); font: 600 9.5px var(--mono); letter-spacing: .06em; cursor: pointer;
+    min-width: 22px; height: 20px; padding: 0 6px; border: 1px solid rgba(240, 246, 252, .1); border-radius: 5px;
+    background: rgba(22, 27, 34, .78); color: #8b949e; font: 600 9.5px var(--mono); letter-spacing: .06em; cursor: pointer;
     transition: color .15s var(--ease), border-color .15s var(--ease);
   }
-  .ozbtn:hover { color: var(--t0); border-color: rgba(255, 255, 255, .2); }
-  .ozbtn.on { color: var(--sig); border-color: rgba(70, 224, 163, .4); }
-  #oz-val { min-width: 34px; text-align: center; font-size: 9.5px; color: var(--t2); font-variant-numeric: tabular-nums; }
-  /* project view selector: Overview + per-project buckets */
-  #org-tabs { grid-area: tabs; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 24px; border-bottom: 1px solid var(--line-2); }
+  .ozbtn:hover { color: #e6edf3; border-color: rgba(240, 246, 252, .3); }
+  .ozbtn.on { color: #3fb950; border-color: rgba(63, 185, 80, .4); }
+  #oz-val { min-width: 34px; text-align: center; font-size: 9.5px; color: #8b949e; font-variant-numeric: tabular-nums; }
+  /* project view selector: Overview + per-project buckets — floating blur chips */
+  #org-tabs {
+    grid-area: tabs; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 8px 24px; border-bottom: 1px solid rgba(240, 246, 252, .07);
+    background: rgba(13, 17, 23, .72); position: relative; z-index: 4;
+  }
   .ochip {
     display: inline-flex; align-items: center; gap: 6px; min-height: 20px; padding: 1px 10px;
-    border: 1px solid var(--line); border-radius: 999px; white-space: nowrap;
-    font: 500 10px var(--mono); letter-spacing: .06em; color: var(--t2); background: none; cursor: pointer;
+    border: 1px solid rgba(240, 246, 252, .1); border-radius: 999px; white-space: nowrap;
+    background: rgba(22, 27, 34, .78); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+    font: 500 10px var(--mono); letter-spacing: .06em; color: rgba(230, 237, 243, .78); cursor: pointer;
     transition: color .15s var(--ease), border-color .15s var(--ease), background-color .15s var(--ease);
   }
-  .ochip:hover { color: var(--t0); border-color: rgba(255, 255, 255, .2); }
-  .ochip.on { color: var(--t0); background: var(--raise-2); }
+  .ochip:hover { color: #e6edf3; border-color: rgba(240, 246, 252, .3); }
+  .ochip.on { color: #e6edf3; background: rgba(23, 131, 255, .16); border-color: rgba(23, 131, 255, .45); }
   .ochip.quiet { border-style: dashed; }
-  .ochip .cdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--t3); }
+  .ochip .cdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: #6e7681; }
+  /* floating legend chips (top-left of the stage) */
   .org-legend {
-    grid-area: legend; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
-    padding: 9px 24px; border-bottom: 1px solid var(--line-2);
+    position: sticky; z-index: 5; top: 8px; left: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+    width: fit-content; max-width: calc(100% - 28px);
+    margin: 0 0 6px 14px; pointer-events: auto;
   }
-  .lg-title { font: 600 9px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: var(--t3); }
-  .lg-group { display: inline-flex; align-items: center; gap: 5px; }
-  .lg-sep { width: 1px; height: 14px; background: var(--line); margin: 0 4px; }
-  .lgb { font: 400 9.5px/15px var(--mono); letter-spacing: .05em; padding: 0 7px; border-radius: 4px; border: 1px solid; }
-  .lgb.hue-intel { color: #9ec9e8; border-color: rgba(111, 179, 217, .4); background: rgba(111, 179, 217, .08); }
-  .lgb.hue-build { color: #7fdcb4; border-color: rgba(70, 224, 163, .35); background: rgba(70, 224, 163, .07); }
-  .lgb.hue-assure { color: #e6c98f; border-color: rgba(230, 180, 90, .35); background: rgba(230, 180, 90, .07); }
-  .lgb.hue-adhoc { color: var(--t1); border-color: var(--line); background: var(--raise); }
-  .lg-state { display: inline-flex; align-items: center; gap: 5px; font: 400 9.5px var(--mono); letter-spacing: .06em; color: var(--t2); }
-  .lg-state .dot { width: 6px; height: 6px; }
-  .lg-dash { width: 18px; border-top: 1px dashed rgba(255, 255, 255, .3); }
-  #org-viewport { grid-area: view; min-height: 0; min-width: 0; overflow: auto; padding: 8px 0 20px; }
+  .org-legend .chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lg-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: 400 10px/15px var(--mono); letter-spacing: .05em; color: rgba(230, 237, 243, .78);
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+    background: rgba(22, 27, 34, .78); border: 1px solid rgba(240, 246, 252, .1);
+    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  }
+  .lg-chip i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .lg-title { font: 600 9px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: #6e7681; align-self: center; }
+  #org-viewport {
+    grid-area: view; min-height: 0; min-width: 0; overflow: auto; padding: 8px 0 24px;
+    background-color: #0d1117; /* (a) canvas — asserted by probe as rgb(13,17,23) */
+    background-repeat: no-repeat;
+  }
   #org-viewport.idle { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
-  #org-canvas { position: relative; overflow: hidden; margin: 0 auto; } /* box = tree bbox × applied scale; center when narrower, pan when wider */
-  #orgsvg { display: block; transform-origin: 0 0; }
+  #org-canvas { position: relative; overflow: visible; margin: 0 auto; } /* box = tree bbox × applied scale; center when narrower, pan when wider */
+  #orgsvg { display: block; transform-origin: 0 0; overflow: visible; }
   #orgsvg text { font-family: var(--mono); user-select: none; -webkit-user-select: none; }
   #org-note { text-align: center; padding: 30px 20px 12px; }
-  #org-note .n-main { font: 500 12px var(--mono); letter-spacing: .06em; color: var(--t1); }
-  #org-note .n-sub { font: 400 10px var(--mono); letter-spacing: .06em; color: var(--t3); margin-top: 7px; }
-  /* edges: dispatch lineage — solid thin, dashed when the prefix-parent is not in the scan */
-  .oedge { fill: none; stroke: var(--line); stroke-width: 1; transition: opacity .18s var(--ease), stroke .18s var(--ease); }
-  .oedge.crew, .oedge.dispatch { stroke-width: .7; opacity: .8; } /* thin project -> instance -> dispatch edges */
-  .oedge.dashed { stroke-dasharray: 5 5; stroke: rgba(255, 255, 255, .14); }
-  .oedge.hot { stroke: var(--sig); }
-  #orgsvg.focus .oedge:not(.hot) { opacity: .2; }
-  .onode { cursor: default; transition: opacity .18s var(--ease); }
-  #orgsvg.focus .onode:not(.hot) { opacity: .25; }
-  .onode .obox { fill: rgba(255, 255, 255, .02); stroke: var(--line); transition: stroke .18s var(--ease); }
-  .onode.running .obox { stroke: rgba(70, 224, 163, .66); fill: rgba(70, 224, 163, .055); }
-  .onode.blocked .obox { stroke: rgba(230, 180, 90, .6); fill: rgba(230, 180, 90, .05); }
-  .onode.done .obox { stroke: var(--line-2); fill: rgba(255, 255, 255, .012); }
-  .onode.sel .obox { stroke: var(--sig-dim); stroke-width: 1.4; }
-  .onode .ostatus { fill: var(--t3); }
-  .onode.running .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
-  .onode.blocked .ostatus { fill: var(--warn); }
-  .onode .oaccent { fill: none; }
-  .onode .oid { fill: var(--t0); font-size: 9.5px; letter-spacing: .02em; }
-  .onode.done .oid { fill: var(--t1); }
-  .cnode .oid { font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; }
-  .pnode .oid { font-size: 9px; letter-spacing: .04em; }
-  /* instance crews: indigo/violet kind color — distinct from project hues and
-     agent status colors, and paired with the capsule shape */
-  .pnode.inode .obox { stroke: hsl(262 60% 68% / .55); fill: hsl(262 55% 60% / .09); }
-  .pnode.inode .oid { fill: hsl(262 70% 80%); font-size: 7.5px; letter-spacing: .02em; }
-  .pnode.inode .ostatus { fill: hsl(262 70% 72%); }
-  .pnode.inode.dim { opacity: .55; } /* quiet crew: still one node, just dimmer */
-  .pnode.unattr .obox { stroke: var(--line); fill: var(--raise); }
-  .pnode.unattr .oid { fill: var(--t2); }
-  .pnode.snode { opacity: .82; } /* subprojects read as intermediate structure */
-  .cnode .obox { stroke: rgba(255, 255, 255, .32); fill: #101317; } /* coordinator: neutral dark accent */
-  .cnode .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
-  .cnode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
-  .cnode.blocked .ostatus { fill: var(--warn); animation: none; }
-  /* role hues live in the legend + detail panel; node boxes stay single-line */
+  #org-note .n-main { font: 500 12px var(--mono); letter-spacing: .06em; color: #8b949e; }
+  #org-note .n-sub { font: 400 10px var(--mono); letter-spacing: .06em; color: #484f58; margin-top: 7px; }
+  /* edges: cubic beziers, no arrowheads */
+  .oedge {
+    fill: none; stroke: rgba(153, 173, 209, .45); stroke-width: 1.5; stroke-linecap: round;
+    transition: opacity .2s var(--ease), stroke-width .15s var(--ease);
+  }
+  .oedge.dashed { stroke-dasharray: 5 5; stroke: rgba(153, 173, 209, .28); }
+  .oedge.hot { stroke: rgba(23, 131, 255, .9); stroke-width: 3; filter: drop-shadow(0 0 5px rgba(23, 131, 255, .75)); }
+  #orgsvg.focus .oedge:not(.hot) { opacity: .06; }
+  .onode { cursor: default; transition: opacity .2s var(--ease); }
+  #orgsvg.focus .onode:not(.hot) { opacity: .2; }
+  .onode .ocard-g { transition: transform .15s var(--ease), filter .2s var(--ease); }
+  .onode:hover .ocard-g { transform: translateY(-3px); }
+  .onode:hover .ocard { stroke: rgba(240, 246, 252, .3); }
+  .onode:hover .olum { stroke-opacity: .45; }
+  .onode:hover .ocard-g { filter: drop-shadow(0 0 13px color-mix(in srgb, var(--k) 60%, transparent)); }
+  /* dark card + luminous inner border tint (per-kind hue via --k) */
+  .onode .ocard { fill: #161b22; stroke: rgba(240, 246, 252, .1); stroke-width: 1; }
+  .onode .olum { fill: none; stroke: var(--k); stroke-opacity: .16; stroke-width: 1; transition: stroke-opacity .2s var(--ease); }
+  .onode .oavatar { stroke-width: 1; }
+  .oicon { fill: none; stroke: var(--k); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .oname { fill: #e6edf3; fill-opacity: .85; font-size: 12px; font-weight: 600; }
+  .oname.mono { font-family: var(--mono); font-weight: 500; font-size: 11px; }
+  .osub { fill: #8b949e; font-size: 10px; }
+  /* status dots: glowing, top-right; running gets a slow ping ring */
+  .onode .odot { stroke: none; }
+  .onode .odot.running { fill: #3fb950; filter: drop-shadow(0 0 5px rgba(63, 185, 80, .9)); }
+  .onode .odot.done { fill: #6e7681; }
+  .onode .odot.blocked { fill: #d29922; filter: drop-shadow(0 0 5px rgba(210, 153, 34, .85)); }
+  .onode .oping { fill: none; stroke: #3fb950; stroke-width: 1.4; transform-box: fill-box; transform-origin: center; animation: oping 2.4s cubic-bezier(.2, .6, .3, 1) infinite; }
+  .onode .oping.off { display: none; }
+  @keyframes oping { 0% { transform: scale(.5); opacity: .9; } 75%, 100% { transform: scale(2.6); opacity: 0; } }
+  /* selection halo ring: accent backing rect, opacity .3 when lit */
+  .onode .ohalo { fill: none; stroke: var(--k); stroke-width: 10; opacity: 0; transition: opacity .2s var(--ease); pointer-events: none; }
+  .onode .ohalo.on { opacity: .3; }
+  .onode.sel .ocard { stroke: rgba(240, 246, 252, .3); }
+  /* per-kind luminous tints (5-hue palette) */
+  .onode.k-coord { --k: #7863FF; }
+  .onode.k-project { --k: #1783FF; }
+  .onode.k-instance { --k: #00C9C9; }
+  .onode.k-agent { --k: #F08F56; }
+  .onode.k-subproject { --k: #D580FF; }
+  .onode.k-muted { --k: #6e7681; } /* unattributed bucket */
+  /* subgraph regions: dark-tinted hash-hue rects with top-left labels */
+  g.oregion { pointer-events: none; transition: opacity .2s var(--ease); }
+  g.oregion .oregion-rect { rx: 12; }
+  #orgsvg.focus g.oregion:not(.hot) { opacity: .12; }
+  g.oregion.hot .oregion-rect { stroke-opacity: .3; }
+  .oregion-rect { fill-opacity: .05; stroke-opacity: .15; stroke-width: 1; }
+  .oregion-label { font-size: 10px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; opacity: .55; }
+  /* branch toggle (collapse/expand crews) — restyled to the B tokens */
   .otoggle { cursor: pointer; }
-  .otoggle .thit { fill: transparent; stroke: none; } /* whole toggle + count is one hit target */
-  .otoggle circle { fill: rgba(13, 15, 18, .92); stroke: var(--line); }
-  .otoggle:hover circle { stroke: var(--sig-dim); }
-  .otoggle .tglyph { fill: var(--t2); }
-  .otoggle:hover .tglyph { fill: var(--t0); }
-  .otoggle.collapsed circle { stroke: rgba(255, 255, 255, .18); }
-  .otoggle .tcount { font: 400 8.5px var(--mono); fill: var(--t3); }
+  .otoggle .thit { fill: transparent; stroke: none; }
+  .otoggle circle { fill: rgba(22, 27, 34, .9); stroke: rgba(240, 246, 252, .18); }
+  .otoggle:hover circle { stroke: rgba(23, 131, 255, .7); }
+  .otoggle .tglyph { stroke: #8b949e; stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .otoggle:hover .tglyph { stroke: #e6edf3; }
+  .otoggle.collapsed circle { stroke: rgba(240, 246, 252, .18); }
+  .otoggle .tcount { font: 400 8.5px var(--mono); fill: #6e7681; }
   /* side detail: hovered/pinned node readout */
   #org-detail {
     grid-area: detail; min-height: 0; overflow-y: auto;
-    border-top: 1px solid var(--line);
-    background: linear-gradient(180deg, rgba(255, 255, 255, .014), rgba(255, 255, 255, 0) 200px), var(--bg);
+    border-top: 1px solid rgba(240, 246, 252, .07);
+    background: linear-gradient(180deg, rgba(240, 246, 252, .014), rgba(240, 246, 252, 0) 200px), #0d1117;
     padding: 12px 20px 16px; padding-bottom: calc(16px + var(--sa-b));
   }
-  .od-hint { color: var(--t2); font-size: 12px; line-height: 1.55; }
-  .od-id { display: flex; align-items: center; gap: 9px; font: 600 13px var(--mono); letter-spacing: .03em; color: var(--t0); margin-bottom: 8px; }
-  .od-row { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; align-items: baseline; }
+  .od-hint { color: #8b949e; font-size: 12px; line-height: 1.55; }
+  .od-id { display: flex; align-items: center; gap: 9px; font: 600 13px var(--mono); letter-spacing: .03em; color: #e6edf3; margin-bottom: 8px; }
+  .od-row { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(240, 246, 252, .07); font-size: 11.5px; align-items: baseline; }
   .od-row:last-child { border-bottom: 0; }
-  .od-k { font: 600 9px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: var(--t2); }
-  .od-v { font: 400 11px/1.6 var(--mono); color: #c9cdd2; min-width: 0; overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
+  .od-k { font: 600 9px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: #8b949e; }
+  .od-v { font: 400 11px/1.6 var(--mono); color: #c9d1d9; min-width: 0; overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
   .od-v.od-task { line-height: 1.55; }
   @media (min-width: 1080px) {
     #orgpage {
       grid-template-columns: minmax(0, 1fr) 320px;
-      grid-template-rows: auto auto auto minmax(0, 1fr);
-      grid-template-areas: "head head" "tabs tabs" "legend detail" "view detail";
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "head head" "tabs tabs" "view detail";
     }
-    #org-detail { border-top: 0; border-left: 1px solid var(--line); }
+    #org-detail { border-top: 0; border-left: 1px solid rgba(240, 246, 252, .07); }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
@@ -806,23 +835,28 @@
   </header>
   <div id="org-tabs" role="tablist" aria-label="Project views"></div>
   <div class="org-legend" aria-label="Legend">
-    <span class="lg-title">Expertise</span>
-    <span class="lg-group"><span class="lgb hue-intel">scout</span><span class="lgb hue-intel">researcher</span><span class="lgb hue-intel">planner</span></span>
-    <span class="lg-sep"></span>
-    <span class="lg-group"><span class="lgb hue-build">coder</span><span class="lgb hue-build">operator</span><span class="lgb hue-build">designer</span><span class="lgb hue-build">visualizer</span></span>
-    <span class="lg-sep"></span>
-    <span class="lg-group"><span class="lgb hue-assure">reviewer</span><span class="lgb hue-assure">writer</span></span>
-    <span class="lg-sep"></span>
-    <span class="lg-title">State</span>
-    <span class="lg-state"><span class="dot running"></span>running</span>
-    <span class="lg-state"><span class="dot"></span>done</span>
-    <span class="lg-state"><span class="dot blocked"></span>blocked</span>
-    <span class="lg-state"><span class="lg-dash"></span>parent not in scan</span>
-    <span class="lg-state"><span class="mono">d2</span>spawn depth</span>
+    <div class="chiprow">
+      <span class="lg-title">Kind</span>
+      <span class="lg-chip"><i style="background:#7863FF;box-shadow:0 0 6px rgba(120,99,255,.8)"></i>coordinator</span>
+      <span class="lg-chip"><i style="background:#1783FF;box-shadow:0 0 6px rgba(23,131,255,.8)"></i>project</span>
+      <span class="lg-chip"><i style="background:#00C9C9;box-shadow:0 0 6px rgba(0,201,201,.8)"></i>instance crew</span>
+      <span class="lg-chip"><i style="background:#F08F56;box-shadow:0 0 6px rgba(240,143,86,.8)"></i>dispatch</span>
+      <span class="lg-chip"><i style="background:#D580FF;box-shadow:0 0 6px rgba(213,128,255,.8)"></i>subproject</span>
+    </div>
+    <div class="chiprow">
+      <span class="lg-title">State</span>
+      <span class="lg-chip"><i style="background:#3fb950;box-shadow:0 0 6px rgba(63,185,80,.8)"></i>running</span>
+      <span class="lg-chip"><i style="background:#6e7681"></i>done</span>
+      <span class="lg-chip"><i style="background:#d29922;box-shadow:0 0 6px rgba(210,153,34,.8)"></i>blocked</span>
+      <span class="lg-chip"><i style="border-top:1px dashed rgba(240,246,252,.4);background:none;height:0;border-radius:0"></i>parent not in scan</span>
+      <span class="lg-chip hint">click project → focus subtree · click crew → expand · esc resets</span>
+    </div>
   </div>
   <div id="org-viewport">
     <div id="org-canvas">
       <svg id="orgsvg" role="img" aria-label="Live spawn tree">
+        <g id="org-stars"></g>
+        <g id="org-regions"></g>
         <g id="org-edges"></g>
         <g id="org-nodes"></g>
         <g id="org-toggles"></g>
@@ -839,11 +873,10 @@
 <!-- clone sources for the SVG tree (HTML-parsed, so nodes carry the SVG
      namespace without ever constructing one in JS); never displayed -->
 <div id="org-tpl" hidden aria-hidden="true">
-  <svg data-tpl="onode"><g class="onode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
-  <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
+  <svg data-tpl="ocard"><g class="onode"><g class="ocard-g"><rect class="ohalo" rx="15"/><rect class="ocard" rx="10"/><rect class="olum" rx="9"/><circle class="oavatar"/><g class="oicon"></g><text class="oname"/><text class="osub"/><circle class="odot"/><circle class="oping"/></g><title/></g></svg>
   <svg data-tpl="oedge"><path class="oedge"/></svg>
   <svg data-tpl="otoggle"><g class="otoggle"><rect class="thit" x="-8" y="-8" width="34" height="20" fill="transparent"/><circle r="7"/><path class="tglyph"/><text class="tcount" x="10" y="10"/></g></svg>
-  <svg data-tpl="pnode"><g class="onode pnode"><rect class="obox" width="150" height="24" rx="12"/><circle class="ostatus" cx="11" cy="12" r="2.5"/><text class="oid" x="18" y="15.5"/><title/></g></svg>
+  <svg data-tpl="oregion"><g class="oregion"><rect class="oregion-rect" rx="12"/><text class="oregion-label"/></g></svg>
 </div>
 
 <div id="backdrop"></div>
@@ -1320,6 +1353,7 @@
         const lb = Math.max(...clusters.get(b).map((m) => m.sub.lastActivity ?? 0));
         return lb - la || orgNaturalCompare(a, b);
       });
+      let bucketDispatches = 0;
       for (const ik of instOrder) {
         const members = clusters.get(ik);
         const meta = instOf.get(members[0].sub.id);
@@ -1337,7 +1371,8 @@
           : equalRole;
         const instNode = {
           id: instId, kind: "instance", projectKey: key,
-          display: `${orgTrunc(meta.label, 13)} \u00b7 ${orgTrunc(instRole || "\u2014", 14)} \u00b7\u00d7${members.length}`,
+          display: orgTrunc(meta.label, 15),
+          sub: `${instRole || "\u2014"} \u00b7\u00d7${members.length}`,
           role: instRole,
           basis: meta.basis, session: meta.basis === "session" ? meta.label : null,
           count: members.length, lastActivity,
@@ -1349,6 +1384,7 @@
         };
         nodes.set(instId, instNode);
         projectNode.children.push(instNode);
+        bucketDispatches += members.length;
         // member dispatches: spawn lineage among the members; roots hang under
         // the instance node until it is expanded
         const memberIds = new Set(instNode.memberIds);
@@ -1366,6 +1402,7 @@
             hostId: null,
             project: key, subproject: null,
             role: orgNodeRole(String(s.id), s.label, s.session, sessionById),
+            sub: null,
             depth: 0, row: 0, children: [],
           });
         }
@@ -1386,8 +1423,13 @@
           for (const c of a.children) walk(c, d + 1);
         };
         for (const a of agents.values()) if (!a.parent) walk(a, 0);
-        for (const a of agents.values()) nodes.set(a.id, a);
+        for (const a of agents.values()) { a.sub = a.role || "\u2014"; nodes.set(a.id, a); }
       }
+      const instCount = projectNode.children.filter((c) => c.kind === "instance").length;
+      projectNode.status = projectNode.children.some((c) => c.status === "running") ? "running" : "done";
+      projectNode.sub = instCount
+        ? `${instCount} crew${instCount === 1 ? "" : "s"} \u00b7 ${bucketDispatches} dispatch${bucketDispatches === 1 ? "" : "es"}`
+        : "no instance crews";
     }
     // structural rows: coordinator 0, projects 1, subprojects/agents below
     let maxRow = projKeys.length ? 1 : 0;
@@ -1402,7 +1444,9 @@
     for (const key of projKeys) setRow(nodes.get("__proj:" + key), 1);
     return { nodes, projKeys, maxRow, maxSpawnDepth };
   }
-  const ORG_LAYOUT = { coordW: 120, coordH: 26, nodeW: 150, nodeH: 26, projW: 150, projH: 24, instW: 180, instH: 24, gapX: 12, rowH: 44, subH: 40, padX: 20, padTop: 18, padBottom: 24 };
+  // Card metrics (candidate-B dark mission-control skin): dark cards with
+  // avatar + two text lines; band heights fit the tallest card + edge gap.
+  const ORG_LAYOUT = { coordW: 180, coordH: 64, nodeW: 165, nodeH: 48, projW: 164, projH: 58, instW: 176, instH: 58, subW: 176, subHgt: 42, gapX: 12, rowH: 92, subH: 76, padX: 24, padTop: 20, padBottom: 28 };
   // Fit-to-panel scaling: the whole tree is scaled uniformly into the visible
   // graph panel (never the document). mode "v" (vertical, default) fits the
   // WIDTH only — depth grows downward and scrolls inside the panel, so the
@@ -1451,12 +1495,14 @@
   // rail at x=8 so the vertical run never crosses a pill.
   function orgEdgeD(from, to, mode) {
     const fx = from.x, fy = from.y + from.h, tx = to.x, ty = to.y;
-    if (fx === tx) return `M ${fx} ${fy} V ${ty}`;
+    if (fx === tx) return `M ${fx} ${fy} C ${fx} ${fy + 16}, ${tx} ${ty - 16}, ${tx} ${ty}`;
     if (mode === "v") {
       if (ty - fy <= ORG_LAYOUT.subH + 4) {
-        const my = Math.round((fy + ty) / 2);
-        return `M ${fx} ${fy} V ${my} H ${tx} V ${ty}`;
+        // adjacent bands: cubic bezier through the gap between them
+        const off = Math.min(24, Math.max(10, (ty - fy) / 2));
+        return `M ${fx} ${fy} C ${fx} ${fy + off}, ${tx} ${ty - off}, ${tx} ${ty}`;
       }
+      // multi-band (wrapped): left-rail route so the run never crosses a card
       return `M ${fx} ${fy} V ${fy + 4} H 8 V ${ty - 4} H ${tx} V ${ty}`;
     }
     const my = Math.round((fy + ty) / 2);
@@ -1469,7 +1515,7 @@
       parent: n.parent, parentHint: n.parentHint, hostId: n.hostId ?? null,
       project: n.kind === "agent" || n.kind === "instance" ? n.project : n.projectKey,
       subproject: n.subproject ?? null,
-      display: n.display ?? null, registry: n.registry ?? null,
+      display: n.display ?? null, sub: n.sub ?? null, registry: n.registry ?? null,
       role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
       label: n.label ?? null, usage: n.usage ?? null, lastActivity: n.lastActivity ?? null,
       childIds: n.childIds,
@@ -2804,7 +2850,8 @@
     svg.setAttribute("width", String(model.width));
     svg.setAttribute("height", String(model.height));
     svg.setAttribute("viewBox", `0 0 ${model.width} ${model.height}`);
-    const edgesG = $("#org-edges"), nodesG = $("#org-nodes");
+    const regionsG = $("#org-regions"), edgesG = $("#org-edges"), nodesG = $("#org-nodes");
+    regionsG.textContent = "";
     edgesG.textContent = "";
     nodesG.textContent = "";
     for (const e of model.edges) {
@@ -2815,76 +2862,107 @@
       if (e.dashed) path.classList.add("dashed");
       edgesG.append(path);
     }
-    // per-project hue accents (subtle bottom bar + background tint); the
-    // signal-green "live" hues are excluded from the hash space
-    const paintProject = (g, key) => {
-      const acc = g.querySelector(".oaccent");
-      if (!key) { acc.remove(); return; }
-      const hue = orgProjectHue(key);
-      acc.setAttribute("fill", `hsl(${hue} 55% 60% / .55)`);
-      g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .045)`;
+    // ---- candidate-B node renderer ------------------------------------
+    // Per-kind metrics (within-card geometry) + 5-hue luminous tints.
+    // Presentation only: layout/interaction data comes from the model above.
+    const HUES = { coord: "#7863FF", project: "#1783FF", instance: "#00C9C9", agent: "#F08F56", subproject: "#D580FF", muted: "#6e7681" };
+    const ICONS = {
+      coord: '<circle cx="12" cy="12" r="3.1" fill="currentColor" stroke="none"/><circle cx="12" cy="4.4" r="1.7" fill="currentColor" stroke="none"/><circle cx="19.6" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="19.6" r="1.7" fill="currentColor" stroke="none"/><circle cx="4.4" cy="12" r="1.7" fill="currentColor" stroke="none"/><path d="M12 8.9V6.3M15.1 12h2.5M12 15.1v2.5M8.9 12H6.3"/>',
+      project: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="7.5" r="2.5"/><path d="M6 8.5v7M18 10a8 8 0 0 1-8 7.4"/>',
+      instance: '<circle cx="9.2" cy="8.2" r="3"/><path d="M3.6 18.6c.7-3.2 2.9-4.9 5.6-4.9s4.9 1.7 5.6 4.9"/><circle cx="16.8" cy="9.4" r="2.3"/><path d="M15.9 13.7c2.3.4 3.9 1.9 4.5 4.3"/>',
+      agent: '<path d="M13.2 2.6 5.6 13.4h5L9.4 21.4 18.4 9.8h-5.2Z" fill="currentColor" stroke="none"/>',
+      subproject: '<path d="M12 3.6 20 8l-8 4.4L4 8Z"/><path d="M4.6 12.4 12 16.6l7.4-4.2"/><path d="M4.6 16.2 12 20.4l7.4-4.2"/>',
     };
-    // entry node: the coordinator — neutral dark accent (kind color), green
-    // pulse only while the bridge is alive; amber while it is down
+    const METRICS = {
+      coordinator: { av: [24, 32, 13, .8], name: [44, 29], sub: [44, 47], dot: [164, 14], mono: false },
+      project:     { av: [23, 29, 12, .7], name: [41, 26], sub: [41, 43], dot: [150, 13], mono: false },
+      instance:    { av: [23, 29, 12, .7], name: [41, 26], sub: [41, 43], dot: [164, 13], mono: false },
+      agent:       { av: [20, 24, 8.5, .52], name: [33, 21], sub: [33, 38], dot: [156, 12], mono: true },
+      subproject:  { av: [21, 21, 9.5, .55], name: [36, 18.5], sub: [36, 33], dot: null, mono: false },
+    };
+    const cardNode = (n, kind, hue, sub, status) => {
+      const M = METRICS[kind];
+      const g = orgTpl("ocard").cloneNode(true);
+      g.setAttribute("data-node", n.id);
+      g.setAttribute("data-kind", kind);
+      g.setAttribute("data-project", n.project);
+      g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
+      g.classList.add("k-" + (n.project === ORG_UNATTRIBUTED && kind !== "coordinator" ? "muted" : kind === "agent" ? "agent" : kind === "coordinator" ? "coord" : kind === "instance" ? "instance" : kind === "subproject" ? "subproject" : "project"));
+      if (n.dim) g.classList.add("dim");
+      g.style.setProperty("--k", hue);
+      const card = g.querySelector(".ocard");
+      card.setAttribute("width", String(n.w));
+      card.setAttribute("height", String(n.h));
+      const lum = g.querySelector(".olum");
+      lum.setAttribute("x", ".5");
+      lum.setAttribute("y", ".5");
+      lum.setAttribute("width", String(n.w - 1));
+      lum.setAttribute("height", String(n.h - 1));
+      const halo = g.querySelector(".ohalo");
+      halo.setAttribute("x", "-7");
+      halo.setAttribute("y", "-7");
+      halo.setAttribute("width", String(n.w + 14));
+      halo.setAttribute("height", String(n.h + 14));
+      const av = g.querySelector(".oavatar");
+      av.setAttribute("cx", String(M.av[0]));
+      av.setAttribute("cy", String(M.av[1]));
+      av.setAttribute("r", String(M.av[2]));
+      av.style.fill = hue;
+      av.style.fillOpacity = ".13";
+      av.style.stroke = hue;
+      av.style.strokeOpacity = ".45";
+      av.style.filter = `drop-shadow(0 0 6px ${hue}61)`;
+      const ig = g.querySelector(".oicon");
+      ig.setAttribute("transform", `translate(${M.av[0] - 12 * M.av[3]}, ${M.av[1] - 12 * M.av[3]}) scale(${M.av[3]})`);
+      ig.innerHTML = ICONS[kind] ?? "";
+      const name = g.querySelector(".oname");
+      name.setAttribute("x", String(M.name[0]));
+      name.setAttribute("y", String(M.name[1]));
+      name.textContent = n.display ?? n.id;
+      if (M.mono) name.classList.add("mono");
+      const subEl = g.querySelector(".osub");
+      subEl.setAttribute("x", String(M.sub[0]));
+      subEl.setAttribute("y", String(M.sub[1]));
+      subEl.textContent = sub ?? "";
+      const dot = g.querySelector(".odot");
+      if (status && M.dot) {
+        dot.setAttribute("cx", String(M.dot[0]));
+        dot.setAttribute("cy", String(M.dot[1]));
+        dot.setAttribute("r", "3.5");
+        dot.classList.add(status);
+        const ping = g.querySelector(".oping");
+        if (status === "running") {
+          ping.setAttribute("cx", String(M.dot[0]));
+          ping.setAttribute("cy", String(M.dot[1]));
+          ping.setAttribute("r", "3.5");
+        } else ping.classList.add("off");
+      } else {
+        dot.classList.add("off");
+        dot.remove();
+        g.querySelector(".oping").remove();
+      }
+      return g;
+    };
+    // entry node: the coordinator — violet accent, elevated dark card, green pulse
     const c = model.coordinator;
-    const cg = orgTpl("cnode").cloneNode(true);
-    cg.setAttribute("data-node", "__coord__");
-    cg.setAttribute("transform", `translate(${c.x - c.w / 2}, ${c.y})`);
-    cg.classList.add(state.bridgeDown ? "blocked" : "running");
-    cg.querySelector(".oid").textContent = "coordinator";
+    const cg = cardNode({ id: "__coord__", x: c.x, y: c.y, w: c.w, h: c.h, display: "coordinator", project: null }, "coordinator", HUES.coord, state.bridgeDown ? "bridge offline" : "main session \u00b7 entry", state.bridgeDown ? "blocked" : "running");
     cg.querySelector("title").textContent = "coordinator\nmain session \u2014 dispatches subagents, receives reports";
     nodesG.append(cg);
     for (const n of model.nodes) {
       if (n.kind === "instance") {
-        // aggregated-instance capsule: indigo/violet kind color; dims when the
-        // whole crew has been quiet for >24h; click expands the member dispatches
-        const g = orgTpl("pnode").cloneNode(true);
-        g.setAttribute("data-node", n.id);
-        g.setAttribute("data-kind", "instance");
-        g.setAttribute("data-project", n.project);
-        g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
-        g.classList.add("inode");
-        if (n.dim) g.classList.add("dim");
-        const it = g.querySelector(".oid");
-        it.textContent = n.display ?? n.id;
-        g.querySelector("title").textContent = `${n.display}\ninstance \u00b7 ${n.count} dispatch${n.count === 1 ? "" : "es"} \u00b7 click to ${n.collapsed ? "expand" : "collapse"}`;
+        const g = cardNode(n, "instance", HUES.instance, n.sub, n.status);
+        g.querySelector("title").textContent = `${n.display}\n${n.sub ?? ""} \u00b7 ${n.count} dispatch${n.count === 1 ? "" : "es"} \u00b7 click to ${n.collapsed ? "expand" : "collapse"}`;
         nodesG.append(g);
         continue;
       }
       if (n.kind !== "agent") {
-        // project / subproject capsule: hash-hue kind color; the unattributed
-        // bucket renders muted gray instead of an invented hue
-        const g = orgTpl("pnode").cloneNode(true);
-        g.setAttribute("data-node", n.id);
-        g.setAttribute("data-kind", n.kind);
-        g.setAttribute("data-project", n.project);
-        g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
-        if (n.kind === "subproject") g.classList.add("snode");
-        const pt = g.querySelector(".oid");
-        if (n.project === ORG_UNATTRIBUTED) {
-          g.classList.add("unattr");
-          pt.textContent = orgTrunc(n.display ?? n.project, 16);
-        } else {
-          const hue = orgProjectHue(n.project);
-          g.querySelector(".obox").style.stroke = `hsl(${hue} 60% 62% / .55)`;
-          g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .07)`;
-          g.querySelector(".ostatus").style.fill = `hsl(${hue} 70% 68%)`;
-          pt.textContent = orgTrunc(n.display ?? n.project, 16);
-          pt.style.fill = `hsl(${hue} 65% 76%)`;
-        }
+        const hue = n.project === ORG_UNATTRIBUTED ? HUES.muted : `hsl(${orgProjectHue(n.project)} 65% 62%)`;
+        const g = cardNode(n, n.kind, hue, n.sub, n.kind === "project" ? n.status : null);
         g.querySelector("title").textContent = `${n.display ?? n.project}\n${n.kind === "project" ? "project" : "subproject"} \u2014 click to highlight its subtree`;
         nodesG.append(g);
         continue;
       }
-      const g = orgTpl("onode").cloneNode(true);
-      g.setAttribute("data-node", n.id);
-      g.setAttribute("data-kind", "agent");
-      g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
-      g.classList.add(n.status);
-      paintProject(g, n.project);
-      // single short line: dot + "id \u00b7 role" (status lives in the dot color
-      // and the detail panel); unknown roles render an honest em dash
-      g.querySelector(".oid").textContent = orgTrunc(`${n.id} \u00b7 ${n.role || "\u2014"}`, 22);
+      const g = cardNode(n, "agent", HUES.agent, n.sub, n.status);
       g.querySelector("title").textContent = [n.id, n.role ? "role " + n.role : null, n.label, n.model].filter(Boolean).join("\n");
       nodesG.append(g);
     }
@@ -2902,6 +2980,45 @@
       if (n.collapsed && n.hiddenCount > 0) tc.textContent = String(n.hiddenCount);
       else tc.remove();
       togG.append(t);
+    }
+    // subgraph region rects: one dark-tinted hash-hue rect per project around
+    // its visible subtree — drawn only while spans stay rectangular (skip
+    // honestly when an expanded subtree interleaves with a neighbour)
+    const byProj = new Map();
+    for (const n of model.nodes) {
+      if (n.kind === "coordinator" || !n.project) continue;
+      if (!byProj.has(n.project)) byProj.set(n.project, []);
+      byProj.get(n.project).push(n);
+    }
+    const spans = [];
+    for (const [pkey, list] of byProj) {
+      if (pkey === "__coord__") continue;
+      const minX = Math.min(...list.map((n) => n.x - n.w / 2)) - 18;
+      const maxX = Math.max(...list.map((n) => n.x + n.w / 2)) + 18;
+      const minY = Math.min(...list.map((n) => n.y)) - 12;
+      const maxY = Math.max(...list.map((n) => n.y + n.h)) + 14;
+      spans.push({ pkey, minX, maxX, minY, maxY, list, display: list[0].kind === "agent" || list[0].kind === "instance" ? (list[0].project) : pkey });
+    }
+    spans.sort((a, b) => a.minX - b.minX);
+    const taken = [];
+    for (const sp of spans) {
+      if (taken.some((t) => sp.minX < t.maxX && sp.maxX > t.minX)) continue; // interleaved: skip honestly
+      taken.push(sp);
+      const g = orgTpl("oregion").cloneNode(true);
+      const hue = sp.pkey === ORG_UNATTRIBUTED ? "#6e7681" : `hsl(${orgProjectHue(sp.pkey)} 65% 62%)`;
+      const rect = g.querySelector(".oregion-rect");
+      rect.setAttribute("x", String(sp.minX));
+      rect.setAttribute("y", String(sp.minY));
+      rect.setAttribute("width", String(sp.maxX - sp.minX));
+      rect.setAttribute("height", String(sp.maxY - sp.minY));
+      rect.setAttribute("fill", hue);
+      rect.setAttribute("stroke", hue);
+      const label = g.querySelector(".oregion-label");
+      label.setAttribute("x", String(sp.minX + 12));
+      label.setAttribute("y", String(sp.minY + 17));
+      label.setAttribute("fill", hue);
+      label.textContent = (sp.display ?? sp.pkey).toUpperCase();
+      regionsG.append(g);
     }
     orgRenderTabs(keys, groups, bridge);
     // meta + empty state, per view
@@ -2990,6 +3107,8 @@
       const nid = el.getAttribute("data-node");
       el.classList.toggle("hot", !!focus && (focus.nodes.has(nid) || nid === id));
       el.classList.toggle("sel", org.sel !== null && nid === org.sel);
+      const halo = el.querySelector(".ohalo");
+      if (halo) halo.classList.toggle("on", nid === id);
     }
     for (const el of svg.querySelectorAll("[data-edge]")) {
       el.classList.toggle("hot", !!focus && focus.edges.has(el.getAttribute("data-edge")));
@@ -3140,6 +3259,34 @@
     if (!org.sel) org.hover = null; // dismissing the pin also clears the hover light
     applyOrgFocus(true); // force: hover may have already applied this focus id
   });
+
+  // candidate-B backdrop: 20px dot grid + barely-there nebula washes + a
+  // deterministic sparse starfield (seeded LCG, max 40 stars) as background
+  // layers on the viewport — no scrolling jitter, no external resources.
+  function orgInitBackdrop() {
+    const vp = $("#org-viewport");
+    if (!vp || vp.dataset.backdrop === "1") return;
+    vp.dataset.backdrop = "1";
+    let seed = 42;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const stars = [];
+    for (let i = 0; i < 40; i++) {
+      const x = (rnd() * 100).toFixed(2);
+      const y = (rnd() * 100).toFixed(2);
+      const r = (0.6 + rnd() * 0.7).toFixed(2);
+      const o = (0.05 + rnd() * 0.14).toFixed(3);
+      stars.push(`radial-gradient(${r}px ${r}px at ${x}% ${y}%, rgba(230,237,243,${o}), transparent 1.4px)`);
+    }
+    const nebula = [
+      "radial-gradient(900px 480px at 10% -8%, rgba(120,99,255,.05), transparent 62%)",
+      "radial-gradient(1000px 560px at 92% -4%, rgba(0,201,201,.035), transparent 62%)",
+      "radial-gradient(900px 520px at 50% 120%, rgba(23,131,255,.04), transparent 60%)",
+    ];
+    vp.style.backgroundImage = [...stars, ...nebula,
+      "radial-gradient(rgba(230,237,243,.05) 1px, transparent 1.4px)"].join(", ");
+    vp.style.backgroundSize = [...stars.map(() => "auto"), "auto", "auto", "auto", "20px 20px"].join(", ");
+    vp.style.backgroundColor = "#0d1117";
+  }
 
   // ---------- hash routing (#/ = Mission Control, #/org = Org Graph) ----------
   function applyRoute() {
@@ -3555,6 +3702,7 @@
   window.addEventListener("online", resumePolling);
 
   // ---------- boot ----------
+  orgInitBackdrop();
   applyRoute();
   pollState().then(pollLogs);
   pollStream();
