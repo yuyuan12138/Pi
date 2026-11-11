@@ -529,6 +529,117 @@
     .usage-body { padding-left: 16px; padding-right: 16px; }
     .u-row { grid-template-columns: minmax(0, 1fr) 56px 44px; column-gap: 8px; }
   }
+  /* ---------- page nav: Mission Control <-> Org Graph (hash routes) ---------- */
+  #pagenav { display: flex; gap: 2px; flex: none; border: 1px solid var(--line); border-radius: 7px; padding: 2px; }
+  .navtab {
+    display: inline-flex; align-items: center; min-height: 22px; padding: 2px 10px; border-radius: 5px;
+    font: 600 10px var(--mono); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--t2); text-decoration: none; white-space: nowrap;
+    transition: color .15s var(--ease), background-color .15s var(--ease);
+  }
+  .navtab:hover { color: var(--t0); }
+  .navtab.on { color: var(--t0); background: var(--raise-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .navtab.on::before {
+    content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--sig);
+    margin-right: 6px; box-shadow: var(--sig-glow); flex: none;
+  }
+  @media (max-width: 639px) {
+    .navtab span { display: none; }
+    .navtab::after { content: attr(data-short); }
+  }
+  @media (max-width: 479px) { .wordmark { display: none; } }
+
+  /* ---------- org graph page (#/org): dynamic spawn tree ----------
+     Depth-banded tidy tree from live lineage — the coordinator is the entry
+     node, every subagent hangs off its derived parent, depth emerges branch
+     by branch (d0/d1/d2 labels). No fixed org layers: the 9 standing roles
+     are a legend; a node's role is a badge derived from id/session/label. */
+  #orgpage {
+    flex: 1; min-height: 0; min-width: 0; overflow: hidden;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "head" "legend" "view" "detail";
+    background: var(--bg);
+  }
+  #org-head {
+    grid-area: head; display: flex; align-items: baseline; gap: 12px;
+    padding: 14px 24px 11px; border-bottom: 1px solid var(--line-2);
+    background: rgba(7, 8, 10, .5);
+  }
+  #org-head h2 {
+    margin: 0; display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .17em;
+    text-transform: uppercase; color: var(--t1);
+  }
+  #org-head h2::before { content: ""; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); flex: none; }
+  #org-meta { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .org-legend {
+    grid-area: legend; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    padding: 9px 24px; border-bottom: 1px solid var(--line-2);
+  }
+  .lg-title { font: 600 9px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: var(--t3); }
+  .lg-group { display: inline-flex; align-items: center; gap: 5px; }
+  .lg-sep { width: 1px; height: 14px; background: var(--line); margin: 0 4px; }
+  .lgb { font: 400 9.5px/15px var(--mono); letter-spacing: .05em; padding: 0 7px; border-radius: 4px; border: 1px solid; }
+  .lgb.hue-intel { color: #9ec9e8; border-color: rgba(111, 179, 217, .4); background: rgba(111, 179, 217, .08); }
+  .lgb.hue-build { color: #7fdcb4; border-color: rgba(70, 224, 163, .35); background: rgba(70, 224, 163, .07); }
+  .lgb.hue-assure { color: #e6c98f; border-color: rgba(230, 180, 90, .35); background: rgba(230, 180, 90, .07); }
+  .lgb.hue-adhoc { color: var(--t1); border-color: var(--line); background: var(--raise); }
+  .lg-state { display: inline-flex; align-items: center; gap: 5px; font: 400 9.5px var(--mono); letter-spacing: .06em; color: var(--t2); }
+  .lg-state .dot { width: 6px; height: 6px; }
+  .lg-dash { width: 18px; border-top: 1px dashed rgba(255, 255, 255, .3); }
+  #org-viewport { grid-area: view; min-height: 0; min-width: 0; overflow: auto; padding: 8px 0 20px; }
+  #org-viewport.idle { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+  #orgsvg { display: block; margin: 0 auto; }
+  #orgsvg text { font-family: var(--mono); user-select: none; -webkit-user-select: none; }
+  #org-note { text-align: center; padding: 30px 20px 12px; }
+  #org-note .n-main { font: 500 12px var(--mono); letter-spacing: .06em; color: var(--t1); }
+  #org-note .n-sub { font: 400 10px var(--mono); letter-spacing: .06em; color: var(--t3); margin-top: 7px; }
+  /* edges: dispatch lineage — solid thin, dashed when the prefix-parent is not in the scan */
+  .oedge { fill: none; stroke: var(--line); stroke-width: 1; transition: opacity .18s var(--ease), stroke .18s var(--ease); }
+  .oedge.dashed { stroke-dasharray: 5 5; stroke: rgba(255, 255, 255, .14); }
+  .oedge.hot { stroke: var(--sig); }
+  #orgsvg.focus .oedge:not(.hot) { opacity: .24; }
+  .onode { cursor: default; transition: opacity .18s var(--ease); }
+  #orgsvg.focus .onode:not(.hot) { opacity: .38; }
+  .onode .obox { fill: rgba(255, 255, 255, .02); stroke: var(--line); transition: stroke .18s var(--ease); }
+  .onode.running .obox { stroke: rgba(70, 224, 163, .66); }
+  .onode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
+  .onode.done .obox { stroke: var(--line-2); }
+  .onode.sel .obox { stroke: var(--sig-dim); stroke-width: 1.4; }
+  .onode .ostatus { fill: var(--t3); }
+  .onode.running .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
+  .onode.blocked .ostatus { fill: var(--warn); }
+  .onode .oid { fill: var(--t0); font-size: 10px; letter-spacing: .02em; }
+  .onode.done .oid { fill: var(--t1); }
+  .cnode .oid { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+  .cnode .obox { stroke: rgba(70, 224, 163, .4); fill: rgba(70, 224, 163, .035); }
+  .cnode .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
+  .cnode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
+  .cnode.blocked .ostatus { fill: var(--warn); animation: none; }
+  /* role hues live in the legend + detail panel; node boxes stay single-line */
+  /* side detail: hovered/pinned node readout */
+  #org-detail {
+    grid-area: detail; min-height: 0; overflow-y: auto;
+    border-top: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255, 255, 255, .014), rgba(255, 255, 255, 0) 200px), var(--bg);
+    padding: 12px 20px 16px; padding-bottom: calc(16px + var(--sa-b));
+  }
+  .od-hint { color: var(--t2); font-size: 12px; line-height: 1.55; }
+  .od-id { display: flex; align-items: center; gap: 9px; font: 600 13px var(--mono); letter-spacing: .03em; color: var(--t0); margin-bottom: 8px; }
+  .od-row { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line-2); font-size: 11.5px; align-items: baseline; }
+  .od-row:last-child { border-bottom: 0; }
+  .od-k { font: 600 9px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: var(--t2); }
+  .od-v { font: 400 11px/1.6 var(--mono); color: #c9cdd2; min-width: 0; overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
+  .od-v.od-task { line-height: 1.55; }
+  @media (min-width: 1080px) {
+    #orgpage {
+      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "head head" "legend detail" "view detail";
+    }
+    #org-detail { border-top: 0; border-left: 1px solid var(--line); }
+  }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
     #pulsebar { display: none; }
@@ -544,6 +655,10 @@
 <body>
 <header id="topbar">
   <span class="wordmark">Mission Control</span>
+  <nav id="pagenav" aria-label="Pages">
+    <a class="navtab" id="nav-mc" href="#/" data-short="Control" aria-current="page"><span>Mission Control</span></a>
+    <a class="navtab" id="nav-org" href="#/org" data-short="Org" aria-current="false"><span>Org Graph</span></a>
+  </nav>
   <span id="project" class="mono">&mdash;</span>
   <span class="flex-spacer"></span>
   <span class="bridge"><span class="dot" id="bridge-dot"></span><span id="bridge-status" class="mono">connecting</span></span>
@@ -631,6 +746,47 @@
       <div id="projects"></div>
     </div>
   </aside>
+</div>
+
+<section id="orgpage" hidden aria-label="Org graph — live spawn tree">
+  <header id="org-head">
+    <h2>Org Graph</h2>
+    <span id="org-meta" class="mono">connecting&hellip;</span>
+  </header>
+  <div class="org-legend" aria-label="Legend">
+    <span class="lg-title">Expertise</span>
+    <span class="lg-group"><span class="lgb hue-intel">scout</span><span class="lgb hue-intel">researcher</span><span class="lgb hue-intel">planner</span></span>
+    <span class="lg-sep"></span>
+    <span class="lg-group"><span class="lgb hue-build">coder</span><span class="lgb hue-build">operator</span><span class="lgb hue-build">designer</span><span class="lgb hue-build">visualizer</span></span>
+    <span class="lg-sep"></span>
+    <span class="lg-group"><span class="lgb hue-assure">reviewer</span><span class="lgb hue-assure">writer</span></span>
+    <span class="lg-sep"></span>
+    <span class="lg-title">State</span>
+    <span class="lg-state"><span class="dot running"></span>running</span>
+    <span class="lg-state"><span class="dot"></span>done</span>
+    <span class="lg-state"><span class="dot blocked"></span>blocked</span>
+    <span class="lg-state"><span class="lg-dash"></span>parent not in scan</span>
+    <span class="lg-state"><span class="mono">d2</span>spawn depth</span>
+  </div>
+  <div id="org-viewport">
+    <svg id="orgsvg" role="img" aria-label="Live spawn tree">
+      <g id="org-edges"></g>
+      <g id="org-nodes"></g>
+    </svg>
+    <div id="org-note" hidden>
+      <p class="n-main">no live decomposition &mdash; spawn something</p>
+      <p class="n-sub">finished spawn trees stay visible while their logs exist on disk</p>
+    </div>
+  </div>
+  <aside id="org-detail" aria-label="Node detail"><div id="org-detail-body"></div></aside>
+</section>
+
+<!-- clone sources for the SVG tree (HTML-parsed, so nodes carry the SVG
+     namespace without ever constructing one in JS); never displayed -->
+<div id="org-tpl" hidden aria-hidden="true">
+  <svg data-tpl="onode"><g class="onode"><rect class="obox" width="150" height="30" rx="8"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
+  <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="150" height="30" rx="8"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
+  <svg data-tpl="oedge"><path class="oedge"/></svg>
 </div>
 
 <div id="backdrop"></div>
@@ -835,6 +991,184 @@
     const p = (n) => String(n).padStart(2, "0");
     return h ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
   }
+
+  /* ORG-GRAPH-PURE:BEGIN */
+  // Dynamic spawn-tree model for the #/org page — pure data-in/data-out (no
+  // DOM, no I/O) so tests eval this block straight out of index.html. The org
+  // is NOT a fixed pyramid: depth emerges from live spawn lineage branch by
+  // branch (the variance is the point, shown as d0/d1/d2 labels), the 9
+  // standing roles are a legend, and a node's role is a badge.
+  const ORG_ROLES = ["scout", "researcher", "planner", "coder", "operator", "reviewer", "writer", "designer", "visualizer"];
+  const ORG_ROLE_GROUPS = [
+    { id: "intel", name: "Intelligence", roles: ["scout", "researcher", "planner"] },
+    { id: "build", name: "Build & run", roles: ["coder", "operator", "designer", "visualizer"] },
+    { id: "assure", name: "Assurance", roles: ["reviewer", "writer"] },
+  ];
+  function orgRoleGroupOf(role) {
+    for (const g of ORG_ROLE_GROUPS) if (g.roles.includes(role)) return g;
+    return null;
+  }
+  // Parent derivation mirrors the server scanner convention (resolveAncestry
+  // in state.ts): "sa13-a" is a child of "sa13" when sa13 is present in the
+  // same scan; when the prefix-parent is absent the nesting stays honest as an
+  // unknown-parent root (dashed dispatch edge) — never invented.
+  function orgDeriveParent(id, ids) {
+    const cut = id.lastIndexOf("-");
+    if (cut <= 0) return { parent: null, known: false };
+    const parent = id.slice(0, cut);
+    return { parent, known: ids.has(parent) };
+  }
+  // Role badge for a node: explicit naming wins ("role-coder" id/session),
+  // then one conservative word-boundary keyword match on the task label.
+  function orgClassifyRole(id, label, session) {
+    if (typeof session === "string" && session.startsWith("role-")) return session.slice(5) || null;
+    if (id.startsWith("role-")) return id.slice(5) || null;
+    const text = String(label ?? "");
+    if (!text) return null;
+    let best = null;
+    let bestAt = Infinity;
+    for (const role of ORG_ROLES) {
+      const m = new RegExp("\\b" + role + "\\b", "i").exec(text);
+      if (m && m.index < bestAt) { best = role; bestAt = m.index; }
+    }
+    return best;
+  }
+  function orgNaturalCompare(a, b) {
+    const re = /\d+|\D+/g;
+    const ax = a.match(re) ?? [a];
+    const bx = b.match(re) ?? [b];
+    for (let i = 0; i < Math.min(ax.length, bx.length); i++) {
+      const an = /^\d+$/.test(ax[i]);
+      const bn = /^\d+$/.test(bx[i]);
+      if (an && bn) { const d = Number(ax[i]) - Number(bx[i]); if (d !== 0) return d; }
+      else if (ax[i] !== bx[i]) return ax[i] < bx[i] ? -1 : 1;
+    }
+    return ax.length - bx.length;
+  }
+  // Build the spawn tree from /state subagents. Depth emerges from lineage;
+  // ids whose prefix-parent is absent stay depth-0 roots flagged parentHint.
+  function orgBuildTree(subs) {
+    const list = Array.isArray(subs) ? subs : [];
+    const ids = new Set(list.map((s) => String(s.id)));
+    const nodes = new Map();
+    for (const s of list) {
+      const lin = orgDeriveParent(String(s.id), ids);
+      nodes.set(String(s.id), {
+        id: String(s.id),
+        status: s.status ?? "running",
+        model: s.model ?? null,
+        label: s.label ?? null,
+        session: s.session ?? null,
+        usage: s.usage ?? null,
+        lastActivity: s.lastActivity ?? null,
+        parent: lin.known ? lin.parent : null,
+        parentHint: lin.known ? null : lin.parent,
+        knownParent: lin.known,
+        role: orgClassifyRole(String(s.id), s.label, s.session),
+        depth: 0,
+        children: [],
+      });
+    }
+    for (const n of nodes.values()) {
+      if (n.parent && n.parent !== n.id && nodes.has(n.parent)) nodes.get(n.parent).children.push(n);
+    }
+    const roots = [...nodes.values()].filter((n) => !n.parent);
+    const seen = new Set();
+    let maxDepth = 0;
+    const walk = (n, d) => {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      n.depth = d;
+      if (d > maxDepth) maxDepth = d;
+      for (const c of n.children) walk(c, d + 1);
+    };
+    for (const r of roots) walk(r, 0);
+    return { nodes, roots, maxDepth };
+  }
+  const ORG_LAYOUT = { coordW: 150, coordH: 30, nodeW: 150, nodeH: 30, gapX: 22, rowH: 62, padX: 28, padTop: 24, padBottom: 36 };
+  // Deterministic tidy-tree layout: leaves take sequential x slots in natural
+  // id order, parents center over their children, rows are depth bands (row 0
+  // = coordinator, row d+1 = depth-d subagents). Uneven trees stay uneven.
+  function orgLayoutTree(tree) {
+    const L = ORG_LAYOUT;
+    for (const n of tree.nodes.values()) n.children.sort((a, b) => orgNaturalCompare(a.id, b.id));
+    const orderedRoots = [...tree.roots].sort((a, b) => orgNaturalCompare(a.id, b.id));
+    let slot = 0;
+    const place = (n) => {
+      if (!n.children.length) { n._slot = slot++; return; }
+      for (const c of n.children) place(c);
+      n._slot = (n.children[0]._slot + n.children[n.children.length - 1]._slot) / 2;
+    };
+    for (const r of orderedRoots) place(r);
+    const slotX = (i) => L.padX + i * (L.nodeW + L.gapX);
+    for (const n of tree.nodes.values()) {
+      n.x = Math.round(slotX(n._slot) + L.nodeW / 2);
+      n.y = L.padTop + (n.depth + 1) * L.rowH;
+      n.childIds = n.children.map((c) => c.id);
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const r of orderedRoots) {
+      minX = Math.min(minX, r.x - L.nodeW / 2);
+      maxX = Math.max(maxX, r.x + L.nodeW / 2);
+    }
+    const coordX = orderedRoots.length ? Math.round((minX + maxX) / 2) : Math.round(L.padX + L.nodeW / 2);
+    const width = Math.round(Math.max(coordX + L.coordW / 2, orderedRoots.length ? maxX : 0) + L.padX);
+    const height = orderedRoots.length
+      ? L.padTop + (tree.maxDepth + 1) * L.rowH + L.nodeH + L.padBottom
+      : L.padTop + L.coordH + L.padBottom;
+    const edges = [];
+    for (const r of orderedRoots) edges.push({ from: "__coord__", to: r.id, dashed: !!r.parentHint });
+    for (const n of tree.nodes.values()) {
+      for (const c of n.children) edges.push({ from: n.id, to: c.id, dashed: false });
+    }
+    return {
+      coordinator: { id: "__coord__", x: coordX, y: L.padTop, w: L.coordW, h: L.coordH },
+      nodes: [...tree.nodes.values()]
+        .sort((a, b) => a.y - b.y || a.x - b.x || orgNaturalCompare(a.id, b.id))
+        .map((n) => ({
+          id: n.id, x: n.x, y: n.y, w: L.nodeW, h: L.nodeH, depth: n.depth,
+          parent: n.parent, parentHint: n.parentHint, role: n.role, status: n.status,
+          model: n.model, label: n.label, usage: n.usage, lastActivity: n.lastActivity,
+          childIds: n.childIds,
+        })),
+      edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
+      width, height, maxDepth: tree.maxDepth,
+    };
+  }
+  // Ancestor path (up to the coordinator) + descendant subtree closure for
+  // hover/select highlighting: node ids and edge keys to light up.
+  function orgFocusClosure(model, id) {
+    const nodes = new Set();
+    const edges = new Set();
+    if (!model || !id) return { nodes, edges };
+    if (id === "__coord__") { nodes.add("__coord__"); return { nodes, edges }; }
+    const byId = new Map(model.nodes.map((n) => [n.id, n]));
+    let n = byId.get(id);
+    while (n && !nodes.has(n.id)) {
+      nodes.add(n.id);
+      if (n.parent) {
+        edges.add(n.parent + ">" + n.id);
+        n = byId.get(n.parent);
+      } else {
+        edges.add("__coord__>" + n.id);
+        nodes.add("__coord__");
+        break;
+      }
+    }
+    const stack = [id];
+    while (stack.length) {
+      const cur = byId.get(stack.pop());
+      if (!cur) continue;
+      nodes.add(cur.id);
+      for (const c of cur.childIds ?? []) {
+        edges.add(cur.id + ">" + c);
+        stack.push(c);
+      }
+    }
+    return { nodes, edges };
+  }
+  /* ORG-GRAPH-PURE:END */
 
   // reduced-motion preference (checked per call so live OS toggles are honored)
   const prefersReduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1854,6 +2188,192 @@
     noteEl.classList.toggle("warn", !!note);
   });
 
+  // ---------- org graph page (#/org) ----------
+  // Dynamic spawn tree from live lineage (pure model above). The SVG is
+  // rebuilt only when /state changes; hover/pin just toggles classes.
+  const org = { sig: null, model: null, sel: null, hover: null, applied: undefined };
+
+  function orgSync(subs) {
+    const sig = JSON.stringify(subs.map((s) => [s.id, s.status, s.model, s.label, s.session ?? null, s.usage?.totalTokens ?? null]));
+    if (sig === org.sig) return;
+    org.sig = sig;
+    if (document.body.dataset.route === "org") renderOrg();
+  }
+
+  function orgTrunc(s, n) {
+    s = String(s ?? "");
+    return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
+  }
+
+  function orgTpl(name) {
+    return $("#org-tpl").querySelector(`[data-tpl="${name}"]`)?.firstElementChild ?? null;
+  }
+
+  function renderOrg() {
+    const subs = [...state.subs.values()];
+    const model = orgLayoutTree(orgBuildTree(subs));
+    org.model = model;
+    const svg = $("#orgsvg");
+    svg.setAttribute("width", String(model.width));
+    svg.setAttribute("height", String(model.height));
+    svg.setAttribute("viewBox", `0 0 ${model.width} ${model.height}`);
+    const edgesG = $("#org-edges"), nodesG = $("#org-nodes");
+    edgesG.textContent = "";
+    nodesG.textContent = "";
+    const pos = new Map([["__coord__", model.coordinator]]);
+    for (const n of model.nodes) pos.set(n.id, n);
+    for (const e of model.edges) {
+      const a = pos.get(e.from), b = pos.get(e.to);
+      if (!a || !b) continue;
+      const path = orgTpl("oedge").cloneNode(true);
+      const x1 = a.x, y1 = a.y + a.h, x2 = b.x, y2 = b.y;
+      const my = Math.round((y1 + y2) / 2);
+      path.setAttribute("d", x1 === x2 ? `M ${x1} ${y1} V ${y2}` : `M ${x1} ${y1} V ${my} H ${x2} V ${y2}`);
+      path.setAttribute("data-edge", e.key);
+      if (e.dashed) path.classList.add("dashed");
+      edgesG.append(path);
+    }
+    // entry node: the coordinator (amber only while the bridge itself is down)
+    const c = model.coordinator;
+    const cg = orgTpl("cnode").cloneNode(true);
+    cg.setAttribute("data-node", "__coord__");
+    cg.setAttribute("transform", `translate(${c.x - c.w / 2}, ${c.y})`);
+    cg.classList.add(state.bridgeDown ? "blocked" : "running");
+    cg.querySelector(".oid").textContent = "coordinator";
+    cg.querySelector("title").textContent = "coordinator\nmain session \u2014 dispatches subagents, receives reports";
+    nodesG.append(cg);
+    for (const n of model.nodes) {
+      const g = orgTpl("onode").cloneNode(true);
+      g.setAttribute("data-node", n.id);
+      g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
+      g.classList.add(n.status);
+      // single short line: dot + "id \u00b7 status" — everything else lives in the detail panel
+      g.querySelector(".oid").textContent = `${orgTrunc(n.id, 11)} \u00b7 ${n.status}`;
+      g.querySelector("title").textContent = [n.id, n.label, n.model].filter(Boolean).join("\n");
+      nodesG.append(g);
+    }
+    const live = subs.filter((s) => s.status !== "done").length;
+    $("#org-meta").textContent = subs.length
+      ? `${live} live \u00b7 ${subs.length - live} done \u00b7 max depth d${model.maxDepth}`
+      : "no live work";
+    $("#org-note").hidden = subs.length > 0;
+    $("#org-viewport").classList.toggle("idle", subs.length === 0);
+    applyOrgFocus(true);
+  }
+
+  function orgFindDetail(id) {
+    if (id === "__coord__") return { id: "__coord__", status: state.bridgeDown ? "blocked" : "running" };
+    return org.model?.nodes.find((n) => n.id === id) ?? null;
+  }
+
+  function applyOrgFocus(force) {
+    const svg = $("#orgsvg");
+    if (!svg || !org.model) return;
+    const id = org.hover ?? org.sel;
+    if (id === org.applied && !force) return;
+    org.applied = id;
+    const focus = id ? orgFocusClosure(org.model, id) : null;
+    svg.classList.toggle("focus", !!focus);
+    for (const el of svg.querySelectorAll("[data-node]")) {
+      const nid = el.getAttribute("data-node");
+      el.classList.toggle("hot", !!focus && (focus.nodes.has(nid) || nid === id));
+      el.classList.toggle("sel", org.sel !== null && nid === org.sel);
+    }
+    for (const el of svg.querySelectorAll("[data-edge]")) {
+      el.classList.toggle("hot", !!focus && focus.edges.has(el.getAttribute("data-edge")));
+    }
+    showOrgDetail(id ? orgFindDetail(id) : null);
+  }
+
+  function showOrgDetail(n) {
+    const box = $("#org-detail-body");
+    box.textContent = "";
+    if (!n) {
+      const hint = document.createElement("div");
+      hint.className = "od-hint";
+      hint.textContent = "Hover or tap a node \u2014 its dispatch path lights up. Click to pin.";
+      box.append(hint);
+      return;
+    }
+    const head = document.createElement("div");
+    head.className = "od-id";
+    const dot = document.createElement("span");
+    dot.className = "dot " + (n.status ?? "");
+    const idEl = document.createElement("span");
+    idEl.textContent = n.id === "__coord__" ? "coordinator" : n.id;
+    head.append(dot, idEl);
+    box.append(head);
+    const row = (k, v, cls) => {
+      const r = document.createElement("div");
+      r.className = "od-row";
+      const kk = document.createElement("span");
+      kk.className = "od-k";
+      kk.textContent = k;
+      const vv = document.createElement("span");
+      vv.className = "od-v" + (cls ? " " + cls : "");
+      vv.textContent = v;
+      r.append(kk, vv);
+      box.append(r);
+    };
+    if (n.id === "__coord__") {
+      const count = org.model?.nodes.length ?? 0;
+      row("Status", state.bridgeDown ? "bridge offline" : "alive \u00b7 main session");
+      row("Dispatches", `${count} subagent node${count === 1 ? "" : "s"} in view`);
+      row("Depth", "entry (d0 band)");
+      const p = document.createElement("div");
+      p.className = "od-hint";
+      p.style.marginTop = "10px";
+      p.textContent = "The entry node: every dispatch starts here; every report lands back here.";
+      box.append(p);
+      return;
+    }
+    const u = n.usage ?? {};
+    const usageBits = [];
+    if (Number.isFinite(u.totalTokens) && u.totalTokens > 0) usageBits.push(`${fmtTokens(u.totalTokens)} tok`);
+    if (Number.isFinite(u.costTotal) && u.costTotal > 0) usageBits.push(`$${Number(u.costTotal).toFixed(4)}`);
+    if (Number.isFinite(u.toolCalls) && u.toolCalls > 0) usageBits.push(plural(u.toolCalls, "tool call"));
+    row("Status", [n.status, n.model].filter(Boolean).join(" \u00b7 "));
+    row("Role", n.role ? `${n.role}${orgRoleGroupOf(n.role) ? " \u00b7 " + orgRoleGroupOf(n.role).name : " \u00b7 ad hoc"}` : "\u2014");
+    row("Lineage", n.parent
+      ? `d${n.depth} \u00b7 spawned by ${n.parent}`
+      : n.parentHint
+        ? `d${n.depth} \u00b7 root \u2014 prefix-parent ${n.parentHint} not in scan (dashed)`
+        : `d${n.depth} \u00b7 root`);
+    row("Usage", usageBits.length ? usageBits.join(" \u00b7 ") : "\u2014");
+    row("Activity", n.lastActivity ? relTime(n.lastActivity) : "\u2014");
+    row("Children", n.childIds?.length ? n.childIds.join(", ") : "\u2014");
+    row("Task", n.label ?? "\u2014", "od-task");
+  }
+
+  $("#orgsvg").addEventListener("mouseover", (e) => {
+    const g = e.target.closest?.("[data-node]");
+    const id = g?.getAttribute("data-node") ?? null;
+    if (id !== org.hover) { org.hover = id; applyOrgFocus(); }
+  });
+  $("#orgsvg").addEventListener("mouseleave", () => {
+    if (org.hover) { org.hover = null; applyOrgFocus(); }
+  });
+  $("#orgsvg").addEventListener("click", (e) => {
+    const g = e.target.closest?.("[data-node]");
+    const id = g?.getAttribute("data-node") ?? null;
+    org.sel = id && id !== org.sel ? id : null;
+    applyOrgFocus(true); // force: hover may have already applied this focus id
+  });
+
+  // ---------- hash routing (#/ = Mission Control, #/org = Org Graph) ----------
+  function applyRoute() {
+    const isOrg = /^#\/org\/?$/.test(location.hash || "");
+    document.body.dataset.route = isOrg ? "org" : "mc";
+    $("#shell").hidden = isOrg;
+    $("#orgpage").hidden = !isOrg;
+    $("#nav-mc").classList.toggle("on", !isOrg);
+    $("#nav-org").classList.toggle("on", isOrg);
+    $("#nav-mc").setAttribute("aria-current", isOrg ? "false" : "page");
+    $("#nav-org").setAttribute("aria-current", isOrg ? "page" : "false");
+    if (isOrg) renderOrg();
+  }
+  window.addEventListener("hashchange", applyRoute);
+
   // ---------- polling ----------
   const pollState = withInFlight(async () => {
     let data;
@@ -1892,6 +2412,7 @@
       }
     }
     syncPanel(subs);
+    orgSync(subs);
     const mtime = data.main?.sessionMtime;
     $("#win-meta").textContent = mtime ? `last activity ${relTime(mtime)}` : "";
     if (state.openSub) updateSoHeader(state.subs.get(state.openSub));
@@ -2215,6 +2736,10 @@
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (document.body.dataset.route === "org") {
+      if (org.sel) { org.sel = null; applyOrgFocus(); }
+      return;
+    }
     if (state.openSub) closeSub();
     else if (state.panelOpen) $("#livebar").click();
   });
@@ -2248,6 +2773,7 @@
   window.addEventListener("online", resumePolling);
 
   // ---------- boot ----------
+  applyRoute();
   pollState().then(pollLogs);
   pollStream();
   pollProjects();
