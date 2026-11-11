@@ -125,6 +125,29 @@ describe("SubagentScanner over a real redacted events.jsonl fixture", () => {
   test("missing dir scans empty", () => {
     assert.deepEqual(new SubagentScanner().scan("/nonexistent-path-xyz"), []);
   });
+
+  test("reused dirs split into task eras at >6h gaps (same-id collision fixture)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "wbstate-era-"));
+    const userMsg = (ts: number, text: string) => evLine({ type: "message_start", message: { role: "user", timestamp: ts, content: [{ type: "text", text }] } });
+    const T = 1_700_000_000_000;
+    // two event clusters >6h apart in ONE dir (the same-id different-era case)
+    const cluster1 = userMsg(T, "You are the operator role. Install the Ponytail methodology into the coder subagent") + MODEL;
+    const cluster2 = userMsg(T + 30 * 3600e3, "Extend the per-turn injected reminder in the bridge org page") + ASSIST;
+    await mkdir(join(dir, "sa-eras"));
+    await writeFile(join(dir, "sa-eras", "events.jsonl"), cluster1 + cluster2);
+    const views = new SubagentScanner().scan(dir);
+    const v = views.find((x) => x.id === "sa-eras")!;
+    assert.ok(v, "view present");
+    assert.equal(v.eras?.length, 2);
+    assert.match(v.eras![0].label, /Ponytail/);
+    assert.match(v.eras![1].label, /per-turn injected reminder/);
+    assert.equal(v.eras![1].at - v.eras![0].at, 30 * 3600e3);
+    // messages within 6h stay one era
+    await mkdir(join(dir, "sa-one"));
+    await writeFile(join(dir, "sa-one", "events.jsonl"), userMsg(T, "first task in the same hour") + userMsg(T + 2 * 3600e3, "follow-up within the window"));
+    const v2 = new SubagentScanner().scan(dir).find((x) => x.id === "sa-one")!;
+    assert.ok(!v2.eras || v2.eras.length === 1, "within-window messages stay one era (field omitted when single)");
+  });
 });
 
 describe("helpers", () => {

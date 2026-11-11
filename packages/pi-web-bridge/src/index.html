@@ -1954,101 +1954,170 @@
     }
     return null;
   }
+  const ORG_ERA_GAP_MS = 6 * 3600e3; // mirrors state.ts extractEras
+  function orgEraExpand(list) {
+    // Dirs are REUSED across conversations: /state `eras` (user-message
+    // clusters split at >6h gaps, state.ts extractEras) turn one dir into one
+    // dispatch node PER TASK ERA — "sa27 · era 1/2" — each with its own
+    // label/role/attribution. The dir's live status belongs to the last era;
+    // earlier eras are done by construction.
+    const out = [];
+    for (const s of list) {
+      const eras = Array.isArray(s.eras) ? s.eras : [];
+      const dirId = String(s.id);
+      if (eras.length <= 1) {
+        out.push({ ...s, id: dirId, dirId, eraIndex: 0, eraCount: 1, firstActivity: s.lastActivity ?? 0 });
+        continue;
+      }
+      eras.forEach((e, i) => {
+        out.push({
+          ...s,
+          id: `${dirId}#${i + 1}`,
+          dirId,
+          eraIndex: i + 1,
+          eraCount: eras.length,
+          label: e.label ?? s.label ?? null,
+          firstActivity: e.at,
+          lastActivity: e.lastAt ?? e.at ?? s.lastActivity,
+          status: i === eras.length - 1 ? (s.status ?? "running") : "done",
+        });
+      });
+    }
+    return out;
+  }
+  // Duplicate signature: same persistent session id, else the label's first
+  // three meaningful tokens. Null signature never merges (no evidence).
+  function orgDupSignature(s) {
+    const sess = typeof s.session === "string" && s.session.trim() ? s.session.trim() : null;
+    if (sess) return "sess:" + sess;
+    const toks = orgCrewTokens(s.label).slice(0, 3);
+    return toks.length ? "tok:" + toks.join("|") : null;
+  }
+  // TRUE re-dispatches among siblings merge into one node: same signature AND
+  // spawns within ±6h of the cluster's start. Returns member arrays.
+  function orgMergeSiblings(entries) {
+    const byTime = entries.slice().sort((a, b) => (a.firstActivity ?? a.lastActivity ?? 0) - (b.firstActivity ?? b.lastActivity ?? 0));
+    const clusters = [];
+    for (const e of byTime) {
+      const sig = orgDupSignature(e);
+      const at = e.firstActivity ?? e.lastActivity ?? 0;
+      const last = clusters[clusters.length - 1];
+      if (sig && last && last.sig === sig && at - last.firstAt <= ORG_ERA_GAP_MS) last.members.push(e);
+      else clusters.push({ sig, firstAt: at, members: [e] });
+    }
+    return clusters.map((c) => c.members);
+  }
   function orgBuildInvocationTree(subs, registry, view, nowMs, sessionById) {
-    const list = (Array.isArray(subs) ? subs : []).filter((s) => s && typeof s.id === "string");
+    const dirList = (Array.isArray(subs) ? subs : []).filter((s) => s && typeof s.id === "string");
     const reg = (Array.isArray(registry) ? registry : []).filter((p) => p && typeof p.id === "string");
     const regById = new Map(reg.map((p) => [p.id, p]));
-    const ids = new Set(list.map((s) => String(s.id)));
-    const projectOf = new Map();
-    const parentOf = new Map();
-    const hintOf = new Map();
-    const pathOf = new Map(); // nested-project path (child_of chain), e.g. ["three-tier-screening"]
-    const spTrees = new Map();
-    for (const s of list) {
+    const dirIds = new Set(dirList.map((s) => String(s.id)));
+    // dir-level lineage (spawned_by, then fanout/label derivation), cycle-guarded
+    const dirParentOf = new Map();
+    const dirHintOf = new Map();
+    for (const s of dirList) {
       const id = String(s.id);
-      projectOf.set(id, orgProjectOf(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
-      let parent = typeof s.spawned_by === "string" && s.spawned_by && ids.has(s.spawned_by) ? s.spawned_by : null;
+      let parent = typeof s.spawned_by === "string" && s.spawned_by && dirIds.has(s.spawned_by) ? s.spawned_by : null;
       if (!parent) {
-        const lin = orgDeriveParent(id, ids);
+        const lin = orgDeriveParent(id, dirIds);
         parent = lin.known ? lin.parent : null;
-        if (!lin.known && lin.parent && ids.has(lin.parent)) parent = lin.parent; // derivable but absent is handled below
       }
-      if (!parent && typeof s.spawned_by === "string" && s.spawned_by) hintOf.set(id, s.spawned_by);
-      parentOf.set(id, parent);
+      if (!parent && typeof s.spawned_by === "string" && s.spawned_by) dirHintOf.set(id, s.spawned_by);
+      dirParentOf.set(id, parent);
     }
-    for (const s of list) {
-      const id = String(s.id);
-      const p = projectOf.get(id);
-      if (!spTrees.has(p)) spTrees.set(p, orgChildProjectTree(regById.get(p) ?? null, p));
-      pathOf.set(id, orgChildProjectPathOf(s, spTrees.get(p)));
-    }
-    // nested hops: group key = project + its child_of path
-    const spDisplay = (project, path) => {
-      if (!path || !path.length) return null;
-      let list2 = spTrees.get(project) ?? [];
-      let node = null;
-      for (const seg of path) {
-        node = (node ? node.children : list2).find((sp) => sp.id === seg);
-        if (!node) return null;
-      }
-      return node?.displayName ?? null;
-    };
-    // cycle guard: a lineage loop demotes the dispatch to a root
-    for (const id of ids) {
+    for (const id of dirIds) {
       const seen = new Set([id]);
-      let p = parentOf.get(id);
+      let p = dirParentOf.get(id);
       while (p) {
-        if (seen.has(p)) { parentOf.set(id, null); break; }
+        if (seen.has(p)) { dirParentOf.set(id, null); break; }
         seen.add(p);
-        p = parentOf.get(p);
+        p = dirParentOf.get(p);
       }
     }
-    // view filter: keep the viewed project's dispatches + their ancestor chains
-    let kept = list;
-    if (view) {
-      const keep = new Set();
-      for (const s of list) {
-        if (projectOf.get(String(s.id)) !== view) continue;
-        let p = String(s.id);
-        while (p && !keep.has(p)) { keep.add(p); p = parentOf.get(p) ?? ""; }
-      }
-      kept = list.filter((s) => keep.has(String(s.id)));
+    // era expansion: one dispatch node per task era
+    const expanded = orgEraExpand(dirList);
+    const eraByDir = new Map();
+    for (const e of expanded) {
+      if (!eraByDir.has(e.dirId)) eraByDir.set(e.dirId, []);
+      eraByDir.get(e.dirId).push(e);
     }
-    const keptIds = new Set(kept.map((s) => String(s.id)));
-    const kids = new Map();
+    const projectOf = new Map();
+    const pathOf = new Map();
+    const spTrees = new Map();
+    for (const s of expanded) {
+      projectOf.set(s.id, orgProjectOf(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
+    }
+    for (const s of expanded) {
+      const p = projectOf.get(s.id);
+      if (!spTrees.has(p)) spTrees.set(p, orgChildProjectTree(regById.get(p) ?? null, p));
+      pathOf.set(s.id, orgChildProjectPathOf(s, spTrees.get(p)));
+    }
+    // a child dispatch attaches to the parent DIR era whose window contains
+    // the child's spawn time (else the parent's last era)
+    const parentEidOf = new Map();
+    for (const s of expanded) {
+      const pdir = dirParentOf.get(s.dirId);
+      if (!pdir) { parentEidOf.set(s.id, null); continue; }
+      const eras = eraByDir.get(pdir) ?? [];
+      const at = s.firstActivity ?? s.lastActivity ?? 0;
+      let chosen = eras[eras.length - 1] ?? null;
+      for (const e of eras) {
+        const start = e.firstActivity ?? 0;
+        const end = (e.lastActivity ?? start) + ORG_ERA_GAP_MS;
+        if (at >= start - 60e3 && at <= end) { chosen = e; break; }
+      }
+      parentEidOf.set(s.id, chosen ? chosen.id : null);
+    }
+    const kidsByEid = new Map();
     const roots = [];
-    for (const s of kept) {
-      const id = String(s.id);
-      const p = parentOf.get(id);
-      if (p && keptIds.has(p)) {
-        if (!kids.has(p)) kids.set(p, []);
-        kids.get(p).push(s);
+    for (const s of expanded) {
+      const pe = parentEidOf.get(s.id);
+      if (pe) {
+        if (!kidsByEid.has(pe)) kidsByEid.set(pe, []);
+        kidsByEid.get(pe).push(s);
       } else roots.push(s);
     }
-    const sortDispatches = (arr) => arr.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0) || orgNaturalCompare(String(a.id), String(b.id)));
-    for (const arr of kids.values()) sortDispatches(arr);
-    sortDispatches(roots);
-
     const nodes = new Map();
     const rootIds = [];
-    const statusOf = (dispatches) => dispatches.some((d) => d.status === "running") ? "running"
-      : dispatches.some((d) => d.status === "blocked") ? "blocked" : "done";
-    const mkDispatch = (s, parentKey, agentDepth, row) => {
-      const id = String(s.id);
-      const role = orgNodeRole(id, s.label, s.session, sessionById);
+    const mkDispatch = (s, parentKey, agentDepth, row, mergeCount) => {
+      const role = orgNodeRole(s.id, s.label, s.session, sessionById);
+      const dirId = s.dirId ?? String(s.id);
+      const base = s.eraCount > 1 ? `${dirId} \u00b7 era ${s.eraIndex}/${s.eraCount}` : orgTrunc(dirId, 16);
       const node = {
-        id, kind: "agent", projectKey: projectOf.get(id),
-        display: orgTrunc(id, 16),
+        id: s.id, kind: "agent", projectKey: projectOf.get(s.id),
+        display: mergeCount > 1 ? `${base} \u00b7\u00d7${mergeCount}` : base,
         sub: `d${agentDepth} \u00b7 ${role || "dispatch"}`,
         role, depth: agentDepth, row,
         status: s.status ?? "running", model: s.model ?? null, label: s.label ?? null,
         session: s.session ?? null, usage: s.usage ?? null, lastActivity: s.lastActivity ?? null,
-        spawnedBy: s.spawned_by ?? null, parentHint: hintOf.get(id) ?? null,
+        spawnedBy: s.spawned_by ?? null, parentHint: dirHintOf.get(s.dirId) ?? null,
         parent: parentKey, hostId: null, children: [],
       };
-      nodes.set(id, node);
+      nodes.set(node.id, node);
       return node;
     };
+    const mkMerged = (members, parentKey, agentDepth, row) => {
+      const first = members[0];
+      const roles = members.map((m) => orgNodeRole(m.id, m.label, m.session, sessionById));
+      const role = roles.every((r) => r === roles[0]) ? roles[0] : null;
+      const bestLabel = members.map((m) => String(m.label ?? "")).reduce((a, b) => (b.length > a.length ? b : a), "");
+      const node = {
+        id: first.id, kind: "agent", projectKey: projectOf.get(first.id),
+        display: `${first.eraCount > 1 ? `${first.dirId} \u00b7 era ${first.eraIndex}/${first.eraCount}` : orgTrunc(first.dirId, 16)} \u00b7\u00d7${members.length}`,
+        sub: `d${agentDepth} \u00b7 ${role || "dispatch"}`,
+        role, depth: agentDepth, row,
+        status: members.some((m) => m.status === "running") ? "running" : members.some((m) => m.status === "blocked") ? "blocked" : "done",
+        model: first.model ?? null, label: bestLabel,
+        session: first.session ?? null, usage: first.usage ?? null,
+        lastActivity: Math.max(...members.map((m) => m.lastActivity ?? 0)),
+        spawnedBy: first.spawned_by ?? null, parentHint: dirHintOf.get(first.dirId) ?? null,
+        parent: parentKey, hostId: null, children: [],
+        memberIds: members.map((m) => m.id),
+      };
+      nodes.set(node.id, node);
+      return node;
+    };
+    // nested hops: display name from the child_of path, data under the root project
     const mkHop = (parentKey, project, dispatches, row, path) => {
       // path = the child_of chain INSIDE the parent hop (nested project); a
       // nested hop nests under its parent hop by tree position (ruling: same
@@ -2081,66 +2150,74 @@
       nodes.set(hopId, node);
       return node;
     };
-    // recursive descent: agents under a parent, cross-project children grouped
-    // into one hop per (parent, project)
-    // fill a project hop: path-less dispatches become direct agents; each
-    // nested-project path becomes a child hop (project kind, tree position
-    // expresses the child_of nesting) holding its own agents
+    const statusOf = (dispatches) => dispatches.some((d) => d.status === "running") ? "running"
+      : dispatches.some((d) => d.status === "blocked") ? "blocked" : "done";
+    const spDisplay = (project, path) => {
+      if (!path || !path.length) return null;
+      let tree = spTrees.get(project) ?? [];
+      let node = null;
+      for (const seg of path) {
+        node = (node ? node.children : tree).find((sp) => sp.id === seg);
+        if (!node) return null;
+      }
+      return node?.displayName ?? null;
+    };
+    // fill a project hop: path-less dispatches become direct agents (merged
+    // when they are true re-dispatches); each nested-project path becomes a
+    // child hop (project kind, tree position expresses the child_of nesting)
     const populateHop = (hop, project, dispatches, agentDepth, row) => {
       const byPath = new Map();
       for (const d of dispatches) {
-        const id = String(d.id);
-        const path = pathOf.get(id) ?? null;
+        const path = pathOf.get(d.id) ?? null;
         const gk = path ? path.join(".") : "";
         if (!byPath.has(gk)) byPath.set(gk, { path, group: [] });
         byPath.get(gk).group.push(d);
       }
       for (const [, { path, group }] of [...byPath.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
         if (!path) {
-          for (const d of group) {
-            const node = mkDispatch(d, hop.id, agentDepth, row);
+          for (const members of orgMergeSiblings(group)) {
+            const node = members.length > 1 ? mkMerged(members, hop.id, agentDepth, row) : mkDispatch(members[0], hop.id, agentDepth, row, 1);
             hop.children.push(node);
-            const childDispatches = kids.get(String(d.id)) ?? [];
-            if (childDispatches.length) attach(node.id, project, childDispatches, agentDepth + 1, row + 1, node);
+            buildChildrenInto(node, members, project, agentDepth, row + 1);
           }
         } else {
           const childHop = mkHop(hop.id, project, group, row, path);
           hop.children.push(childHop);
-          for (const d of group) {
-            const node = mkDispatch(d, childHop.id, agentDepth, row + 1);
+          for (const members of orgMergeSiblings(group)) {
+            const node = members.length > 1 ? mkMerged(members, childHop.id, agentDepth, row + 1) : mkDispatch(members[0], childHop.id, agentDepth, row + 1, 1);
             childHop.children.push(node);
-            const childDispatches = kids.get(String(d.id)) ?? [];
-            if (childDispatches.length) attach(node.id, project, childDispatches, agentDepth + 1, row + 2, node);
+            buildChildrenInto(node, members, project, agentDepth, row + 2);
           }
         }
       }
     };
-    const attach = (parentKey, parentProject, dispatches, agentDepth, row, host) => {
+    const buildChildrenInto = (hostNode, members, parentProject, agentDepth, row) => {
+      const entries = members.flatMap((m) => kidsByEid.get(m.id) ?? []);
+      const direct = [];
       const byProject = new Map();
-      for (const d of dispatches) {
-        const id = String(d.id);
-        const p = projectOf.get(id);
-        const path = pathOf.get(id) ?? null;
-        if (p === parentProject && !path) {
-          const node = mkDispatch(d, parentKey, agentDepth, row);
-          host.children.push(node);
-          const childDispatches = kids.get(id) ?? [];
-          if (childDispatches.length) attach(node.id, p, childDispatches, agentDepth + 1, row + 1, node);
-        } else {
+      for (const d of entries) {
+        const p = projectOf.get(d.id);
+        const path = pathOf.get(d.id) ?? null;
+        if (p === parentProject && !path) direct.push(d);
+        else {
           if (!byProject.has(p)) byProject.set(p, []);
           byProject.get(p).push(d);
         }
       }
+      for (const members2 of orgMergeSiblings(direct)) {
+        const node = members2.length > 1 ? mkMerged(members2, hostNode.id, agentDepth + 1, row) : mkDispatch(members2[0], hostNode.id, agentDepth + 1, row, 1);
+        hostNode.children.push(node);
+        buildChildrenInto(node, members2, parentProject, agentDepth + 1, row + 1);
+      }
       for (const [p, group] of [...byProject.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
-        const hop = mkHop(parentKey, p, group, row, null);
-        host.children.push(hop);
-        populateHop(hop, p, group, agentDepth, row + 1);
+        const hop = mkHop(hostNode.id, p, group, row, null);
+        hostNode.children.push(hop);
+        populateHop(hop, p, group, agentDepth + 1, row + 1);
       }
     };
-    // coordinator level: roots grouped by project into row-1 hops
     const coordGroups = new Map();
     for (const d of roots) {
-      const p = projectOf.get(String(d.id));
+      const p = projectOf.get(d.id);
       if (!coordGroups.has(p)) coordGroups.set(p, []);
       coordGroups.get(p).push(d);
     }
@@ -2151,7 +2228,6 @@
     }
     return { nodes, projKeys: [], rootIds, maxDepth: 0 };
   }
-
   // Invocation-tree layout: same wrapped vertical bands as the rank view, but
   // roots are the row-1 project hops and every edge is a real invocation
   // (coordinator->hop entry, hop->agent dispatch, agent->agent spawn,

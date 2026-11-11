@@ -111,3 +111,18 @@ code for genuinely unknown future dispatches but renders nothing while empty.
 - **sa56, sa90 → personal-ops** — genuinely personal work, no registered project fits.
 - **crew sa22+sa78 → minecraft** — each dispatch's own deliverable (world regen / closed-loop engine);
   the shared-day crew is named "minecraft ops" instead of the unnamed floor.
+
+## 2026-11-11 dedupe pass (era split + duplicate merge — view-level, rows above unchanged)
+
+Observation: numeric sa dirs were REUSED across conversations — one dir can hold
+many unrelated task eras (sa1: 6 eras 11-03..11-11; sa2: 6; sa27: 2). The manifest
+rows above describe ONE era per dispatch id; the #/org invocation tree now splits
+reused dirs into per-era dispatch nodes (`sa27 · era 1/2`), each labeled/attributed
+from its own first task message (eras = user-message clusters split at >6h gaps,
+state.ts `extractEras`). Manifest rows therefore name the era they describe; where
+a row's id has several eras, the row matches the era whose task text it quotes.
+
+True re-dispatches (same session id, or same dominant task tokens within ±6h —
+e.g. the BoN trios sa13-a/b/c, sa8-a/b/c, the 11-11 project-space scaffolding
+wave) merge into one node with a `·×N` counter in the tree view; the per-dir rows
+above stay the record of each physical dispatch.

@@ -588,6 +588,77 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
   });
 });
 
+describe("era split + duplicate merge (reused dirs, re-dispatched work)", () => {
+  const T0 = NOW - 72 * 3600e3;
+  const REG = [
+    { id: "minecraft", displayName: "Minecraft", aliases: ["minecraft", "mc"], root: "", childProjects: [] },
+    { id: "PiAgents-org", displayName: "Org system", aliases: [], root: "", childProjects: [] },
+  ];
+  test("same-id eras split into separate nodes with their own labels/roles", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa27", {
+        eras: [
+          { label: "You are the operator role. Install the Ponytail methodology into the PiAgents coder subagent", at: T0, lastAt: T0 + 2 * 3600e3 },
+          { label: "Extend the per-turn injected reminder in the pi-web-bridge org page", at: T0 + 30 * 3600e3, lastAt: T0 + 31 * 3600e3 },
+        ],
+      })],
+      REG, null, NOW,
+    );
+    const e1 = m.nodes.get("sa27#1")!;
+    const e2 = m.nodes.get("sa27#2")!;
+    assert.ok(e1 && e2, "two era nodes");
+    assert.match(String(e1.display), /sa27 · era 1\/2/);
+    assert.match(String(e2.display), /sa27 · era 2\/2/);
+    assert.equal(e1.status, "done"); // past eras are done by construction
+    assert.equal(e2.status, "running");
+    // per-era attribution from the ERA's own label: ponytail -> harness, bridge page -> bridge
+    assert.equal(e1.projectKey, "PiAgents.harness");
+    assert.equal(e2.projectKey, "PiAgents.bridge");
+  });
+  test("a child dispatch attaches to the parent ERA whose window contains its spawn", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("saP", {
+        eras: [
+          { label: "minecraft rsi episode work", at: T0, lastAt: T0 + 2 * 3600e3 },
+          { label: "minecraft rsi monitor work", at: T0 + 30 * 3600e3, lastAt: T0 + 31 * 3600e3 },
+        ],
+      }),
+       sub("saC", { spawned_by: "saP", label: "minecraft rsi continuation inside the first era", lastActivity: T0 + 3600e3 })],
+      REG, null, NOW,
+    );
+    const c = m.nodes.get("saC#1") ?? m.nodes.get("saC")!;
+    assert.equal(c.parent, "saP#1"); // the child spawned inside era 1 -> era 1 node
+    const saP1 = m.nodes.get("saP#1")!;
+    assert.equal(saP1.parent, "__hop:__coord__:minecraft"); // which hangs under the minecraft hop
+    assert.ok(!m.nodes.has("saC#2"), "single-era child stays one node");
+  });
+  test("true re-dispatches merge into one node with a count; eras never merge across eras", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa13", { label: "minecraft rsi driver fixes" }),
+       sub("sa13-a", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }),
+       sub("sa13-b", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension (copy B)" }),
+       sub("sa13-c", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap (candidate C)" })],
+      REG, null, NOW,
+    );
+    const merged = m.nodes.get("sa13-a")!;
+    assert.match(String(merged.display), /·×3$/);
+    assert.ok(!m.nodes.has("sa13-b") && !m.nodes.has("sa13-c"), "duplicates folded into one node");
+    assert.ok(String(merged.label).length > 50, "keeps the most informative label");
+  });
+  test("unrelated eras with different labels never merge", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa27", {
+        eras: [
+          { label: "Install the Ponytail methodology into the coder subagent", at: T0, lastAt: T0 + 2 * 3600e3 },
+          { label: "Extend the per-turn injected reminder in the bridge org page", at: T0 + 30 * 3600e3, lastAt: T0 + 31 * 3600e3 },
+        ],
+      })],
+      REG, null, NOW,
+    );
+    assert.ok(m.nodes.has("sa27#1") && m.nodes.has("sa27#2"), "two distinct era nodes, no merge");
+  });
+});
+
 describe("English-only rendering (CJK glosses or falls through)", () => {
   test("orgEnPhrase: known phrases gloss, unknown CJK -> null", () => {
     assert.equal(org.orgEnPhrase("\u7ec4\u4f1a\u6c47\u62a5 docx"), "weekly report docx");

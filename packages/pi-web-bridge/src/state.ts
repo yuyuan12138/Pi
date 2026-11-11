@@ -33,6 +33,8 @@ export interface SubagentView {
   spawned_by: string | null;
   /** Nesting depth from parent-child naming (0 = coordinator-spawned root); null when unknown. */
   depth: number | null;
+  /** Task eras: user-message clusters split at >6h gaps (dirs are REUSED across conversations). */
+  eras?: SubagentEra[];
   /** Compact whole-run usage (additive; omitted until the log scan has warmed). */
   usage?: UsageSummary;
 }
@@ -64,6 +66,50 @@ export interface UsageRecord {
 }
 
 const STATUS_RANK: Record<SubagentStatus, number> = { running: 0, blocked: 1, done: 2 };
+
+/** One task era inside a reused subagent dir: its own task label + time window. */
+export interface SubagentEra {
+  label: string;
+  at: number;
+  lastAt: number;
+}
+
+const ERA_GAP_MS = 6 * 3600e3;
+
+/**
+ * Split a dir's events.jsonl into task eras: every user task message starts or
+ * continues an era; a gap > 6h since the era's start begins a new one (same-dir
+ * eras are UNRELATED work — numeric ids were reused across conversations).
+ * Timestamps come from the user message's own `timestamp` field; messages
+ * without one merge into the current era (no evidence of a gap).
+ */
+function extractEras(evFile: string): SubagentEra[] {
+  let raw: string;
+  try { raw = readFileSync(evFile, "utf8"); } catch { return []; }
+  const msgs: Array<{ ts: number; label: string }> = [];
+  for (const line of raw.split("\n")) {
+    if (!line.includes("message_start")) continue;
+    try {
+      const j = JSON.parse(line) as { type?: string; message?: { role?: string; timestamp?: number; content?: unknown } };
+      if (j.type !== "message_start" || j.message?.role !== "user") continue;
+      const c = j.message.content;
+      const txt = typeof c === "string" ? c : (Array.isArray(c) ? c.map((p) => (p as { text?: string }).text ?? "").join(" ") : "");
+      if (!txt.trim()) continue;
+      msgs.push({ ts: typeof j.message.timestamp === "number" ? j.message.timestamp : 0, label: txt.trim().split("\n")[0].slice(0, 200) });
+    } catch { /* malformed line */ }
+  }
+  msgs.sort((a, b) => a.ts - b.ts);
+  const eras: SubagentEra[] = [];
+  for (const m of msgs) {
+    const last = eras[eras.length - 1];
+    if (last && (m.ts === 0 || m.ts - last.at <= ERA_GAP_MS)) {
+      last.lastAt = Math.max(last.lastAt, m.ts);
+    } else {
+      eras.push({ label: m.label, at: m.ts, lastAt: m.ts });
+    }
+  }
+  return eras;
+}
 
 /** Natural order compare so sa2 sorts before sa10. */
 export function naturalCompare(a: string, b: string): number {
@@ -234,6 +280,7 @@ export class SubagentScanner {
   }
 
   private build(id: string, evFile: string, resFile: string | null, evMtime: number, resMtime: number, ids?: Set<string>): SubagentView {
+    const eras = extractEras(evFile);
     const head = readHead(evFile, HEAD_BYTES);
     const model = /"model":"([^"]+)"/.exec(head)?.[1] ?? null;
     const label = firstUserTaskText(head);
@@ -254,6 +301,7 @@ export class SubagentScanner {
         result: true,
         spawned_by: ancestry.spawnedBy,
         depth: ancestry.depth,
+        eras: eras.length > 1 ? eras : undefined,
         usage,
       };
     }
@@ -272,6 +320,7 @@ export class SubagentScanner {
       result: false,
       spawned_by: ancestry.spawnedBy,
       depth: ancestry.depth,
+      eras: eras.length > 1 ? eras : undefined,
       usage,
     };
   }
