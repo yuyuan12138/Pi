@@ -1208,6 +1208,23 @@
     const d = new Date(ts);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
+  // Humanized date for LABELS (never a raw ISO key): today -> "today",
+  // same-year -> "Nov 11" (en-US short month, no year), older years keep the
+  // year. Returns null for unknown timestamps so callers can omit the segment.
+  const ORG_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function orgHumanDay(ts, nowMs) {
+    if (!Number.isFinite(ts)) return null;
+    const d = new Date(ts);
+    const n = new Date(nowMs);
+    const md = `${ORG_MONTHS[d.getMonth()]} ${d.getDate()}`;
+    if (d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()) return "today";
+    if (d.getFullYear() === n.getFullYear()) return md;
+    return `${md}, ${d.getFullYear()}`;
+  }
+  // A session id "looks real" when it is not a bare date and carries a letter.
+  function orgRealSession(sess) {
+    return typeof sess === "string" && sess.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(sess.trim()) && /[a-z]/i.test(sess) ? sess.trim() : null;
+  }
   // Returns { basis, key, label } — key is unique within a project bucket.
   function orgInstanceKeyOf(s, sessionById) {
     const sess = typeof s?.session === "string" && s.session.trim() ? s.session.trim()
@@ -1366,13 +1383,29 @@
         // session-keyed crews resolve their role from the crew manifest directly,
         // even when member-level evidence is mixed
         const sess = meta.basis === "session" ? meta.label : null;
+        const realSession = orgRealSession(sess);
         const instRole = sess && ORG_CREW_SESSION_ROLES[sess] ? ORG_CREW_SESSION_ROLES[sess]
           : sess && sess.startsWith("role-") ? sess.slice(5)
           : equalRole;
+        // LABEL RULES: never a raw aggregation key. (a) real session id,
+        // (b) manifest role + count, (c) humanized "unnamed · <Mon DD> ·×N".
+        let display;
+        let sub;
+        if (realSession) {
+          display = orgTrunc(realSession, 16);
+          sub = `${instRole || "dispatch"} \u00b7\u00d7${members.length}`;
+        } else if (instRole) {
+          display = orgTrunc(instRole, 16);
+          sub = `instance crew \u00b7\u00d7${members.length}`;
+        } else {
+          const day = orgHumanDay(lastActivity, nowMs);
+          display = day ? `unnamed \u00b7 ${day}` : "unnamed";
+          sub = `instance crew \u00b7\u00d7${members.length}`;
+        }
         const instNode = {
           id: instId, kind: "instance", projectKey: key,
-          display: orgTrunc(meta.label, 15),
-          sub: `${instRole || "\u2014"} \u00b7\u00d7${members.length}`,
+          display,
+          sub,
           role: instRole,
           basis: meta.basis, session: meta.basis === "session" ? meta.label : null,
           count: members.length, lastActivity,
@@ -1423,7 +1456,7 @@
           for (const c of a.children) walk(c, d + 1);
         };
         for (const a of agents.values()) if (!a.parent) walk(a, 0);
-        for (const a of agents.values()) { a.sub = a.role || "\u2014"; nodes.set(a.id, a); }
+        for (const a of agents.values()) { a.sub = a.role || "dispatch"; nodes.set(a.id, a); }
       }
       const instCount = projectNode.children.filter((c) => c.kind === "instance").length;
       projectNode.status = projectNode.children.some((c) => c.status === "running") ? "running" : "done";
