@@ -820,6 +820,7 @@
     <h2>Org Graph</h2>
     <span id="org-meta" class="mono">connecting&hellip;</span>
     <div id="org-zoom" role="group" aria-label="Zoom and layout">
+      <button id="oz-mode" class="ozbtn" type="button" aria-label="Toggle hierarchy mode (invocation tree: project/agent alternate by real spawn lineage; grouped: the classic rank-grouped org chart)" title="Hierarchy: invocation tree (project/agent alternate by real spawn lineage) — click for the grouped org chart">chain</button>
       <button id="oz-layout" class="ozbtn" type="button" aria-label="Toggle layout orientation (vertical: root at top, wrapped rows; horizontal: left-to-right tiers)" title="Layout: vertical (root at top, wrapped rows) — click for horizontal tiers">vert</button>
       <button id="oz-out" class="ozbtn" type="button" aria-label="Zoom out">&minus;</button>
       <span id="oz-val" class="mono tnum" aria-live="off">&ndash;</span>
@@ -1807,7 +1808,7 @@
         const short = orgRoleShort(wh.worker);
         // a CJK work title renders as its ASCII work-dir name instead
         const title = orgEnPhrase(String(wh.title).replace(/^work record\s*[\u2014-]\s*/i, "")) ?? String(wh.dir ?? "");
-        activity = (short ? short + " \u00b7 " : "") + orgTruncW(title, 21);
+        activity = orgTruncW((short ? short + " \u00b7 " : "") + title, 21); // truncate the COMBINED line
       }
       if (!activity) {
         const ordered = bucket.slice().sort((a, b) => (b.sub.lastActivity ?? 0) - (a.sub.lastActivity ?? 0));
@@ -1882,8 +1883,12 @@
       for (const c of kids) visit(c);
     };
     for (const n of model.nodes.values()) n._vis = false;
-    for (const k of model.projKeys) visit(model.nodes.get("__proj:" + k));
-    return { nodes: model.nodes, projKeys: model.projKeys, maxRow, maxSpawnDepth };
+    const rootIds = model.rootIds ?? model.projKeys.map((k) => "__proj:" + k);
+    for (const k of rootIds) {
+      const r = model.nodes.get(k);
+      if (r) visit(r);
+    }
+    return { nodes: model.nodes, projKeys: model.projKeys, rootIds: model.rootIds, maxRow, maxSpawnDepth };
   }
   // Edge geometry: straight when aligned; adjacent bands elbow through the
   // empty gap between them; multi-band (wrapped) edges route through the left
@@ -1917,6 +1922,252 @@
       collapsible: n.collapsible, collapsed: n.collapsed, hiddenCount: n.hiddenCount,
       count: n.count ?? null, basis: n.basis ?? null, session: n.session ?? null,
       dim: n.dim ?? false, memberIds: n.memberIds ?? null,
+    };
+  }
+  // ---------- INVOCATION TREE ----------
+  // The REAL call chain: coordinator -> project hop -> dispatch -> (hop) ->
+  // dispatch, alternating by actual spawn events. Lineage: the server's
+  // spawned_by (parent-child dir naming, state.ts resolveAncestry) with the
+  // client fanout/label derivation as fallback; attribution per dispatch from
+  // orgProjectOf. A dispatch attributed to a DIFFERENT project than its parent
+  // inserts a project-hop node (one per parent+project); same-project children
+  // attach directly under their parent agent; unknown-parent dispatches hang
+  // under their own project hop (no invented lineage).
+  function orgActivityFromDispatches(subs) {
+    const ordered = subs.slice().sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+    for (const s of ordered) {
+      const first = String(s.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim();
+      const en = first ? orgEnPhrase(first) : null;
+      if (!en || !en.trim()) continue;
+      const stripped = orgActivityText(en); // preamble/markdown strip BEFORE truncation
+      if (stripped) return orgTruncW(stripped, 21);
+    }
+    return null;
+  }
+  function orgBuildInvocationTree(subs, registry, view, nowMs, sessionById) {
+    const list = (Array.isArray(subs) ? subs : []).filter((s) => s && typeof s.id === "string");
+    const reg = (Array.isArray(registry) ? registry : []).filter((p) => p && typeof p.id === "string");
+    const regById = new Map(reg.map((p) => [p.id, p]));
+    const ids = new Set(list.map((s) => String(s.id)));
+    const projectOf = new Map();
+    const parentOf = new Map();
+    const hintOf = new Map();
+    for (const s of list) {
+      const id = String(s.id);
+      projectOf.set(id, orgProjectOf(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
+      let parent = typeof s.spawned_by === "string" && s.spawned_by && ids.has(s.spawned_by) ? s.spawned_by : null;
+      if (!parent) {
+        const lin = orgDeriveParent(id, ids);
+        parent = lin.known ? lin.parent : null;
+        if (!lin.known && lin.parent && ids.has(lin.parent)) parent = lin.parent; // derivable but absent is handled below
+      }
+      if (!parent && typeof s.spawned_by === "string" && s.spawned_by) hintOf.set(id, s.spawned_by);
+      parentOf.set(id, parent);
+    }
+    // cycle guard: a lineage loop demotes the dispatch to a root
+    for (const id of ids) {
+      const seen = new Set([id]);
+      let p = parentOf.get(id);
+      while (p) {
+        if (seen.has(p)) { parentOf.set(id, null); break; }
+        seen.add(p);
+        p = parentOf.get(p);
+      }
+    }
+    // view filter: keep the viewed project's dispatches + their ancestor chains
+    let kept = list;
+    if (view) {
+      const keep = new Set();
+      for (const s of list) {
+        if (projectOf.get(String(s.id)) !== view) continue;
+        let p = String(s.id);
+        while (p && !keep.has(p)) { keep.add(p); p = parentOf.get(p) ?? ""; }
+      }
+      kept = list.filter((s) => keep.has(String(s.id)));
+    }
+    const keptIds = new Set(kept.map((s) => String(s.id)));
+    const kids = new Map();
+    const roots = [];
+    for (const s of kept) {
+      const id = String(s.id);
+      const p = parentOf.get(id);
+      if (p && keptIds.has(p)) {
+        if (!kids.has(p)) kids.set(p, []);
+        kids.get(p).push(s);
+      } else roots.push(s);
+    }
+    const sortDispatches = (arr) => arr.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0) || orgNaturalCompare(String(a.id), String(b.id)));
+    for (const arr of kids.values()) sortDispatches(arr);
+    sortDispatches(roots);
+
+    const nodes = new Map();
+    const rootIds = [];
+    const statusOf = (dispatches) => dispatches.some((d) => d.status === "running") ? "running"
+      : dispatches.some((d) => d.status === "blocked") ? "blocked" : "done";
+    const mkDispatch = (s, parentKey, agentDepth, row) => {
+      const id = String(s.id);
+      const role = orgNodeRole(id, s.label, s.session, sessionById);
+      const node = {
+        id, kind: "agent", projectKey: projectOf.get(id),
+        display: orgTrunc(id, 16),
+        sub: `d${agentDepth} \u00b7 ${role || "dispatch"}`,
+        role, depth: agentDepth, row,
+        status: s.status ?? "running", model: s.model ?? null, label: s.label ?? null,
+        session: s.session ?? null, usage: s.usage ?? null, lastActivity: s.lastActivity ?? null,
+        spawnedBy: s.spawned_by ?? null, parentHint: hintOf.get(id) ?? null,
+        parent: parentKey, hostId: null, children: [],
+      };
+      nodes.set(id, node);
+      return node;
+    };
+    const mkHop = (parentKey, project, dispatches, row) => {
+      const hopId = `__hop:${parentKey}:${project}`;
+      const entry = regById.get(project) ?? null;
+      let activity = null;
+      const wh = entry?.work;
+      if (wh && wh.title) {
+        const short = orgRoleShort(wh.worker);
+        const title = orgEnPhrase(String(wh.title).replace(/^work record\s*[\u2014-]\s*/i, "")) ?? String(wh.dir ?? "");
+        activity = orgTruncW((short ? short + " \u00b7 " : "") + title, 21); // truncate the COMBINED line
+      }
+      if (!activity) activity = orgActivityFromDispatches(dispatches);
+      if (!activity && entry?.lastActivity) {
+        const day = orgHumanDay(Date.parse(entry.lastActivity), nowMs);
+        activity = `journal ${entry.lastJournalStatus ? entry.lastJournalStatus + " \u00b7 " : ""}${day ?? "earlier"}`.trim();
+      }
+      const node = {
+        id: hopId, kind: "project", projectKey: project,
+        display: project === ORG_UNATTRIBUTED ? `unattributed \u00b7 ${dispatches.length}` : orgTruncW(String(entry?.displayName || project), 16),
+        sub: activity ?? "no activity yet",
+        registry: entry, status: statusOf(dispatches),
+        count: dispatches.length, parent: parentKey, parentHint: null,
+        depth: null, row, children: [],
+      };
+      nodes.set(hopId, node);
+      return node;
+    };
+    // recursive descent: agents under a parent, cross-project children grouped
+    // into one hop per (parent, project)
+    const attach = (parentKey, parentProject, dispatches, agentDepth, row, host) => {
+      const byProject = new Map();
+      for (const d of dispatches) {
+        const p = projectOf.get(String(d.id));
+        if (p === parentProject) {
+          const node = mkDispatch(d, parentKey, agentDepth, row);
+          host.children.push(node);
+          const childDispatches = kids.get(String(d.id)) ?? [];
+          if (childDispatches.length) attach(node.id, p, childDispatches, agentDepth + 1, row + 1, node);
+        } else {
+          if (!byProject.has(p)) byProject.set(p, []);
+          byProject.get(p).push(d);
+        }
+      }
+      for (const [p, group] of [...byProject.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
+        const hop = mkHop(parentKey, p, group, row);
+        host.children.push(hop);
+        for (const d of group) {
+          const node = mkDispatch(d, hop.id, agentDepth, row + 1);
+          hop.children.push(node);
+          const childDispatches = kids.get(String(d.id)) ?? [];
+          if (childDispatches.length) attach(node.id, p, childDispatches, agentDepth + 1, row + 2, node);
+        }
+      }
+    };
+    // coordinator level: roots grouped by project into row-1 hops
+    const coordGroups = new Map();
+    for (const d of roots) {
+      const p = projectOf.get(String(d.id));
+      if (!coordGroups.has(p)) coordGroups.set(p, []);
+      coordGroups.get(p).push(d);
+    }
+    for (const [p, group] of [...coordGroups.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
+      const hop = mkHop("__coord__", p, group, 1);
+      rootIds.push(hop.id);
+      for (const d of group) {
+        const node = mkDispatch(d, hop.id, 1, 2);
+        hop.children.push(node);
+        const childDispatches = kids.get(String(d.id)) ?? [];
+        if (childDispatches.length) attach(node.id, p, childDispatches, 2, 3, node);
+      }
+    }
+    return { nodes, projKeys: [], rootIds, maxDepth: 0 };
+  }
+
+  // Invocation-tree layout: same wrapped vertical bands as the rank view, but
+  // roots are the row-1 project hops and every edge is a real invocation
+  // (coordinator->hop entry, hop->agent dispatch, agent->agent spawn,
+  // agent->hop sub for a cross-project hop). Handles arbitrary depth: a deep
+  // branch simply extends its band; wrap keeps families contiguous.
+  function orgLayoutTree(model, wrapWidth, isExpanded) {
+    const vis = orgPruneExpanded(model, isExpanded);
+    const L = ORG_LAYOUT;
+    const kindW = (n) => (n.kind === "agent" ? L.nodeW : L.projW);
+    const kindH = (n) => (n.kind === "agent" ? L.nodeH : L.projH);
+    const order = (a, b) => (a.kind === b.kind ? orgNaturalCompare(a.id, b.id) : a.kind === "project" ? -1 : 1);
+    for (const n of model.nodes.values()) if (n.visibleChildren) n.visibleChildren.sort(order);
+    const roots = (vis.rootIds ?? []).map((k) => model.nodes.get(k)).filter((r) => r && r._vis);
+    const byRow = new Map();
+    const dfs = (n) => {
+      if (!byRow.has(n.row)) byRow.set(n.row, []);
+      byRow.get(n.row).push(n);
+      for (const c of n.visibleChildren) dfs(c);
+    };
+    for (const r of roots) dfs(r);
+    const columns = Math.max(1, Math.floor(((wrapWidth || 0) - 2 * L.padX + L.gapX) / (L.nodeW + L.gapX)) || 1);
+    const bandY = new Map();
+    let y = L.padTop + L.subH; // band 0 belongs to the coordinator
+    for (const r of [...byRow.keys()].sort((a, b) => a - b)) {
+      bandY.set(r, y);
+      y += Math.ceil(byRow.get(r).length / columns) * L.subH;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let maxBottom = L.padTop + L.coordH;
+    let row1MinX = Infinity;
+    let row1MaxX = -Infinity;
+    for (const [r, list] of byRow) {
+      const base = bandY.get(r);
+      list.forEach((n, i) => {
+        const col = i % columns;
+        const sub = Math.floor(i / columns);
+        n.x = Math.round(L.padX + col * (L.nodeW + L.gapX) + L.nodeW / 2);
+        n.y = base + sub * L.subH;
+        n.w = kindW(n);
+        n.h = kindH(n);
+        n.childIds = n.visibleChildren.map((c) => c.id);
+        n.collapsible = n.children.length > 0;
+        n.collapsed = n.collapsible && n.visibleChildren.length === 0;
+        n.hiddenCount = n.collapsed ? orgHiddenCount(n) : 0;
+        minX = Math.min(minX, n.x - kindW(n) / 2);
+        maxX = Math.max(maxX, n.x + kindW(n) / 2);
+        maxBottom = Math.max(maxBottom, n.y + kindH(n));
+        if (r === 1) { row1MinX = Math.min(row1MinX, n.x - kindW(n) / 2); row1MaxX = Math.max(row1MaxX, n.x + kindW(n) / 2); }
+      });
+    }
+    const coordX = Number.isFinite(row1MinX) ? Math.round((row1MinX + row1MaxX) / 2) : Math.round(L.padX + L.nodeW / 2);
+    const width = Math.round(Math.max(coordX + L.coordW / 2, Number.isFinite(maxX) ? maxX : 0) + L.padX + 14);
+    const height = roots.length ? maxBottom + L.padBottom : L.padTop + L.coordH + L.padBottom;
+    const coord = { id: "__coord__", x: coordX, y: L.padTop, w: L.coordW, h: L.coordH };
+    const edges = [];
+    for (const r of roots) edges.push({ from: "__coord__", to: r.id, kind: "entry", dashed: false, d: orgEdgeD(coord, r, "v") });
+    for (const [, list] of byRow) {
+      for (const n of list) {
+        for (const c of n.visibleChildren) {
+          // every edge is an invocation: hop->agent dispatches INTO the work,
+          // agent->agent spawns, agent->hop crosses into another project
+          const kind = c.kind === "project" ? "sub" : n.kind === "project" ? "dispatch" : "spawn";
+          edges.push({ from: n.id, to: c.id, kind, dashed: false, d: orgEdgeD(n, c, "v") });
+        }
+      }
+    }
+    return {
+      nodes: [...model.nodes.values()]
+        .filter((n) => n._vis)
+        .sort((a, b) => a.y - b.y || a.x - b.x || orgNaturalCompare(a.id, b.id))
+        .map((n) => orgNodeOut(n, kindW(n), kindH(n))),
+      edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
+      coordinator: coord,
+      width, height, maxDepth: vis.maxSpawnDepth,
     };
   }
   // Deterministic tidy-tree layout over the full hierarchy: leaves take
@@ -2075,6 +2326,7 @@
         .sort((a, b) => a.y - b.y || a.x - b.x || orgNaturalCompare(a.id, b.id))
         .map((n) => orgNodeOut(n, kindW(n), kindH(n))),
       edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
+      coordinator: coord,
       width, height, maxDepth: vis.maxSpawnDepth,
     };
   }
@@ -3152,7 +3404,10 @@
     const n = org.fullModel?.nodes.get(id);
     if (!n) return true;
     if (n.kind === "instance") return false;
-    return n.row <= ORG_DEFAULT_EXPAND_ROW;
+    // the invocation tree opens one extra band so a cross-project hop and its
+    // dispatches are visible without clicks (the acceptance chain)
+    const limit = org.mode === "rank" ? ORG_DEFAULT_EXPAND_ROW : ORG_DEFAULT_EXPAND_ROW + 1;
+    return n.row <= limit;
   }
 
   function orgSync(subs) {
@@ -3231,14 +3486,24 @@
       if (c && typeof c.id === "string" && typeof c.session === "string" && c.session.trim()) sessionById.set(c.id, c.session.trim());
     }
     const { keys, groups } = orgGroupByProject(subs, state.projects, sessionById);
-    const pool = org.view === "__all__" ? subs : (groups.get(org.view) ?? []);
-    const fullModel = orgBuildModel(pool, bridge, state.projects, org.view === "__all__" ? null : org.view, Date.now(), sessionById);
+    // MODE: "tree" (default) renders the real invocation chain —
+    // coordinator -> project hop -> dispatch -> (hop) -> dispatch, arbitrary
+    // depth, by actual spawn lineage. "rank" keeps the old grouped org chart.
+    const mode = org.mode === "rank" ? "rank" : "tree";
+    const view = org.view === "__all__" ? null : org.view;
+    const pool = mode === "tree" ? subs : (org.view === "__all__" ? subs : (groups.get(org.view) ?? []));
+    let fullModel;
+    if (mode === "tree") {
+      fullModel = orgBuildInvocationTree(subs, state.projects, view, Date.now(), sessionById);
+    } else {
+      fullModel = orgBuildModel(pool, bridge, state.projects, view, Date.now(), sessionById);
+    }
     org.fullModel = fullModel;
     // surface attribution gaps once per unique crew set so the snapshot
     // tables can be extended instead of failing silently — but only after the
     // /projects registry has loaded (the first render runs against an empty
     // registry and would log false gaps)
-    const unattr = fullModel.nodes.get("__proj:" + ORG_UNATTRIBUTED);
+    const unattr = mode === "rank" ? fullModel.nodes.get("__proj:" + ORG_UNATTRIBUTED) : null;
     if (Array.isArray(state.projects) && state.projects.length) {
       const ids = ((unattr?.children ?? []))
         .flatMap((c) => c.memberIds ?? []);
@@ -3252,9 +3517,11 @@
     // the click handlers): structural row <= 2, EXCEPT instance nodes — the
     // aggregate layer starts collapsed, dispatches hide until expanded
     const effExpanded = (id) => (org.expand.has(id) ? org.expand.get(id) : orgDefaultExpanded(id));
-    const model = org.layout === "v"
-      ? orgLayoutVertical(fullModel, Math.max($("#org-viewport").clientWidth, 200), effExpanded)
-      : orgLayoutModel(fullModel, effExpanded);
+    const model = mode === "tree"
+      ? orgLayoutTree(fullModel, Math.max($("#org-viewport").clientWidth, 200), effExpanded)
+      : org.layout === "v"
+        ? orgLayoutVertical(fullModel, Math.max($("#org-viewport").clientWidth, 200), effExpanded)
+        : orgLayoutModel(fullModel, effExpanded);
     org.model = model;
     const svg = $("#orgsvg");
     svg.setAttribute("width", String(model.width));
@@ -3373,7 +3640,10 @@
         continue;
       }
       const g = cardNode(n, "agent", HUES.agent, n.sub, n.status);
-      g.querySelector("title").textContent = [n.id, n.role ? "role " + n.role : null, n.label, n.model].filter(Boolean).join("\n");
+      // tooltip: sanitized task text only — raw labels carry ISO dates and
+      // Chinese sections and would leak into rendered SVG title text
+      const tipTask = orgActivityText(orgEnPhrase(String(n.label ?? "")) ?? "") ?? "(task text not renderable)";
+      g.querySelector("title").textContent = [n.id, n.role ? "role " + n.role : null, tipTask, n.model].filter(Boolean).join("\n");
       nodesG.append(g);
     }
     // ▸/▾ branch toggles: separate hit areas (never trigger node select)
@@ -3453,6 +3723,12 @@
   $("#oz-in").addEventListener("click", () => orgZoomTo(org.appliedScale * 1.3));
   $("#oz-out").addEventListener("click", () => orgZoomTo(org.appliedScale / 1.3));
   $("#oz-fit").addEventListener("click", () => { org.zoom = 1; applyOrgScale(); });
+  $("#oz-mode").addEventListener("click", () => {
+    org.mode = org.mode === "rank" ? "tree" : "rank";
+    $("#oz-mode").textContent = org.mode === "tree" ? "chain" : "ranks";
+    org.expand.clear();
+    renderOrg();
+  });
   $("#oz-layout").addEventListener("click", () => {
     org.layout = org.layout === "v" ? "h" : "v";
     $("#oz-layout").textContent = org.layout === "v" ? "vert" : "horiz";

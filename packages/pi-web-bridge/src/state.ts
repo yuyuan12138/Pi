@@ -29,6 +29,10 @@ export interface SubagentView {
   lastExcerpt: string;
   /** result.md exists (subagent reached a terminal state). */
   result: boolean;
+  /** Spawn parent dispatch id from parent-child dir naming (e.g. "sa2" for "sa2-sa1"); null for roots. */
+  spawned_by: string | null;
+  /** Nesting depth from parent-child naming (0 = coordinator-spawned root); null when unknown. */
+  depth: number | null;
   /** Compact whole-run usage (additive; omitted until the log scan has warmed). */
   usage?: UsageSummary;
 }
@@ -184,6 +188,7 @@ export class SubagentScanner {
   scan(dir: string): SubagentView[] {
     let names: string[];
     try { names = readdirSync(dir); } catch { return []; }
+    const idSet = new Set(names.filter((n) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(n)));
     const out: SubagentView[] = [];
     for (const name of names) {
       if (name === "sessions" || name === "worktrees") continue;
@@ -204,10 +209,16 @@ export class SubagentScanner {
           const s = usageStats(evFile);
           if (s) cached.view.usage = { totalTokens: s.tokens.total, costTotal: s.tokens.cost, toolCalls: s.toolCalls };
         }
+        // Ancestry backfill for views cached before spawned_by existed.
+        if (cached.view.spawned_by === undefined) {
+          const a = resolveAncestry(name, idSet, new Map());
+          cached.view.spawned_by = a.spawnedBy;
+          cached.view.depth = a.depth;
+        }
         out.push(cached.view);
         continue;
       }
-      const view = this.build(name, evFile, res ? resFile : null, ev.mtimeMs, res ? res.mtimeMs : 0);
+      const view = this.build(name, evFile, res ? resFile : null, ev.mtimeMs, res ? res.mtimeMs : 0, idSet);
       this.cache.set(name, { evMtimeMs: ev.mtimeMs, evSize: ev.size, resMtimeMs: res?.mtimeMs ?? 0, view });
       out.push(view);
     }
@@ -222,7 +233,7 @@ export class SubagentScanner {
     return { totalTokens: s.tokens.total, costTotal: s.tokens.cost, toolCalls: s.toolCalls };
   }
 
-  private build(id: string, evFile: string, resFile: string | null, evMtime: number, resMtime: number): SubagentView {
+  private build(id: string, evFile: string, resFile: string | null, evMtime: number, resMtime: number, ids?: Set<string>): SubagentView {
     const head = readHead(evFile, HEAD_BYTES);
     const model = /"model":"([^"]+)"/.exec(head)?.[1] ?? null;
     const label = firstUserTaskText(head);
@@ -234,12 +245,15 @@ export class SubagentScanner {
       // Slop tolerates fixture/fs ordering where events.jsonl is touched last
       // within the same second as the result.
       const raw = readTail(resFile, 8192);
+      const ancestry = ids ? resolveAncestry(id, ids, new Map()) : { spawnedBy: null, depth: null };
       return {
         id, label, session: null, model,
         status: "done",
         lastActivity: Math.max(evMtime, resMtime),
         lastExcerpt: excerpt(raw, EXCERPT_CHARS),
         result: true,
+        spawned_by: ancestry.spawnedBy,
+        depth: ancestry.depth,
         usage,
       };
     }
@@ -249,12 +263,15 @@ export class SubagentScanner {
     // No result and no fresh events: the worker stopped reporting (killed/aborted
     // without a receipt). Surface as blocked instead of an eternal green "running".
     const stale = !resFile && Date.now() - evMtime > STALE_RUNNING_MS;
+    const ancestry = ids ? resolveAncestry(id, ids, new Map()) : { spawnedBy: null, depth: null };
     return {
       id, label, session: null, model,
       status: report?.status === "blocked" || stale ? "blocked" : "running",
       lastActivity: evMtime,
       lastExcerpt: text ? excerpt(text, EXCERPT_CHARS) : excerpt(report?.summary ?? "", EXCERPT_CHARS),
       result: false,
+      spawned_by: ancestry.spawnedBy,
+      depth: ancestry.depth,
       usage,
     };
   }

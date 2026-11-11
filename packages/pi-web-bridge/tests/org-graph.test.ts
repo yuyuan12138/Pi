@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgBuildInvocationTree, orgLayoutTree, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -43,6 +43,17 @@ const org = new Function(
   orgFitCrewLabel: (base: unknown, count: number) => string;
   orgEnPhrase: (s: unknown) => string | null;
   orgActivityText: (s: unknown) => string | null;
+  orgBuildInvocationTree: (subs: Array<Record<string, unknown>>, registry: Array<Record<string, unknown>> | null, view: string | null, nowMs?: number, sessionById?: Map<string, string> | null) => {
+    nodes: Map<string, Record<string, unknown> & { id: string; kind: string; parent: string | null; children: Array<unknown>; row: number; sub?: string | null; display?: string | null; depth?: number | null; x?: number; y?: number }>;
+    projKeys: string[];
+    rootIds: string[];
+  };
+  orgLayoutTree: (model: unknown, wrapWidth: number, isExpanded: (id: string) => boolean) => {
+    nodes: Array<Record<string, unknown> & { id: string; x?: number; y?: number }>;
+    edges: Array<{ from: string; to: string; kind: string; key: string }>;
+    width: number;
+    height: number;
+  };
   orgGroupByProject: (subs: Array<Record<string, unknown>>, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => { keys: string[]; groups: Map<string, Array<Record<string, unknown>>> };
   orgProjectHue: (name: string | null) => number;
   orgLabelPrefix: (label: string | null) => string | null;
@@ -456,6 +467,81 @@ describe("activity preamble stripping", () => {
       "bridge", registry, "alpha", NOW,
     );
     assert.ok(String(m.nodes.get("__proj:alpha")!.sub).startsWith("Fix the parser queue"));
+  });
+});
+
+describe("invocation tree (project/agent alternate by real spawn lineage)", () => {
+  const REG = [
+    { id: "minecraft", displayName: "Minecraft", aliases: ["minecraft", "mc"], root: "", subprojects: [] },
+  ];
+  test("spawn lineage nests a dispatch under its parent dispatch, not at rank 2", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa8", { label: "Run the minecraft rsi episode loop" }),
+       sub("sa8-a", { spawned_by: "sa8", label: "Remove the recursive-spawn depth cap in pi-superagent" })],
+      REG, null, NOW,
+    );
+    assert.ok(m.nodes.has("__hop:__coord__:minecraft"), "coordinator -> minecraft hop");
+    const sa8 = m.nodes.get("sa8")!;
+    assert.equal(sa8.parent, "__hop:__coord__:minecraft");
+    assert.equal(sa8.row, 2);
+    assert.ok(String(sa8.sub).startsWith("d1 · "), `sub=${sa8.sub}`);
+    assert.ok(m.nodes.has("__hop:sa8:PiAgents.harness"), "cross-project hop inserted under sa8");
+    const sa8a = m.nodes.get("sa8-a")!;
+    assert.equal(sa8a.parent, "__hop:sa8:PiAgents.harness"); // nested, NOT at row 2
+    assert.equal(sa8a.row, 4);
+    assert.ok(String(sa8a.sub).startsWith("d2 · "), `sub=${sa8a.sub}`);
+  });
+  test("cross-project children share ONE hop; same-project children attach directly", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa8", { label: "Run the minecraft rsi episode loop" }),
+       sub("sa8-a", { spawned_by: "sa8", label: "Remove the recursive-spawn depth cap in pi-superagent" }),
+       sub("sa8-b", { spawned_by: "sa8", label: "BoN: also remove the depth cap" }),
+       sub("sa8-c", { spawned_by: "sa8", label: "pi-superagent cap removal, third candidate" }),
+       sub("sa8-x", { spawned_by: "sa8", label: "minecraft rsi continuation work" })],
+      REG, null, NOW,
+    );
+    const hop = m.nodes.get("__hop:sa8:PiAgents.harness")!;
+    const kids = (hop.children as Array<{ id: string }>).map((c) => c.id).sort();
+    assert.deepEqual(kids, ["sa8-a", "sa8-b", "sa8-c"]); // fanout shares the hop + parent
+    const sa8x = m.nodes.get("sa8-x")!;
+    assert.equal(sa8x.parent, "sa8"); // same-project child attaches DIRECTLY
+  });
+  test("unknown-parent dispatch hangs under its project hop (no invented lineage)", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa22", { label: "minecraft rsi regen world" }), sub("sa23", { label: "minecraft rsi monitor episode" })],
+      REG, null, NOW,
+    );
+    const hop = m.nodes.get("__hop:__coord__:minecraft")!;
+    const kids = (hop.children as Array<{ id: string }>).map((c) => c.id).sort();
+    assert.deepEqual(kids, ["sa22", "sa23"]); // both roots under one hop
+  });
+  test("view filter keeps the viewed project's dispatches + ancestor chains", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa8", { label: "Run the minecraft rsi episode loop" }),
+       sub("sa8-a", { spawned_by: "sa8", label: "Remove the recursive-spawn depth cap in pi-superagent" })],
+      REG, "PiAgents.harness", NOW,
+    );
+    assert.ok(m.nodes.has("sa8-a"), "kept");
+    assert.ok(m.nodes.has("sa8"), "ancestor chain kept");
+    const mcHop = m.nodes.get("__hop:__coord__:minecraft");
+    assert.ok(mcHop && (mcHop.children as Array<{ id: string }>).length === 1, "minecraft hop keeps only the ancestor chain (sa8)");
+  });
+  test("layout: arbitrary depth wraps and bounds; edges are invocations", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa8", { label: "Run the minecraft rsi episode loop" }),
+       sub("sa8-a", { spawned_by: "sa8", label: "Remove the recursive-spawn depth cap in pi-superagent" })],
+      REG, null, NOW,
+    );
+    const laid = org.orgLayoutTree(m, 1200, () => true);
+    const byId = new Map(laid.nodes.map((n) => [n.id, n]));
+    const hop = byId.get("__hop:__coord__:minecraft")!;
+    const sa8 = byId.get("sa8")!;
+    const deepHop = byId.get("__hop:sa8:PiAgents.harness")!;
+    assert.ok((sa8.y ?? 0) > (hop.y ?? 0) && (deepHop.y ?? 0) > (sa8.y ?? 0), "alternating rows descend");
+    const kinds = laid.edges.map((e) => e.kind);
+    assert.ok(kinds.includes("entry") && kinds.includes("dispatch") && kinds.includes("sub"), kinds.join(","));
+    assert.equal(laid.edges.every((e) => e.key === e.from + ">" + e.to), true);
+    assert.ok(laid.width <= 1200 + 60, `width ${laid.width}`);
   });
 });
 
