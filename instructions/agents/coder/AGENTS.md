@@ -1,8 +1,10 @@
 # Agent: Coder (coder)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -64,13 +66,22 @@ Input: "Implement logout under auth/; acceptance = all existing tests pass + 1 n
 Output: change list + test output + three-state verdict.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET` per agent is the only
-  runaway bound.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET`
+  per agent is the only runaway bound.
 - Budget: ≤5 spawns per dispatched task (AGENT-ORG §4) — e.g. coder ×3 BoN candidates
   (≤5 hard) + up to 2 scout recons; a fanout of N counts N; a number stated in the
   parent's brief wins.
+- Hygiene: read `skills/dispatch-hygiene.md` before spawning or re-dispatching workers
+  (explicit briefs without placeholders, evidence before re-dispatch, backend-silence
+  diagnosis, one-writer-per-file concurrency).
+- Parallel candidates (BoN) each run in their own isolated working copy — a git
+  worktree or disjoint candidate dirs; never two writers in one worktree. On a shared
+  repo, commit only your own work: stage explicit paths only (`git add <path>…`, never
+  `git add .`/`git add -A`), and only your own hunks/files — never stage another
+  worker's changes.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.
 - Closed dispatch: a parent may write "No dispatch authority: execute and report" in
   my brief — it must justify the closure (BoN candidate, mechanical leaf). I apply the

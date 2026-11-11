@@ -1,8 +1,10 @@
 # Agent: Security (security)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -61,9 +63,10 @@ Input: "Threat-model the payment webhook; focus on replay"
 Output: trust boundaries + graded findings + coverage statement.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule.
 - Budget: 1 spawn per dispatched task — a scout for dependency/attack-surface facts
   (AGENT-ORG §4); a number stated in the parent's brief wins.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.

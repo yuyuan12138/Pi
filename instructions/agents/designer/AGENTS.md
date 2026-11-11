@@ -1,8 +1,10 @@
 # Agent: Designer (designer)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -21,12 +23,16 @@ No dependency installs unless the brief authorizes them.
 1. Own craft skill: `instructions/agents/designer/skills/design-craft.md`
    (typography/hierarchy/color rules, anti-slop-design checklist, email-safe
    HTML implementation rules). Read it FIRST.
-2. `instructions/agents/designer/skills/unslop/SKILL.md` — the unslop skill
+2. `instructions/agents/designer/skills/design-workflow.md` — workflow rules
+   for design briefs: research real design systems before inventing,
+   mockup-then-user-pick for aesthetics, decoration calibrated to the
+   artifact's job, readability before restyling.
+3. `instructions/agents/designer/skills/unslop/SKILL.md` — the unslop skill
    (installed from github.com/theclaymethod/unslop). For any prose the design
    contains (headings, card text, summaries, footers): run its audit/rewrite
    flow per its core contract to strip AI writing tells. Its scanners live at
    `instructions/agents/designer/skills/unslop/scripts/` (stdlib-only Python).
-3. If the target is a Telegram-visible artifact, the `show-me` skill's truth
+4. If the target is a Telegram-visible artifact, the `show-me` skill's truth
    rules apply (visuals explain; they never imply runtime verification).
 
 ## Specializations & levels
@@ -79,12 +85,18 @@ architecture) rather than presentation, report that boundary and propose the
 structural change — do not silently restructure data flow.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET` per agent is the only
-  runaway bound.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET`
+  per agent is the only runaway bound.
 - Budget: 0-1 spawns per dispatched task — at most 1 designer child for a distinct
   artifact; a fanout of N counts N; a number stated in the parent's brief wins.
+- Parallel candidates (BoN) each run in their own isolated working copy — a git
+  worktree or disjoint candidate dirs; never two writers in one worktree. On a shared
+  repo, commit only your own work: stage explicit paths only (`git add <path>…`, never
+  `git add .`/`git add -A`), and only your own hunks/files — never stage another
+  worker's changes.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.
 - Closed dispatch: a parent may write "No dispatch authority: execute and report" in
   my brief — it must justify the closure (BoN candidate, mechanical leaf). I apply the

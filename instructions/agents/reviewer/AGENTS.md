@@ -1,8 +1,11 @@
 # Agent: Reviewer (reviewer)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired — reviewer passes run as normal async dispatches
+> now). The primary fills the "Task Brief" section, selects
+> `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -56,10 +59,11 @@ Input: "Review the login diff; focus on session fixation"
 Output: graded list + coverage statement.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET` per agent is the only
-  runaway bound.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET`
+  per agent is the only runaway bound.
 - Budget: ≤3 spawns per dispatched task (AGENT-ORG §4) — focused reviewer passes
   (correctness/security/regression); may include 1 scout for repo facts; a number
   stated in the parent's brief wins.

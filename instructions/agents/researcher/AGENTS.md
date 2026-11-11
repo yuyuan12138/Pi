@@ -1,8 +1,10 @@
 # Agent: Researcher (researcher)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -56,10 +58,11 @@ Input: "Survey Voyager's skill-library mechanism"
 Output: 3-5 linked conclusions + items to verify.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET` per agent is the only
-  runaway bound.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET`
+  per agent is the only runaway bound.
 - Budget: 1 spawn per dispatched task — a scout for repo-side facts (AGENT-ORG §4); a
   fanout of N counts N; a number stated in the parent's brief wins.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.
@@ -84,3 +87,12 @@ Output: 3-5 linked conclusions + items to verify.
 ## Experience Log
 See `instructions/agents/researcher/records/experience.md` (accumulated across
 projects; appended by the primary conversation after verified results).
+
+Knowledge-base support (KB-adjacent role): propose verified transferable
+findings (with source links) in your report — the coordinator appends them
+to the role ledger, `knowledge-base/daily/`, and wiki topic pages. For
+KB-facing work: `python3 tools/memory_doctor.py` (contradiction sweep),
+`python3 tools/skills_doctor.py` (skill-file health),
+`python3 knowledge-base/scripts/compile_kb.py` (index + lint); `scope:
+global` promotion is fail-closed (≥2 distinct projects + `approval:
+user-approved`) — propose, never bypass the gate.

@@ -1,8 +1,10 @@
 # Agent: Scout (scout)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -14,6 +16,9 @@ A clean-context reconnaissance specialist. Answers "what is here, where is it, h
 
 ## Skills (read before working)
 - Own skill: `instructions/agents/scout/skills/structure-map.md` (read it first)
+- Evidence provenance: `instructions/agents/scout/skills/evidence-provenance.md`
+  — mark every reported fact `verified` (read this session) vs `knowledge`
+  (recalled background, not verified here).
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
@@ -57,10 +62,11 @@ Input: "Where is login handled and how are sessions stored?"
 Output: 3 findings + file location list + open questions, ~300-600 words.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET` per agent is the only
-  runaway bound.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET`
+  per agent is the only runaway bound.
 - Budget: 0 spawns — leaf profile (it reads and reports; nothing below it). A number
   stated in the parent's brief wins; a fanout of N counts N.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.

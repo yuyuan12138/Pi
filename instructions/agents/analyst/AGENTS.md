@@ -1,8 +1,10 @@
 # Agent: Analyst (analyst)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -61,9 +63,10 @@ Input: "Did variant B beat A? Here is the run log"
 Output: verdict + metric table + run-count honesty statement + cost accounting.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule.
 - Budget: 1 spawn per dispatched task — a scout to locate datasets/metric definitions
   (AGENT-ORG §4); a number stated in the parent's brief wins.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.
@@ -88,3 +91,12 @@ Output: verdict + metric table + run-count honesty statement + cost accounting.
 ## Experience Log
 See `instructions/agents/analyst/records/experience.md` (accumulated across
 projects; appended by the primary conversation after verified results).
+
+Knowledge-base support (KB-adjacent role): propose verified transferable
+lessons in your report — the coordinator appends them to the role ledger and
+`knowledge-base/daily/`. For KB-facing work the brief names: contradiction-
+check claims with `python3 tools/memory_doctor.py` (read-only sweep), check
+referenced skill files with `python3 tools/skills_doctor.py`, and regenerate
+the index with `python3 knowledge-base/scripts/compile_kb.py`; `scope: global`
+promotion is fail-closed (needs ≥2 distinct projects + `approval:
+user-approved`) — propose, never bypass the gate.

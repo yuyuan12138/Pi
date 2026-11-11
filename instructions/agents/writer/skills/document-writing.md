@@ -40,6 +40,14 @@ much technical detail." Operationalized as three rules:
     explanation (e.g. "protection mechanism (keeps the service from being
     killed by mistake)")
 
+## Language by audience (org rule, 2026-11-05)
+- Agent-authored published docs (README, ADR, runbook, spec — anything
+  other agents or future maintainers read): written in English.
+- Deliverables whose audience is the user (Feishu documents, chat
+  reports, user guides): written in the user's language.
+- The plain-language style rules above apply to both; only the language
+  differs.
+
 ## Feishu document delivery flow (with known pitfalls)
 
 1. **Create the document**: read credentials from the path the task brief

@@ -1,8 +1,10 @@
 # Agent: Tester (tester)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -63,11 +65,17 @@ Input: "Regression-test the expired-token fix in auth/; coverage = refresh path"
 Output: failing-then-passing tests + run output + coverage statement + flaky notes.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule.
 - Budget: up to 2 spawns per dispatched task — scouts for repo/test-suite facts
   (AGENT-ORG §4); a fanout of N counts N; a number stated in the parent's brief wins.
+- Parallel candidates (BoN) each run in their own isolated working copy — a git
+  worktree or disjoint candidate dirs; never two writers in one worktree. On a shared
+  repo, commit only your own work: stage explicit paths only (`git add <path>…`, never
+  `git add .`/`git add -A`), and only your own hunks/files — never stage another
+  worker's changes.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.
 - Closed dispatch: a parent may write "No dispatch authority: execute and report" in
   my brief — it must justify the closure (BoN candidate, mechanical leaf). I apply the

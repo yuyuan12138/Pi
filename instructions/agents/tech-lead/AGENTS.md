@@ -1,8 +1,10 @@
 # Agent: Tech Lead (tech-lead)
 
-> This file is the task-brief template the primary conversation passes to
-> `subagent`. The primary fills the "Task Brief" section, sets the `tools`
-> parameter to match Tools below, and sets the child CWD to the target project.
+> This file is the task-brief template the primary conversation passes to a
+> worker via `subagent_spawn` (async background dispatch; the synchronous
+> `subagent` tool is retired). The primary fills the "Task Brief" section,
+> selects `model: "training-coder/GLM-5.3-Flash"` explicitly, sets the `tools`
+> allowlist to match Tools below, and sets the child CWD to the target project.
 > Sessions are one-shot by default; use `session` only when continuation is
 > explicitly useful.
 
@@ -61,11 +63,17 @@ Input: "Lead the auth subtree: token refresh + session storage; budget 4"
 Output: decomposition + child briefs + consolidated report with evidence table.
 
 ## Dispatch Authority
-- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
-  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
-  same rule.
+- DEFAULT: I may decompose and spawn child subagents via `subagent_spawn` (async
+  background; `model: "training-coder/GLM-5.3-Flash"` unless the brief states another
+  model), each briefed with restated goal + boundaries + acceptance criteria (§2 of
+  AGENT-ORG.md) and this same rule.
 - Budget: workers per the §5.2 default — budget-bounded, a number stated in the
   parent's brief wins; a fanout of N counts N.
+- Parallel candidates (BoN) each run in their own isolated working copy — a git
+  worktree or disjoint candidate dirs; never two writers in one worktree. On a shared
+  repo, commit only your own work: stage explicit paths only (`git add <path>…`, never
+  `git add .`/`git add -A`), and only your own hunks/files — never stage another
+  worker's changes.
 - Profile: this card's skills/standards govern me and, by default, the children I brief.
 - Closed dispatch: a parent may write "No dispatch authority: execute and report" in
   my brief — it must justify the closure (BoN candidate, mechanical leaf). I apply the
@@ -88,3 +96,12 @@ Output: decomposition + child briefs + consolidated report with evidence table.
 ## Experience Log
 See `instructions/agents/tech-lead/records/experience.md` (accumulated across
 projects; appended by the primary conversation after verified results).
+
+Knowledge-base support (KB-adjacent role; harvest obligation): a subtree
+closed without proposing its transferable lessons is an incomplete UP-CHECK
+closure. Propose verified lessons for the role ledger and
+`knowledge-base/daily/`; for KB-facing work: `python3 tools/memory_doctor.py`
+(contradiction sweep, read-only), `python3 tools/skills_doctor.py` (skill-file
+health), `python3 knowledge-base/scripts/compile_kb.py` (index + lint);
+`scope: global` promotion is fail-closed (≥2 distinct projects + `approval:
+user-approved`) — propose, never bypass the gate.
