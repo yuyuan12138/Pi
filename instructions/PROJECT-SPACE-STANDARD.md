@@ -43,7 +43,8 @@ changes.
 **Required sections**: What this is (2–4 lines) · Current status (table, §7) ·
 How it works (2–3 lines + link to architecture) · Map of this directory (one
 line per top-level path) · Conventions (5–8 bullets: git rules, record paths,
-verification rule, docs/live boundary).
+verification rule, docs/live boundary) · Crew (§10: owned instances, one-line
+scope each).
 **Length**: ≤150 lines.
 **Mini-example** (sample README, status table — State is verifiable against the
 cited Source):
@@ -159,7 +160,8 @@ Template: `templates/postmortem.template.md`.
 was delivered, what verifies it, what is open.
 **When**: every dispatch (docs, code, ops). Written by the worker; linked from
 the README status table when the task changes status.
-**Required header fields**: Date · Task · Dispatched-by · Worker · Status
+**Required header fields**: Date · Task · Dispatched-by · Worker · Brief header
+(`[project:<name>[.<subproject>]]` — must match the brief's) · Status
 (`delivered | delivered-unverified | blocked | failed`).
 **Required body sections**: Task brief (2–6 lines) · Delivered (exact file
 list) · Verification evidence (commands run, checks passed, sources
@@ -258,7 +260,9 @@ Charter skeleton (inline in v1; no separate template file):
 Status: active | done (archived <date>)
 Goal: <one sentence — what this branch must deliver>
 Parent: <pointer to the parent charter section / ADR that graduated it>
-Owned subagents: <profile[.spec]@<project>.<name> entries, one per line>
+Identity header: [project:<parent>.<name>]
+## Crew
+- <profile[.spec]@<project>.<name>> — <one-line scope>
 Conventions: inherits the parent project space (§1–§8); work/ uses the parent RECORD template.
 ```
 
@@ -266,7 +270,13 @@ Rules:
 
 - **Attribution**: dispatch ids extend to
   `role-<name>[.<spec>]@<project>.<subproject>` (e.g. `role-coder@minecraft.furnace`);
-  the work-record `Worker` / `Dispatched-by` fields carry it.
+  the work-record `Worker` / `Dispatched-by` fields carry it, and every brief opens
+  with the identity header that the RECORD cites (§6).
+- **Who works on it (two layers)**: the durable **Crew** section in the charter
+  (updated when the owned instance set changes; parent projects keep theirs in the
+  project README, §1) + per-dispatch **provenance** in each RECORD (instance ids,
+  brief pointer, outcome); the coordinator journal's projectId attribution is the
+  automatic ephemeral layer (no code work in v1).
 - **Archive on completion**: write the closing postmortem/summary in the subproject,
   merge lessons UP into the parent's memory tier (parent ADR or KB daily entry), set
   `Status: done`; the directory stays as history — nothing is deleted.
