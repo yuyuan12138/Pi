@@ -1802,13 +1802,13 @@
 
   // ---------- projects panel (GET /projects) ----------
   // Registered coordinator projects + working status. "working" = latest
-  // journal activity < 30 min; "idle" otherwise; "no data" when the project
-  // has no attributable journal rows. Polls on the state cadence.
+  // journal activity < 30 min; "idle" otherwise (incl. never dispatched);
+  // "no data" only when the whole DB read degraded (API returns a note).
   const PROJECT_WORKING_MS = 30 * 60 * 1000;
   let projectsSig = "\u00b7"; // forces the first render
   function projectChipState(p) {
     const t = p.lastActivity ? Date.parse(p.lastActivity) : NaN;
-    if (!Number.isFinite(t)) return "no data";
+    if (!Number.isFinite(t)) return "idle";
     return Date.now() - t < PROJECT_WORKING_MS ? "working" : "idle";
   }
   const pollProjects = withInFlight(async () => {
@@ -1833,6 +1833,7 @@
       const state = document.createElement("span");
       state.className = "pstate" + (chip === "working" ? " working" : chip === "no data" ? " nodata" : "");
       state.textContent = chip;
+      if (chip === "working") state.title = "journal activity in the last 30 min";
       const sub = document.createElement("span");
       sub.className = "card-sub";
       sub.textContent = p.root || "";
