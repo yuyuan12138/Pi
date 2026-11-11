@@ -1100,6 +1100,14 @@
     }
     return s;
   }
+  function orgLabelUnits(s) {
+    let units = 0;
+    for (const ch of String(s ?? "")) {
+      const c = ch.codePointAt(0) ?? 0;
+      units += (c >= 0x2e80 && c <= 0x9fff) || (c >= 0xff00 && c <= 0xffef) || (c >= 0x3000 && c <= 0x303f) ? 2 : 1;
+    }
+    return units;
+  }
   const ORG_ROLES = ["scout", "researcher", "planner", "coder", "operator", "reviewer", "writer", "designer", "visualizer"];
   const ORG_ROLE_GROUPS = [
     { id: "intel", name: "Intelligence", roles: ["scout", "researcher", "planner"] },
@@ -1172,15 +1180,18 @@
   // Manifest pseudo-projects: coordinator-internal efforts with no registry
   // row (SNAPSHOT 2026-11-11, instructions/CREW-MANIFEST-2026-11-11.md).
   const ORG_PSEUDO_PROJECTS = {
-    "PiAgents-org": { displayName: "PiAgents org system", aliases: ["agent-org", "roster", "project space", "project-space", "role card", "knowledge base"] },
+    "PiAgents-org": { displayName: "PiAgents org system", aliases: ["agent-org", "roster", "project space", "project-space", "role card", "knowledge base", "docs-site"] },
     "PiAgents.bridge": { displayName: "PiAgents web bridge", aliases: ["pi-web", "org graph", "org-graph", "mission control", "mission-control", "projects panel", "#/org"] },
     "PiAgents.harness": { displayName: "PiAgents harness", aliases: ["pi-superagent", "depth cap", "recursive-spawn", "ponytail"] },
   };
   // Domain vocabulary the registry aliases lack (the labels speak of
-  // "wave-33", "RSI", "木剑"...) — same manifest/date basis as above.
+  // "wave-33", "RSI", "木剑"...) — same manifest/date basis as above. The
+  // harness aliases are CAPABILITY words (installs/bring-up of the agent's
+  // own tooling), evidence: each task brief's own first user message.
   const ORG_PROJECT_EXTRA_ALIASES = {
     minecraft: ["rsi", "wave", "furnace", "episode", "木剑", "mineflayer", "remote-agent/operations"],
     medical: ["筛查", "screening"],
+    "PiAgents.harness": ["memory-index", "memidx", "terminal-bench", "yt-dlp", "whisper", "vlog-auto-edit", "vlog-edit-test", "video toolchain", "video-editing agent"],
   };
   // Manifest snapshot: dispatch id -> project, gated by a task token so a
   // reused id does not inherit yesterday's project. From CREW-MANIFEST.
@@ -1197,6 +1208,36 @@
     { ids: ["sa16"], tok: "org graph|#/org|projects panel|mission-control", project: "PiAgents.bridge" },
     { ids: ["sa1"], tok: "#/org|org-graph|hierarchy", project: "PiAgents.bridge" },
     { ids: ["sa13-a", "sa13-b", "sa13-c"], tok: "depth cap|pi-superagent", project: "PiAgents.harness" },
+    // 2026-11-11 backfill (evidence: each session's first user message in
+    // .pi/subagents/<id>/events.jsonl) — BoN org-graph mockup candidates; their
+    // labels EMBED a fixture data snapshot that name-drops every project, so
+    // only a work-type token (not a project name) may attribute them.
+    { ids: ["sa8-a", "sa8-b", "sa8-c"], tok: "standalone html mockup", project: "PiAgents.bridge" },
+    // 2026-11-11 backfill (evidence: each session's first user message in
+    // .pi/subagents/<id>/events.jsonl) — feishu MCP capability wave; the docx
+    // 组会汇报 tasks are deliberately NOT here (cross-project reports).
+    { ids: ["sa9"], tok: "飞书 mcp|feishu-user-plugin", project: "PiAgents.harness" }, // "给 Pi 接一个飞书 MCP server...配好...测通"
+    { ids: ["sa12"], tok: "scope 开通", project: "PiAgents.harness" }, // "验证飞书应用...的 scope 开通后各域 API 能不能用"
+    { ids: ["sa13"], tok: "飞书通讯录", project: "PiAgents.harness" }, // "在飞书通讯录里找到 open_id, 发测试消息"
+    { ids: ["sa14"], tok: "事件日志|p2p 会话", project: "PiAgents.harness" }, // "从事件日志或 P2P 会话里捞出 open_id"
+    { ids: ["sa15"], tok: "证明 pi 能读", project: "PiAgents.harness" }, // "证明 Pi 能读王若钧的飞书文档"
+    { ids: ["sa17"], tok: "可编辑协作者", project: "PiAgents.harness" }, // "共享给王若钧（加他为可编辑协作者）"
+    { ids: ["sa18"], tok: "页面不存在", project: "PiAgents.harness" }, // "共享后还是打不开（页面不存在）排查"
+    { ids: ["sa10"], tok: "security-audit-skill|安装 cloudflare", project: "PiAgents.harness" }, // "安装 cloudflare/security-audit-skill 到 Pi，验证能加载"
+    { ids: ["sa20"], tok: "固化进它的 skill|写文档.*角色", project: "PiAgents-org" }, // "建一个专门写文档的 subagent 角色，偏好固化进 skill"（role-card wave）
+    { ids: ["sa84"], tok: "readme.md", project: "PiAgents-org" }, // "Rewrite /Users/yuyuan/PiAgents/README.md"（same docs wave as sa88）
+  ];
+
+  // NAME RULE (b): crews whose members share no session still get a real name
+  // when a documented id-set covers the majority (>= half, min 2; single-member
+  // crews count as their own majority). Evidence: each member's first task
+  // message; journal/KB-derived names enter through this table because the
+  // client cannot query the coordinator journal directly.
+  const ORG_CREW_NAME_SNAPSHOT = [
+    { ids: ["sa9", "sa12", "sa13", "sa14", "sa15", "sa17", "sa18"], name: "feishu mcp" }, // feishu MCP capability bring-up wave (7 of the 9 harness dispatches that day)
+    { ids: ["sa23", "sa24"], name: "rsi episode monitor" }, // both labels: read-only monitoring of the MC RSI episode
+    { ids: ["sa16", "sa19", "sa21"], name: "weekly report docx" }, // the weekly-report docx tasks (cross-project content, unattributed on purpose)
+    { ids: ["sa40-sa1"], name: "emo bgm fetch" }, // BGM fetch for the 11-07 emo cut (sa40)
   ];
   function orgNormText(t) { return String(t ?? "").toLowerCase().replace(/\s+/g, " "); }
   // ASCII aliases match on word boundaries ("mc" must not hit "mockup");
@@ -1234,9 +1275,20 @@
     }
     const label = orgNormText(s?.label);
     if (label) {
-      // collect EVERY project the label names; a dispatch that mentions two or
-      // more projects (e.g. a cross-project 组会汇报 citing "MC 和医疗平台")
-      // is not attributable to one — honest unattributed beats a guess
+      // PSEUDO FIRST: a work-type signal (org-graph, pi-superagent, ...) beats
+      // incidental registry-name mentions — a mockup brief that EMBEDS a data
+      // snapshot listing "minecraft, medical, ..." is still bridge work.
+      const pseudoHits = [];
+      for (const [pid, p] of Object.entries(ORG_PSEUDO_PROJECTS)) {
+        const al = [...p.aliases, ...(ORG_PROJECT_EXTRA_ALIASES[pid] ?? [])];
+        if (al.some((a) => orgTextMatches(label, a))) pseudoHits.push(pid);
+      }
+      if (pseudoHits.length === 1) return pseudoHits[0];
+      if (pseudoHits.length > 1) return null;
+      // collect EVERY registry project the label names; a dispatch that
+      // mentions two or more (e.g. a cross-project 组会汇报 citing
+      // "MC 和医疗平台") is not attributable to one — honest unattributed
+      // beats a guess
       const hits = new Set();
       for (const p of Array.isArray(registry) ? registry : []) {
         const aliased = (Array.isArray(p?.aliases) ? p.aliases : []).some((a) => orgTextMatches(label, a))
@@ -1245,9 +1297,7 @@
       }
       if (hits.size === 1) return [...hits][0];
       if (hits.size > 1) return null;
-      for (const [pid, p] of Object.entries(ORG_PSEUDO_PROJECTS)) {
-        if (p.aliases.some((a) => orgTextMatches(label, a))) return pid;
-      }
+      return null; // pseudo ambiguous or nothing matched -> explicit unattributed bucket
     }
     return null; // truly unknown -> explicit unattributed bucket
   }
@@ -1320,6 +1370,83 @@
   // A session id "looks real" when it is not a bare date and carries a letter.
   function orgRealSession(sess) {
     return typeof sess === "string" && sess.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(sess.trim()) && /[a-z]/i.test(sess) ? sess.trim() : null;
+  }
+  // ---- Crew naming (no "unnamed" when evidence exists) ------------------
+  // (c) dominant phrase from the member task labels: ASCII words >= 4 chars
+  // and CJK runs >= 2 chars, minus stopwords; a bigram wins when it covers at
+  // least as many members as the best unigram. Deterministic ordering:
+  // (membersCovered, occurrences, length, lexical).
+  const ORG_NAME_STOPWORDS = new Set([
+    "you", "are", "the", "and", "for", "with", "from", "into", "your", "this", "that", "have", "must", "will", "each", "exactly", "based", "using", "work", "task", "role", "operator", "writer", "coder", "researcher", "analyst", "integrator", "reviewer", "designer", "visualizer", "deliverable", "output", "read", "first", "only", "verify", "make", "run", "new", "file", "then", "when", "what", "step", "steps",
+    "任务", "用户", "一个", "这个", "已经", "现在", "应该", "然后", "之前", "不要",
+  ]);
+  function orgCrewTokens(label) {
+    const line = String(label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").toLowerCase();
+    const out = [];
+    for (const w of line.match(/[a-z][a-z0-9._/-]{3,}/g) ?? []) if (!ORG_NAME_STOPWORDS.has(w)) out.push(w);
+    // CJK runs: strip glue stopwords, then keep a run only when it fully
+    // glosses to English (RENDERED text is English-only; the token GATES
+    // above stay bilingual for matching)
+    for (const w of line.match(/[\u4e00-\u9fff]{2,}/g) ?? []) {
+      let seg = w;
+      for (const sw of ORG_NAME_STOPWORDS) if (seg.includes(sw)) seg = seg.split(sw).join("|");
+      for (const part of seg.split("|")) {
+        if (!part || ORG_NAME_STOPWORDS.has(part)) continue;
+        const en = orgEnPhrase(part);
+        if (en) out.push(en.toLowerCase());
+      }
+    }
+    return out;
+  }
+  function orgCrewNameFromLabels(labels) {
+    const seqs = labels.map(orgCrewTokens).filter((t) => t.length);
+    if (!seqs.length) return null;
+    const minCov = Math.min(2, seqs.length);
+    const uni = new Map();
+    const big = new Map();
+    for (const list of seqs) {
+      for (const w of new Set(list)) { const e = uni.get(w) ?? { cov: 0, n: 0 }; e.cov++; uni.set(w, e); }
+      for (const w of list) { const e = uni.get(w); e.n++; }
+      const bgs = [];
+      for (let i = 0; i + 1 < list.length; i++) bgs.push(list[i] + " " + list[i + 1]);
+      for (const b of new Set(bgs)) { const e = big.get(b) ?? { cov: 0, n: 0 }; e.cov++; big.set(b, e); }
+      for (const b of bgs) { const e = big.get(b); e.n++; }
+    }
+    const pick = (map) => [...map.entries()].filter(([, e]) => e.cov >= minCov)
+      .sort((x, y) => y[1].cov - x[1].cov || y[1].n - x[1].n || y[0].length - x[0].length || (x[0] < y[0] ? -1 : 1))[0];
+    const b = pick(big);
+    const u = pick(uni);
+    if (b && (!u || b[1].cov > u[1].cov || (b[1].cov === u[1].cov && b[1].n >= u[1].n))) return orgTruncW(b[0], 16);
+    return u ? orgTruncW(u[0], 16) : null;
+  }
+  // RENDERED-TEXT normalization: known CJK phrases gloss to English; text
+  // still carrying CJK after the gloss returns null so callers fall to their
+  // next evidence source. Token gates above stay bilingual (they MATCH
+  // Chinese source text; they never render).
+  const ORG_CJK_GLOSSARY = [
+    ["\u7ec4\u4f1a\u6c47\u62a5", "weekly report"], ["\u76d1\u63a7", "monitor"], ["\u7b5b\u67e5", "screening"],
+    ["\u8fc1\u79fb", "migration"], ["\u6c47\u62a5", "report"], ["\u5b89\u88c5", "install"], ["\u90e8\u7f72", "deploy"],
+    ["\u4fee\u590d", "fix"], ["\u6728\u5251", "sword"], ["\u6587\u6863", "docs"],
+  ];
+  function orgEnPhrase(s) {
+    let out = String(s ?? "");
+    for (const [zh, en] of ORG_CJK_GLOSSARY) out = out.split(zh).join(en);
+    return /[\u4e00-\u9fff]/.test(out) ? null : out;
+  }
+  // Crew name resolution: (b) snapshot id-set, else (c) dominant label phrase.
+  function orgCrewNameOf(members) {
+    const ids = members.map((m) => String(m.sub.id));
+    for (const row of ORG_CREW_NAME_SNAPSHOT) {
+      const hits = ids.filter((id) => row.ids.includes(id)).length;
+      if (hits >= Math.min(2, ids.length) && hits * 2 >= ids.length) return row.name;
+    }
+    return orgCrewNameFromLabels(members.map((m) => m.sub.label));
+  }
+  // "<name> · <role-if-known> ·×N" with the COUNT protected from truncation.
+  function orgFitCrewLabel(base, count) {
+    const full = `${base} \u00b7\u00d7${count}`;
+    if (orgLabelUnits(full) <= 20) return full;
+    return `${orgTruncW(base, 20 - String(count).length - 4)} \u00b7\u00d7${count}`;
   }
   // Returns { basis, key, label } — key is unique within a project bucket.
   function orgInstanceKeyOf(s, sessionById) {
@@ -1571,19 +1698,28 @@
           : sess && sess.startsWith("role-") ? sess.slice(5)
           : equalRole;
         // LABEL RULES: never a raw aggregation key. (a) real session id,
-        // (b) manifest role + count, (c) humanized "unnamed · <Mon DD> ·×N".
+        // (b/c) named crew "<name> · <role> ·×N" (count protected),
+        // (floor) zero evidence -> humanized "unnamed · <Mon DD> ·×N";
+        // the dispatch date lives in the detail panel, not the label.
         let display;
         let sub;
         if (realSession) {
           display = orgTrunc(realSession, 16);
           sub = `${instRole || "dispatch"} \u00b7\u00d7${members.length}`;
-        } else if (instRole) {
-          display = orgTrunc(instRole, 16);
-          sub = `instance crew \u00b7\u00d7${members.length}`;
         } else {
-          const day = orgHumanDay(lastActivity, nowMs);
-          display = day ? `unnamed \u00b7 ${day}` : "unnamed";
-          sub = `instance crew \u00b7\u00d7${members.length}`;
+          const name = orgCrewNameOf(members);
+          if (name) {
+            display = orgFitCrewLabel(instRole ? `${name} \u00b7 ${instRole}` : name, members.length);
+            sub = "instance crew";
+          } else if (instRole) {
+            // role known but no task name: the role itself is honest evidence
+            display = orgFitCrewLabel(instRole, members.length);
+            sub = "instance crew";
+          } else {
+            const day = orgHumanDay(lastActivity, nowMs);
+            display = day ? `unnamed \u00b7 ${day}` : "unnamed";
+            sub = `instance crew \u00b7\u00d7${members.length}`;
+          }
         }
         const instNode = {
           id: instId, kind: "instance", projectKey: key,
@@ -1651,12 +1787,17 @@
       const wh = entry?.work;
       if (wh && wh.title) {
         const short = orgRoleShort(wh.worker);
-        activity = (short ? short + " \u00b7 " : "") + orgTruncW(String(wh.title).replace(/^work record\s*[\u2014-]\s*/i, ""), 21);
+        // a CJK work title renders as its ASCII work-dir name instead
+        const title = orgEnPhrase(String(wh.title).replace(/^work record\s*[\u2014-]\s*/i, "")) ?? String(wh.dir ?? "");
+        activity = (short ? short + " \u00b7 " : "") + orgTruncW(title, 21);
       }
       if (!activity) {
-        const newest = bucket.slice().sort((a, b) => (b.sub.lastActivity ?? 0) - (a.sub.lastActivity ?? 0))[0];
-        const first = newest ? String(newest.sub.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim() : "";
-        if (first) activity = orgTruncW(first, 21);
+        const ordered = bucket.slice().sort((a, b) => (b.sub.lastActivity ?? 0) - (a.sub.lastActivity ?? 0));
+        for (const b of ordered) {
+          const first = String(b.sub.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim();
+          const en = first ? orgEnPhrase(first) : null;
+          if (en && en.trim()) { activity = orgTruncW(en, 21); break; } // newest dispatch that renders in English
+        }
       }
       if (!activity && entry?.lastActivity) {
         const day = orgHumanDay(Date.parse(entry.lastActivity), nowMs);
@@ -3074,10 +3215,13 @@
     const fullModel = orgBuildModel(pool, bridge, state.projects, org.view === "__all__" ? null : org.view, Date.now(), sessionById);
     org.fullModel = fullModel;
     // surface attribution gaps once per unique crew set so the snapshot
-    // tables can be extended instead of failing silently
+    // tables can be extended instead of failing silently — but only after the
+    // /projects registry has loaded (the first render runs against an empty
+    // registry and would log false gaps)
     const unattr = fullModel.nodes.get("__proj:" + ORG_UNATTRIBUTED);
-    if (unattr) {
-      const ids = (unattr.children ?? []).flatMap((c) => c.memberIds ?? []);
+    if (Array.isArray(state.projects) && state.projects.length) {
+      const ids = ((unattr?.children ?? []))
+        .flatMap((c) => c.memberIds ?? []);
       const sig = ids.join(",");
       if (ids.length && sig !== org.unattrSig) {
         org.unattrSig = sig;

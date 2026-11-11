@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -37,6 +37,11 @@ const org = new Function(
   ORG_SUBPROJECT_SNAPSHOT: Array<{ project: string; id: string; displayName: string; tokens: string[] }>;
   orgSubprojectTree: (entry: Record<string, unknown> | null, key: string) => Array<Record<string, unknown>>;
   orgSubprojectPathOf: (s: Record<string, unknown> | null, tree: Array<Record<string, unknown>>) => string[] | null;
+  ORG_CREW_NAME_SNAPSHOT: Array<{ ids: string[]; name: string }>;
+  orgCrewNameOf: (members: Array<{ sub: { id: unknown; label?: unknown } }> | null) => string | null;
+  orgCrewNameFromLabels: (labels: Array<unknown>) => string | null;
+  orgFitCrewLabel: (base: unknown, count: number) => string;
+  orgEnPhrase: (s: unknown) => string | null;
   orgGroupByProject: (subs: Array<Record<string, unknown>>, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => { keys: string[]; groups: Map<string, Array<Record<string, unknown>>> };
   orgProjectHue: (name: string | null) => number;
   orgLabelPrefix: (label: string | null) => string | null;
@@ -368,6 +373,89 @@ describe("recursive subproject hierarchy", () => {
     const m = org.orgBuildModel([sub("sa1", { label: "plain work" })], "bridge", registry, "alpha", NOW);
     const ops = m.nodes.get("__sub:alpha:ops")!;
     assert.ok(ops && ops.children.length === 0);
+  });
+});
+
+describe("crew naming (no 'unnamed' when evidence exists)", () => {
+  test("orgCrewNameFromLabels: dominant bigram (the digest-cards example)", () => {
+    assert.equal(org.orgCrewNameFromLabels(["digest cards batch 1", "digest cards batch 2", "digest cards queue"]), "digest cards");
+    assert.equal(org.orgCrewNameFromLabels(["You are the writer role. Draft a blog post", "You are the writer role. Edit a blog post"]), "blog post");
+    // role words are stopwords — never a crew name
+    assert.notEqual(org.orgCrewNameFromLabels(["You are the operator role. Restart things", "You are the operator role. Check things"]), "operator");
+  });
+  test("orgCrewNameFromLabels: no shared token -> null (honest floor)", () => {
+    assert.equal(org.orgCrewNameFromLabels(["restart the probe service", "migrate the database schema"]), null);
+    assert.equal(org.orgCrewNameFromLabels([null, null]), null);
+  });
+  test("orgCrewNameOf: snapshot id-set majority, minority falls through", () => {
+    const member = (id: string) => ({ sub: { id, label: `unrelated task ${id}` } });
+    const wave = ["sa9", "sa12", "sa13"].map(member);
+    assert.equal(org.orgCrewNameOf(wave), "feishu mcp"); // 3/3 hit the documented set
+    const mixed = ["sa9", "sa12", "sx1", "sx2", "sx3"].map(member);
+    assert.notEqual(org.orgCrewNameOf(mixed), "feishu mcp"); // 2/5 = not a majority
+    assert.equal(org.orgCrewNameOf([{ sub: { id: "sa40-sa1", label: null } }]), "emo bgm fetch"); // single-member crew
+  });
+  test("orgFitCrewLabel: the count survives truncation of a long CJK name", () => {
+    assert.equal(org.orgFitCrewLabel("feishu mcp", 9), "feishu mcp ·×9");
+    const long = "监控一个正在运行的minecraft";
+    const out = org.orgFitCrewLabel(long, 2);
+    assert.match(out, /·×2$/);
+    let units = 0;
+    for (const ch of out) { const c = ch.codePointAt(0) ?? 0; units += c >= 0x2e80 && c <= 0x9fff ? 2 : 1; }
+    assert.ok(units <= 20, `units=${units}`);
+  });
+  test("orgBuildModel: named crew label carries name + count; floor crew stays honest", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const m = org.orgBuildModel(
+      [sub("sx1", { project: "alpha", label: "digest cards batch 1", lastActivity: NOW - 3600e3 }),
+       sub("sx2", { project: "alpha", label: "digest cards batch 2", lastActivity: NOW - 3700e3 })],
+      "bridge", registry, "alpha", NOW,
+    );
+    const inst = [...m.nodes.values()].find((n) => n.kind === "instance")!;
+    assert.match(inst.display!, /digest cards ·×2$/);
+    assert.equal(inst.sub, "instance crew"); // the date/count moved out of the subtitle
+    // zero-evidence floor crew: still 'unnamed · <day>'
+    const m2 = org.orgBuildModel(
+      [sub("sy1", { project: "alpha", lastActivity: NOW - 30 * 3600e3 }), sub("sy2", { project: "alpha", lastActivity: NOW - 30 * 3600e3 })],
+      "bridge", registry, "alpha", NOW,
+    );
+    const floor = [...m2.nodes.values()].find((n) => n.kind === "instance")!;
+    assert.match(floor.display!, /^unnamed · /);
+    assert.match(floor.sub!, /·×2$/);
+  });
+  test("backfill attribution rows: sa10/sa20/sa84 resolve with token evidence", () => {
+    assert.equal(org.orgProjectOf({ id: "sa10", label: "任务：安装 cloudflare/security-audit-skill 到 Pi，验证能加载。" }, [], null), "PiAgents.harness");
+    assert.equal(org.orgProjectOf({ id: "sa20", label: "任务：建一个全新的、专门**写文档**的 subagent 角色（role），并把已知的用户偏好固化进它的 skill" }, [], null), "PiAgents-org");
+    assert.equal(org.orgProjectOf({ id: "sa84", label: "You are the writer role. Rewrite /Users/yuyuan/PiAgents/README.md (repo = github.com/yuyuan12138/Pi.git)" }, [], null), "PiAgents-org");
+  });
+});
+
+describe("English-only rendering (CJK glosses or falls through)", () => {
+  test("orgEnPhrase: known phrases gloss, unknown CJK -> null", () => {
+    assert.equal(org.orgEnPhrase("\u7ec4\u4f1a\u6c47\u62a5 docx"), "weekly report docx");
+    assert.equal(org.orgEnPhrase("\u76d1\u63a7 a running episode"), "monitor a running episode");
+    assert.equal(org.orgEnPhrase("\u8bfb\u8fd9\u5957 Pi agent \u73af\u5883\u914d\u7f6e"), null); // untranslatable -> null
+    assert.equal(org.orgEnPhrase("plain english"), "plain english");
+  });
+  test("orgCrewNameFromLabels: CJK runs survive only when fully glossed", () => {
+    assert.equal(org.orgCrewNameFromLabels(["\u76d1\u63a7 a running episode", "\u76d1\u63a7 the next episode"]), "episode monitor");
+    assert.equal(org.orgCrewNameFromLabels(["\u8bfb\u8fd9\u5957\u73af\u5883\u914d\u7f6e", "\u8bfb\u90a3\u5957\u73af\u5883\u914d\u7f6e"]), null); // untranslatable -> no name
+  });
+  test("orgBuildModel: activity line falls to the newest English-renderable dispatch", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const m = org.orgBuildModel(
+      [sub("sa1", { project: "alpha", label: "\u4efb\u52a1\uff1a\u5728\u98de\u4e66\u65b0\u5efa\u4e00\u4e2a docx \u6587\u6863", lastActivity: NOW - 1000 }),
+       sub("sa2", { project: "alpha", label: "Fix the parser queue overflow", lastActivity: NOW - 2000 })],
+      "bridge", registry, "alpha", NOW,
+    );
+    const proj = m.nodes.get("__proj:alpha")!;
+    assert.ok(String(proj.sub).startsWith("Fix the parser queue")); // newest Chinese label skipped, next renders (truncated to fit)
+  });
+  test("orgBuildModel: work-hint title with CJK renders as the ASCII dir name", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000),
+      work: { dir: "2026-11-11-project-space", title: "\u9879\u76ee\u7a7a\u95f4\u6587\u6863\u5c42\u843d\u5730", worker: null, at: new Date(NOW - 60000).toISOString() } }];
+    const m = org.orgBuildModel([sub("sa1", { project: "alpha" })], "bridge", registry, "alpha", NOW);
+    assert.ok(String(m.nodes.get("__proj:alpha")!.sub).startsWith("2026-11-11-project")); // ASCII dir name, no CJK
   });
 });
 
