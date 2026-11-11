@@ -1433,6 +1433,24 @@
     for (const [zh, en] of ORG_CJK_GLOSSARY) out = out.split(zh).join(en);
     return /[\u4e00-\u9fff]/.test(out) ? null : out;
   }
+  // Activity text from a dispatch label: strip role-preamble boilerplate
+  // ("You are the operator role...", "Act as ...", "ROLE: ...", "Design a
+  // standalone ..."), markdown header lines and bracket tags ([project:x]);
+  // preamble sentences are dropped up to the first period/line. Null when the
+  // remainder is too short (<8 chars) to be an activity line — the caller
+  // falls to its next evidence source. Truncation runs AFTER stripping.
+  const ORG_PREAMBLE_RE = /^\s*(you are\b|act as\b|role\s*:|identity header|design a standalone)/i;
+  function orgActivityText(label) {
+    const lines = String(label ?? "").split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !/^#+\s/.test(l)); // drop markdown header lines
+    let text = lines.join(" ").replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim(); // bracket tags
+    if (!text) return null;
+    const clauses = text.split(/(?<=\.)\s+/);
+    while (clauses.length && ORG_PREAMBLE_RE.test(clauses[0])) clauses.shift();
+    text = clauses.join(" ").trim();
+    return text.length >= 8 ? text : null;
+  }
   // Crew name resolution: (b) snapshot id-set, else (c) dominant label phrase.
   function orgCrewNameOf(members) {
     const ids = members.map((m) => String(m.sub.id));
@@ -1796,7 +1814,9 @@
         for (const b of ordered) {
           const first = String(b.sub.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim();
           const en = first ? orgEnPhrase(first) : null;
-          if (en && en.trim()) { activity = orgTruncW(en, 21); break; } // newest dispatch that renders in English
+          if (!en || !en.trim()) continue;
+          const stripped = orgActivityText(en); // preamble/markdown strip BEFORE truncation
+          if (stripped) { activity = orgTruncW(stripped, 21); break; } // newest dispatch whose activity survives
         }
       }
       if (!activity && entry?.lastActivity) {

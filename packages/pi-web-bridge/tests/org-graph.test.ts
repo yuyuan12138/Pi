@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -42,6 +42,7 @@ const org = new Function(
   orgCrewNameFromLabels: (labels: Array<unknown>) => string | null;
   orgFitCrewLabel: (base: unknown, count: number) => string;
   orgEnPhrase: (s: unknown) => string | null;
+  orgActivityText: (s: unknown) => string | null;
   orgGroupByProject: (subs: Array<Record<string, unknown>>, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => { keys: string[]; groups: Map<string, Array<Record<string, unknown>>> };
   orgProjectHue: (name: string | null) => number;
   orgLabelPrefix: (label: string | null) => string | null;
@@ -427,6 +428,34 @@ describe("crew naming (no 'unnamed' when evidence exists)", () => {
     assert.equal(org.orgProjectOf({ id: "sa10", label: "任务：安装 cloudflare/security-audit-skill 到 Pi，验证能加载。" }, [], null), "PiAgents.harness");
     assert.equal(org.orgProjectOf({ id: "sa20", label: "任务：建一个全新的、专门**写文档**的 subagent 角色（role），并把已知的用户偏好固化进它的 skill" }, [], null), "PiAgents-org");
     assert.equal(org.orgProjectOf({ id: "sa84", label: "You are the writer role. Rewrite /Users/yuyuan/PiAgents/README.md (repo = github.com/yuyuan12138/Pi.git)" }, [], null), "PiAgents-org");
+  });
+});
+
+describe("activity preamble stripping", () => {
+  test("role preambles drop their first sentence", () => {
+    assert.equal(org.orgActivityText("You are the operator role. Reconcile a WeChat bill export into the ledger."), "Reconcile a WeChat bill export into the ledger.");
+    assert.equal(org.orgActivityText("ROLE: visual designer. Deliverable: a PREMIUM redesign direction."), "Deliverable: a PREMIUM redesign direction.");
+    assert.equal(org.orgActivityText("You are a READ-ONLY reviewer (correctness review). You propose; you never edit."), "You propose; you never edit.");
+  });
+  test("design-a-standalone opener drops to the next clause", () => {
+    assert.equal(org.orgActivityText("Design a STANDALONE HTML mockup of an org-graph page. This is a design candidate."), "This is a design candidate.");
+  });
+  test("markdown headers and bracket tags are stripped", () => {
+    assert.equal(org.orgActivityText("[project:minecraft] backfill graph.json to v1"), "backfill graph.json to v1");
+    assert.equal(org.orgActivityText("# Heading\nReal work sentence here"), "Real work sentence here");
+  });
+  test("short/empty remainder -> null (caller falls to the next source)", () => {
+    assert.equal(org.orgActivityText("You are the operator role."), null);
+    assert.equal(org.orgActivityText("[project:x]"), null);
+    assert.equal(org.orgActivityText(""), null);
+  });
+  test("orgBuildModel: activity skips the preamble sentence entirely", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const m = org.orgBuildModel(
+      [sub("sa1", { project: "alpha", label: "You are the operator role. Fix the parser queue overflow", lastActivity: NOW - 1000 })],
+      "bridge", registry, "alpha", NOW,
+    );
+    assert.ok(String(m.nodes.get("__proj:alpha")!.sub).startsWith("Fix the parser queue"));
   });
 });
 
