@@ -25,6 +25,7 @@ only if it is read, written, or verified during real dispatches.
 ```
 <project-root>/
 ├── README.md                  # §1  charter + status + directory map
+├── graph.json                 # §10 normative project graph (GRAPH-SCHEMA.md)
 ├── docs/
 │   ├── architecture.md        # §2  design doc
 │   ├── decisions.md           # §3  ADR log
@@ -282,6 +283,10 @@ Rules:
   `Status: done`; the directory stays as history — nothing is deleted.
 - **v2 deferred**: registry tree in pi-project-coordinator + a `/projects` panel;
   v1 is convention-only, no engine changes.
+- **Graph**: `<root>/graph.json` is the normative machine-readable structure
+  (`instructions/GRAPH-SCHEMA.md`); updated at the same moments as work records —
+  dispatch, completion, graduation, archive; `/projects` + org-graph views consume
+  it (v2). Retrofit of existing projects is a rollout step, not v1.
 
 Example (minecraft, two graduated subprojects; record names from this standard's
 cited sample):
