@@ -98,10 +98,16 @@ stay bilingual for matching Chinese source text.
 | sa85 | PiAgents.harness | — | task: Terminal-Bench v2 feasibility recon vs 本地 agent stack (11-09) |
 | crew sa23+sa24 | minecraft | rsi episode monitor | labels: 只读监控 MC RSI episode（11-09，manifest 的 operator.monitoring 同族） |
 | crew sa9–sa18 wave | PiAgents.harness | feishu mcp ·×N | 11-11 harness day-crew 多数成员属 feishu MCP 能力接入 |
-| crew sa16+sa19+sa21 | (unattributed on purpose) | weekly report docx | 组会汇报 docx 任务同时点名 MC 与医疗平台 → 跨项目规则 |
+| crew sa16+sa19+sa21 | PiAgents-org (PRIMARY-DELIVERABLE rule) | weekly report docx | 产出物 = 组会汇报 docx（面向用户的组织例会文档）；文本提及的 MC/医疗平台只是内容素材。规则变更：对有明确产出物的 dispatch，按产出物归属，优先于 ≥2 提及的跨项目规则 |
+| sa80, sa82 | blog (PRIMARY-DELIVERABLE rule) | — | 产出物 = Pi-agent 博客草稿（/tmp/pi-blog-draft/）；minecraft 只是博文中提到的素材 |
+| sa56, sa90 | personal-ops (muted pseudo-project) | — | 产出物 = 个人 LoL 集锦视频 / 个人微信账单→WPS 台账核对；不属于任何已注册项目 → 渲染级命名桶 "personal-ops"（unregistered personal operations） |
+| crew sa22+sa78 | minecraft (各自的 primary deliverable) | minecraft ops | sa22 = MC 随机世界重生成；sa78 = closed-loop RSI engine（remote-agent/operations/20261029-minimal-sword-episode/closed_loop.py）— 均为 minecraft ops 工作 |
 
-Left unattributed, each with its reason:
-- **sa80, sa82** — blog-draft tasks whose text also names minecraft content (≥2 registry projects → cross-project rule).
-- **sa56** — personal media deliverable (LoL highlights compilation), no registered project.
-- **sa90** — personal finance ops (WeChat bill → WPS ledger), no registered project.
-- **crew sa22+sa78** — unrelated tasks sharing a dispatch day; zero shared evidence → honest "unnamed · Nov 9" floor.
+Unattributed bucket: DISSOLVED (2026-11-11, primary-deliverable rule). Every former
+member now has a documented home (rows above); the bucket mechanism remains in the
+code for genuinely unknown future dispatches but renders nothing while empty.
+- **sa80, sa82 → blog** — primary deliverable is the blog post; mentioned projects are content.
+- **sa16, sa19, sa21 → PiAgents-org** — primary deliverable is the weekly-meeting report docx.
+- **sa56, sa90 → personal-ops** — genuinely personal work, no registered project fits.
+- **crew sa22+sa78 → minecraft** — each dispatch's own deliverable (world regen / closed-loop engine);
+  the shared-day crew is named "minecraft ops" instead of the unnamed floor.
