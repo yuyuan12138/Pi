@@ -641,6 +641,12 @@ describe("live session-name attribution (<topic>-x<N> convention)", () => {
     assert.equal(org.orgProjectOf({ id: "sa13-a#2", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }, REG, null), "PiAgents.harness");
     assert.equal(org.orgProjectOf({ id: "sa80", label: "Draft a blog post about the Pi-agent architecture; MC RSI is background" }, REG, null), "blog");
   });
+  test("static snapshot rows never apply to session-named dirs (id gate)", () => {
+    // a label that WOULD satisfy a harness crew token, on a dir the snapshot
+    // tables have never seen: only rule (a) may attribute it
+    assert.equal(org.orgProjectOf({ id: "bridge-org-x1", label: "Maintain the yt-dlp download toolchain and whisper transcription agent" }, REG, null), "PiAgents.bridge");
+    assert.equal(org.orgProjectOf({ id: "medical-upstream-x1", label: "Extend the per-turn injected reminder in the bridge org page" }, REG, null), "medical");
+  });
 });
 
 describe("new-era dir naming (dd08db5 suffix) in ancestry parsing", () => {

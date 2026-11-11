@@ -18,7 +18,7 @@ export interface SubagentView {
   id: string;
   /** Best-effort: first line of the child's task prompt (its first user message). */
   label: string | null;
-  /** Named persistent session id, when derivable (v1: not derivable from disk; null). */
+  /** Named persistent session id: session-named dirs (dd08db5) carry the dir name; numeric dirs: null. */
   session: string | null;
   /** Model id from the child's first assistant message (best-effort). */
   model: string | null;
@@ -294,7 +294,7 @@ export class SubagentScanner {
       const raw = readTail(resFile, 8192);
       const ancestry = ids ? resolveAncestry(id, ids, new Map()) : { spawnedBy: null, depth: null };
       return {
-        id, label, session: null, model,
+        id, label, session: deriveSession(id), model,
         status: "done",
         lastActivity: Math.max(evMtime, resMtime),
         lastExcerpt: excerpt(raw, EXCERPT_CHARS),
@@ -313,7 +313,7 @@ export class SubagentScanner {
     const stale = !resFile && Date.now() - evMtime > STALE_RUNNING_MS;
     const ancestry = ids ? resolveAncestry(id, ids, new Map()) : { spawnedBy: null, depth: null };
     return {
-      id, label, session: null, model,
+      id, label, session: deriveSession(id), model,
       status: report?.status === "blocked" || stale ? "blocked" : "running",
       lastActivity: evMtime,
       lastExcerpt: text ? excerpt(text, EXCERPT_CHARS) : excerpt(report?.summary ?? "", EXCERPT_CHARS),
@@ -421,8 +421,28 @@ function appendRecordsAtomic(sidecar: string, lines: string[]): void {
   renameSync(tmp, sidecar);
 }
 
-/** Parent-child naming (e.g. "sa2-sa1") resolves depth when the parent id is present in the same scan. */
+/**
+ * Numeric-style dir ids: sa<N> roots and their fanout/lineage chains
+ * ("sa13-a", "sa2-sa1", "sa9-b-sa1", dd08db5-suffixed "sa27-k3f9"). Anything
+ * else under .pi/subagents is a persistent session dir named after the session
+ * verbatim ("medical-upstream-x1", "rsi-live-c12-mon-2") — those carry no
+ * numeric lineage and their dir name IS the session id.
+ */
+const NUMERIC_DIR_RE = /^sa\d+(?:-[A-Za-z0-9]+)*$/;
+
+/** Session id for a subagents dir name; null when the dir is numeric-style. */
+export function deriveSession(name: string): string | null {
+  return NUMERIC_DIR_RE.test(name) ? null : name;
+}
+
+/**
+ * Parent-child naming (e.g. "sa2-sa1") resolves depth when the parent id is
+ * present in the same scan. Session-named dirs have no numeric lineage: a
+ * clean null (never a fabricated parent from a dash cut through the session
+ * name), and never a crash.
+ */
 function resolveAncestry(id: string, ids: Set<string>, depths: Map<string, number>): { spawnedBy: string | null; depth: number | null } {
+  if (!NUMERIC_DIR_RE.test(id)) return { spawnedBy: null, depth: null };
   const cut = id.lastIndexOf("-");
   if (cut <= 0) return { spawnedBy: null, depth: 0 };
   const parent = id.slice(0, cut);

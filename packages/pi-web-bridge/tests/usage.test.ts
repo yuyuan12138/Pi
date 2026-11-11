@@ -133,15 +133,15 @@ describe("scanner usage aggregates + append-only sidecar", () => {
     const done = TASK + BASH1 + READ_SKILL
       + evLine({ type: "tool_execution_start", toolCallId: "p1", toolName: "report_to_parent", args: { status: "ready", summary: "done" } })
       + MSG_A + evLine({ type: "agent_settled" });
-    await mkdir(join(dir, "saU"));
-    await writeFile(join(dir, "saU", "events.jsonl"), done);
-    await writeFile(join(dir, "saU", "result.md"), "Done.");
-    await mkdir(join(dir, "saP"));
-    await writeFile(join(dir, "saP", "events.jsonl"), TASK + BASH2 + evLine({ type: "tool_execution_start", toolCallId: "p2", toolName: "report_to_parent", args: { status: "ready", summary: "ok" } }) + evLine({ type: "agent_settled" }));
-    await writeFile(join(dir, "saP", "result.md"), "ok");
-    await mkdir(join(dir, "saP-1"));
-    await writeFile(join(dir, "saP-1", "events.jsonl"), TASK + evLine({ type: "tool_execution_start", toolCallId: "p3", toolName: "report_to_parent", args: { status: "ready", summary: "ok" } }) + evLine({ type: "agent_settled" }));
-    await writeFile(join(dir, "saP-1", "result.md"), "ok");
+    await mkdir(join(dir, "sa7"));
+    await writeFile(join(dir, "sa7", "events.jsonl"), done);
+    await writeFile(join(dir, "sa7", "result.md"), "Done.");
+    await mkdir(join(dir, "sa6"));
+    await writeFile(join(dir, "sa6", "events.jsonl"), TASK + BASH2 + evLine({ type: "tool_execution_start", toolCallId: "p2", toolName: "report_to_parent", args: { status: "ready", summary: "ok" } }) + evLine({ type: "agent_settled" }));
+    await writeFile(join(dir, "sa6", "result.md"), "ok");
+    await mkdir(join(dir, "sa6-1"));
+    await writeFile(join(dir, "sa6-1", "events.jsonl"), TASK + evLine({ type: "tool_execution_start", toolCallId: "p3", toolName: "report_to_parent", args: { status: "ready", summary: "ok" } }) + evLine({ type: "agent_settled" }));
+    await writeFile(join(dir, "sa6-1", "result.md"), "ok");
     return dir;
   }
 
@@ -149,16 +149,16 @@ describe("scanner usage aggregates + append-only sidecar", () => {
     const dir = await makeScanRoot();
     const views = new SubagentScanner().scan(dir);
     const byId = new Map(views.map((v) => [v.id, v]));
-    assert.equal(byId.get("saU")!.usage!.totalTokens, 130);
-    assert.equal(byId.get("saU")!.usage!.toolCalls, 3);
-    assert.equal(byId.get("saU")!.usage!.costTotal, 0.5);
+    assert.equal(byId.get("sa7")!.usage!.totalTokens, 130);
+    assert.equal(byId.get("sa7")!.usage!.toolCalls, 3);
+    assert.equal(byId.get("sa7")!.usage!.costTotal, 0.5);
 
     const sidecar = join(dirname(dir), "subagents-usage.jsonl");
     const bytes1 = readFileSync(sidecar);
     const lines1 = bytes1.toString("utf8").trim().split("\n");
-    assert.equal(lines1.length, 3); // saU, saP, saP-1 — all settled
+    assert.equal(lines1.length, 3); // sa7, sa6, sa6-1 — all settled
     const recs = lines1.map((l) => JSON.parse(l));
-    const saU = recs.find((r) => r.id === "saU");
+    const saU = recs.find((r) => r.id === "sa7");
     assert.equal(saU.tokens.total, 130);
     assert.equal(saU.tokens.cost, 0.5);
     assert.equal(saU.tokens.framesWithUsage, 1);
@@ -168,10 +168,10 @@ describe("scanner usage aggregates + append-only sidecar", () => {
     assert.equal(saU.depth, 0);
     assert.equal(saU.spawned_by, null);
     assert.equal(typeof saU.startedAt, "number");
-    const child = recs.find((r) => r.id === "saP-1");
+    const child = recs.find((r) => r.id === "sa6-1");
     assert.equal(child.depth, 1);
-    assert.equal(child.spawned_by, "saP");
-    const parent = recs.find((r) => r.id === "saP");
+    assert.equal(child.spawned_by, "sa6");
+    const parent = recs.find((r) => r.id === "sa6");
     assert.equal(parent.depth, 0);
     assert.equal(parent.spawned_by, null);
 
@@ -181,14 +181,14 @@ describe("scanner usage aggregates + append-only sidecar", () => {
 
     // newer settle (result.md touched) appends; existing prefix never rewritten
     const now = Date.now() / 1000 + 10;
-    await utimes(join(dir, "saU", "result.md"), now, now);
+    await utimes(join(dir, "sa7", "result.md"), now, now);
     new SubagentScanner().scan(dir);
     const bytes3 = readFileSync(sidecar);
     assert.ok(bytes3.length > bytes1.length);
     assert.ok(bytes3.subarray(0, bytes1.length).equals(bytes1), "existing lines byte-identical");
     const lines3 = bytes3.toString("utf8").trim().split("\n");
     assert.equal(lines3.length, 4);
-    const saURecords = lines3.map((l) => JSON.parse(l)).filter((r) => r.id === "saU");
+    const saURecords = lines3.map((l) => JSON.parse(l)).filter((r) => r.id === "sa7");
     assert.equal(saURecords.length, 2);
     assert.notEqual(saURecords[0].settledAt, saURecords[1].settledAt);
   });
@@ -256,9 +256,9 @@ describe("usageStats warming and edge cases", () => {
 describe("bridge API surfaces usage additively", () => {
   test("GET /state, /sub-log and /main-log carry usage fields; legacy fields intact", async () => {
     const dir = await mkdtemp(join(tmpdir(), "wbapi-"));
-    await mkdir(join(dir, "saU"));
-    await writeFile(join(dir, "saU", "events.jsonl"), TASK + BASH1 + MSG_A);
-    await writeFile(join(dir, "saU", "result.md"), "Done.");
+    await mkdir(join(dir, "sa7"));
+    await writeFile(join(dir, "sa7", "events.jsonl"), TASK + BASH1 + MSG_A);
+    await writeFile(join(dir, "sa7", "result.md"), "Done.");
     const session = join(dir, "session.jsonl");
     await writeFile(session, evLine({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 1790000000000, usage: { input: 5, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 6, cost: { total: 0 } } } }));
 
@@ -274,12 +274,12 @@ describe("bridge API surfaces usage additively", () => {
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     try {
       const state = await (await fetch(`${base}/state`)).json();
-      const view = state.subagents.find((s: { id: string }) => s.id === "saU");
+      const view = state.subagents.find((s: { id: string }) => s.id === "sa7");
       assert.equal(view.usage.totalTokens, 130);
       assert.equal(view.usage.toolCalls, 1);
       assert.ok("label" in view && "status" in view && "lastActivity" in view, "legacy view fields intact");
 
-      const subSnap = await (await fetch(`${base}/sub-log?id=saU`)).json();
+      const subSnap = await (await fetch(`${base}/sub-log?id=sa7`)).json();
       assert.equal(subSnap.stats.tokens.total, 130);
       assert.deepEqual(Object.keys(subSnap).sort(), ["cursor", "done", "id", "lines", "reset", "result", "stats"]);
 

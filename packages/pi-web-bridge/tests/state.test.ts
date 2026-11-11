@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { cp, mkdtemp, mkdir, writeFile, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SubagentScanner, naturalCompare, readTail } from "../src/state.ts";
+import { SubagentScanner, naturalCompare, readTail, deriveSession } from "../src/state.ts";
 
 const FIXTURES = new URL("./fixtures/", import.meta.url).pathname;
 
@@ -147,6 +147,59 @@ describe("SubagentScanner over a real redacted events.jsonl fixture", () => {
     await writeFile(join(dir, "sa-one", "events.jsonl"), userMsg(T, "first task in the same hour") + userMsg(T + 2 * 3600e3, "follow-up within the window"));
     const v2 = new SubagentScanner().scan(dir).find((x) => x.id === "sa-one")!;
     assert.ok(!v2.eras || v2.eras.length === 1, "within-window messages stay one era (field omitted when single)");
+  });
+});
+
+describe("session-named dirs (pi-superagent dd08db5)", () => {
+  const userMsg = (ts: number, text: string) => evLine({ type: "message_start", message: { role: "user", timestamp: ts, content: [{ type: "text", text }] } });
+  const T = 1_700_000_000_000;
+  async function sessionDir(root: string, name: string, events: string): Promise<void> {
+    await mkdir(join(root, name));
+    await writeFile(join(root, name, "events.jsonl"), events);
+  }
+  test("session field populated from the dir name; numeric dirs stay null", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "wbstate-sess-"));
+    for (const name of ["notion-rsi-x1", "medical-upstream-x1", "rsi-live-c12-mon-2"]) {
+      await sessionDir(dir, name, userMsg(T, "Do the thing for the project") + MODEL);
+    }
+    await sessionDir(dir, "sa42", userMsg(T, "numeric-style dispatch") + MODEL);
+    const views = new SubagentScanner().scan(dir);
+    const byId = new Map(views.map((v) => [v.id, v]));
+    assert.equal(byId.get("notion-rsi-x1")!.session, "notion-rsi-x1");
+    assert.equal(byId.get("medical-upstream-x1")!.session, "medical-upstream-x1");
+    assert.equal(byId.get("rsi-live-c12-mon-2")!.session, "rsi-live-c12-mon-2");
+    assert.equal(byId.get("sa42")!.session, null, "numeric dirs keep the old null-session contract");
+  });
+  test("era extraction runs for session-named dirs too (2 clusters)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "wbstate-sess-era-"));
+    const clusters = userMsg(T, "First mission for the notion workspace") + MODEL
+      + userMsg(T + 30 * 3600e3, "Second mission, much later the same session") + ASSIST;
+    await sessionDir(dir, "notion-rsi-x1", clusters);
+    const v = new SubagentScanner().scan(dir).find((x) => x.id === "notion-rsi-x1")!;
+    assert.ok(v, "view present");
+    assert.equal(v.eras?.length, 2);
+    assert.match(v.eras![0].label, /First mission/);
+    assert.match(v.eras![1].label, /Second mission/);
+    assert.equal(v.eras![1].at - v.eras![0].at, 30 * 3600e3);
+  });
+  test("lineage for session-named dirs is a clean null, not a fabricated depth", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "wbstate-sess-lin-"));
+    await sessionDir(dir, "medical-upstream-x1", userMsg(T, "root-level persistent dispatch") + MODEL);
+    // a numeric sibling so any wrong dash-cut parent ("medical-upstream-x") is provably absent
+    await sessionDir(dir, "medical-upstream-x", userMsg(T, "decoy: would be a bogus dash-cut parent") + MODEL);
+    const v = new SubagentScanner().scan(dir).find((x) => x.id === "medical-upstream-x1")!;
+    assert.ok(v, "view present");
+    assert.equal(v.spawned_by, null);
+    assert.equal(v.depth, null);
+    assert.equal(v.status, "running"); // no crash, ordinary lifecycle fields intact
+  });
+  test("deriveSession: numeric chains null, session names pass through", () => {
+    for (const n of ["sa1", "sa42", "sa13-a", "sa2-sa1", "sa9-b-sa1", "sa27-k3f9", "sa9-b-sa1-k3f9"]) {
+      assert.equal(deriveSession(n), null, n);
+    }
+    for (const n of ["notion-rsi-x1", "medical-upstream-x1", "rsi-live-c12-mon-2", "bridge-org-x1"]) {
+      assert.equal(deriveSession(n), n, n);
+    }
   });
 });
 
