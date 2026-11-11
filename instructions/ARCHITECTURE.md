@@ -11,7 +11,7 @@
 
 There is exactly **one agent type**. Every node — the coordinator entry point and every
 spawned worker alike — runs the same first-principles rule (AGENT-ORG §2): restate the
-goal, then **decompose-or-execute**. Thirteen **expertise profiles** (skills + standards +
+goal, then **decompose-or-execute**. Eighteen **expertise profiles** (skills + standards +
 tool allowlist — never authority) and numbered **individuals** (memory-carrying persons)
 attach at any node; the org chart is not a structure but the shape one requirement's
 recursion happens to take. Depth is decided per node by the decomposition test; the only
@@ -57,7 +57,7 @@ ledgers, so the next engagement inherits them.
 
 | Layer | Id convention | What it is | Reusability semantics |
 |---|---|---|---|
-| Profile | 13 names (`coder`, `scout`, `reviewer`, …) | job description: role card + `skills/<spec>.md` stubs + dispatch-authority section | defines skills/standards, never authority; invoked on every dispatch |
+| Profile | 18 names (`coder`, `scout`, `reviewer`, `product-manager`, `evaluator`, `memory-curator`, `curriculum-designer`, `prompt-engineer`, …) | job description: role card + `skills/<spec>.md` stubs + dispatch-authority section | defines skills/standards, never authority; invoked on every dispatch |
 | Individual | `<profile>-<n>` (seeded: `coder-1`, `operator-1`, `reviewer-1`) | a person: spec mix + level + personal memory file (`records/<id>.md`) | persists; memory compounds; created only via the hiring gate |
 | Instance | `role-<ind>[.<spec>]@<project>[.<sub>…]` | one engagement on one project — a resumable session (`subagent_spawn`, `session` arg) | spawned on demand, idle after reporting, never resident; one active task per id; same role + different projects = separate instances; concurrent same-project = `-2`, `-3` suffixes |
 | Worker | fresh, no session id | one-shot child spawned by any node; never resumed or reused | its value is harvested into the ledger on verified completion (§6) |

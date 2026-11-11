@@ -1,9 +1,13 @@
 # CREW MANIFEST — 2026-11-11 (retrospective)
 
+> Same-day addendum: after this manifest was written, the user approved 5 more profiles
+> (product-manager, evaluator, memory-curator, curriculum-designer, prompt-engineer) —
+> the roster is now 18 (AGENT-ORG.md §4). Event rows below are history, not the current roster.
+
 Per user request ("the sa's have no names — organize them into profiles"). Evidence:
 `.pi/subagents/sa*/events.jsonl` user messages timestamped 2026-11-11 (~29 task
 assignments across 26 sessions; ids were REUSED across the day for different tasks —
-disambiguated by task tokens, not id). Taxonomy: 13 profiles (`instructions/agents/`)
+disambiguated by task tokens, not id). Taxonomy: expertise profiles (`instructions/agents/`)
 → numbered individuals (`ROSTER.md`: coder-1, operator-1, reviewer-1) → instances
 `role-<name>[.<spec>]@<project>[.<subproject>]` (AGENT-ORG §5.1).
 

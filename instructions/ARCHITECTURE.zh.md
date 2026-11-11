@@ -10,7 +10,7 @@
 ## 1. 核心论题
 
 只存在**一种 agent 类型**。每个节点——coordinator 入口与每个被 spawn 的 worker 无一例外——运行同一条
-第一性规则（AGENT-ORG §2）：先复述目标，然后 **decompose-or-execute**。十三个 expertise profile
+第一性规则（AGENT-ORG §2）：先复述目标，然后 **decompose-or-execute**。十八个 expertise profile
 （skills + 标准 + 工具 allowlist——只是能力，从来不是权限）与带编号的 individual（携带记忆的"人"）
 可附着在任意节点；组织图不是一种结构，而是某一次需求递归恰好呈现出的形状。深度由各节点自行判定，
 唯一的硬边界是每 agent 的 spawn 预算。能力**通过记忆产生复利**：可续会话、append-only 的经验账本、
@@ -41,7 +41,7 @@ CWD 为项目 B 的子节点（取 repo 事实、调用同级工具），子节�
 
 | 层 | id 约定 | 是什么 | 复用语义 |
 |---|---|---|---|
-| profile | 13 个名字（`coder`、`scout`、`reviewer`、…） | 岗位说明书：role card + `skills/<spec>.md` 存根 + dispatch 权限节 | 只定义 skills 与标准，从不授予权限；每次 dispatch 都被引用 |
+| profile | 18 个名字（`coder`、`scout`、`reviewer`、`product-manager`、`evaluator`、`memory-curator`、`curriculum-designer`、`prompt-engineer`、…） | 岗位说明书：role card + `skills/<spec>.md` 存根 + dispatch 权限节 | 只定义 skills 与标准，从不授予权限；每次 dispatch 都被引用 |
 | individual | `<profile>-<n>`（已播种：`coder-1`、`operator-1`、`reviewer-1`） | 一个"人"：spec 组合 + 级别 + 个人记忆文件（`records/<id>.md`） | 持久存在；记忆复利；只能经 hiring gate 创建 |
 | instance | `role-<ind>[.<spec>]@<project>[.<sub>…]` | 某 individual 在某项目上的一次 engagement——一个可续会话（`subagent_spawn` 的 `session` 参数） | 按需 spawn，汇报后即空闲，从不常驻；同一 id 同时只承载一个活动任务；同角色不同项目 = 不同 instance；同项目并发 = `-2`、`-3` 后缀 |
 | worker | 全新会话，无 session id | 任何节点 spawn 的一次性子节点；从不续用、不复活 | 其价值在验证完成后收割进账本（§6） |

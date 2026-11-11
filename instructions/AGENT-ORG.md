@@ -2,12 +2,12 @@
 
 > Proposal v1.4 · 2026-11-11 · user directives of 2026-11-11. One agent type; every
 > node applies the same first-principles rule (§2): restate, then decompose-or-execute —
-> a dynamic recursion tree, depth per node, bounded only by `PI_SPAWN_BUDGET`. Thirteen
+> a dynamic recursion tree, depth per node, bounded only by `PI_SPAWN_BUDGET`. Eighteen
 > expertise profiles attach at any node (§4, with within-profile axes). Mechanisms:
 > UP-CHECK loop (§3), async concurrency (§5.1), default-ON dispatch (§5.2), three-tier
 > memory (§6), subprojects = graduated branches (§5.4). Proposal only; on acceptance
 > supersedes "children must not delegate" in `DELEGATION-ROUTING.md`; §5.2 joins all
-> thirteen role cards.
+> eighteen role cards.
 
 ## 1. Org chart — a recursion tree, not a pyramid
 
@@ -43,7 +43,7 @@ flowchart TB
 
     L2 -.-> PS["PROJECT SPACE<br/>code commits · docs/ · work/ records"]
 
-    R0["13 expertise profiles · attachable at any node (§4)<br/>Intelligence: researcher · planner · analyst<br/>Build/run: coder · operator · tester · tech-lead<br/>Assurance: reviewer · security<br/>Comms/support: writer · designer · visualizer · scout"]
+    R0["18 expertise profiles · attachable at any node (§4)<br/>Intelligence: researcher · planner · analyst<br/>Build/run: coder · operator · tester · tech-lead<br/>Assurance: reviewer · security · evaluator<br/>Product/curriculum: product-manager · curriculum-designer<br/>Comms/support: writer · designer · visualizer · scout · memory-curator · prompt-engineer"]
     C -. "every node wears one profile" .-> R0
 ```
 
@@ -98,17 +98,15 @@ loop ends only when top-level acceptance passes: coordinator (filesystem-verifie
 
 ## 4. Expertise profiles — attachable at any node
 
-The thirteen roles are **expertise profiles, not layers or positions**. A profile changes
-skills, standards, and the tool allowlist — never dispatch rights: any node may spawn
-children (budget-bounded) and carry any profile (a coder node spawns scout children for
-repo facts; a reviewer node, focused reviewers). "Typical children" = the usual spawn set;
-deviation is a judgment. No separate "worker" row: a spawned agent is the same node type —
-profile sets skills, its brief sets boundaries (§5.2); profiles are held by numbered individuals with personal memory (`ROSTER.md`); the normative structure is the project graph (`GRAPH-SCHEMA.md`) — prose sections are explanatory views. Roster authority: the coordinator invokes existing profiles/individuals; creating new profiles or individuals (hiring) requires user approval.
+The eighteen roles are **expertise profiles, not layers or positions**. A profile changes skills, standards, and the
+tool allowlist — never dispatch rights: any node may spawn children (budget-bounded) and carry any profile (a coder
+node spawns scout children for repo facts; a reviewer node, focused reviewers). "Typical children" = the usual spawn
+set; deviation is a judgment. No separate "worker" row: a spawned agent is the same node type — profile sets skills,
+its brief sets boundaries (§5.2); profiles are held by numbered individuals with personal memory (`ROSTER.md`); the normative structure is the project graph (`GRAPH-SCHEMA.md`) — prose sections are explanatory views. Roster authority: the coordinator invokes existing profiles/individuals; creating new profiles or individuals (hiring) requires user approval.
 
-Escalation is uniform: a `blocked` report with one concrete question to the parent; never
-self-authorize, never retry unknown outcomes. "BoN" = best-of-N (a fanout of N counts N
-against the budget). Every node is proposal-only on acceptance, scope, budget, authorization —
-the dispatching parent's, finally the coordinator's, call.
+Escalation is uniform: a `blocked` report with one concrete question to the parent; never self-authorize, never retry
+unknown outcomes. "BoN" = best-of-N (a fanout of N counts N against the budget). Every node is proposal-only on
+acceptance, scope, budget, authorization — the dispatching parent's, finally the coordinator's, call.
 
 | Profile | Typical children | Reports to | Escalates when | Authority | Budget / task |
 |---|---|---|---|---|---|
@@ -116,24 +114,26 @@ the dispatching parent's, finally the coordinator's, call.
 | researcher | ≤2 scout (repo-side facts) | parent | claims unverifiable | proposal-only | ≤2 |
 | planner | ≤2 scout (verify load-bearing assumptions) | parent | plan needs a decision | proposal-only (plan ≠ authorization) | ≤2 |
 | analyst | ≤1 scout (locate datasets, metric definitions) | parent | data provenance unverifiable | proposal-only (analysis + verdicts) | ≤1 |
+| product-manager | ≤2 scout (user/context facts) | parent | priority call needs a user decision | proposal-only (requirements, PRD, acceptance criteria); never implements | ≤2 |
+| curriculum-designer | ≤2 scout (capability/engine facts) | parent | gate unreachable as designed | proposal-only (nodes + gates); the engine applies | ≤2 |
 | coder | coder ×3 BoN (≤5 hard) + 1 scout recon | parent | scope/auth overflow; blocked verification | bounded execution in file scope; *recommends* a candidate | ≤5 |
 | operator | operator per runbook segment | parent | unknown outcomes; runbook vs reality mismatch | runbook execution + **stop authority** on gate failure | ≤3 |
 | tech-lead | workers per §5.2 default (subtree decomposition) | parent | acceptance/scope beyond its subtree | subtree direction; *recommends*, never self-accepts | budget-bounded (brief wins) |
 | tester | ≤2 scout (repo + test-suite facts) | parent | asked to weaken tests | bounded execution in test scope; never weakens tests | ≤2 |
 | reviewer | reviewer focused passes (correctness/security/regression) | parent | blocking finding | proposal-only (graded findings) | ≤3 |
 | security | ≤1 scout (dependency/attack-surface facts) | parent | exploitable finding needs a decision | proposal-only (graded findings) | ≤1 |
+| evaluator | ≤2 scout (system/benchmark facts) | parent | verdict contested; bar unmeetable as written | verdict-bound live acceptance; never weakens a benchmark; recommends ship/no-ship | ≤2 |
 | writer | writer per doc/section | parent | audience/destination ambiguity | bounded execution in doc scope | ≤2 |
 | designer | designer per artifact | parent | ugliness is structural | presentation-only execution | ≤2 |
 | visualizer | visualizer per artifact | parent | data missing/ambiguous | new-artifact-only execution | ≤2 |
+| memory-curator | ≤1 scout (KB-tree/source facts) | parent | gate outcome disputed; sources unverifiable | bounded KB lifecycle execution; append-only; promotion only via the gate | ≤1 |
+| prompt-engineer | ≤1 scout (prompt-corpus facts) | parent | change needs owner acceptance | proposal + brief-authorized edit behind the owner's acceptance flow; never the pi core | ≤1 |
 
-**Within-profile axes** (2026-11-11): real orgs specialize within one role and carry seniority —
-profiles do too, as **behavioral axes, not tiers**. (a) **Specialization**: each role card names
-2-5 specializations (`skills/<spec>.md` stubs, promoted into full methodology as verified lessons
-accumulate); the brief names the one to wear; the session id extends to
-`role-<name>.<spec>@<project>` (§5.1); BoN candidates may wear different specializations —
-diversity is part of the value of N. (b) **Level**: junior = strict adherence to the card;
-senior = judgment deviations allowed, each reported in the result. Neither axis changes
-dispatch rights, budget, or acceptance authority.
+**Within-profile axes** (2026-11-11): real orgs specialize within one role and carry seniority — profiles do too, as
+**behavioral axes, not tiers**. (a) **Specialization**: each role card names 2-5 specializations (`skills/<spec>.md`
+stubs, promoted into full methodology as verified lessons accumulate); the brief names the one to wear; the session id
+extends to `role-<name>.<spec>@<project>` (§5.1); BoN candidates may wear different specializations — diversity is
+part of the value of N. (b) **Level**: junior = strict adherence to the card; senior = judgment deviations allowed, each reported in the result. Neither axis changes dispatch rights, budget, or acceptance authority.
 
 ## 5. Node conventions — sessions, dispatch, reporting
 
