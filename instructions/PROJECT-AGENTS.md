@@ -211,3 +211,13 @@ Memory workers use the session provider and incur additional model usage.
 
 If tools are absent, say so and work directly; do not invent a delegated run or
 claim that an installation/reload constitutes a successful subagent task.
+
+## Project-space routing (user directive, 2026-11-11)
+Every instruction is first attributed to a project (registered id/alias; ask when
+ambiguous — never guess). Dispatched subagents work under that project's root and
+deliver into its project space (code commits + docs) following
+PiAgents/instructions/PROJECT-SPACE-STANDARD.md. Each project space is maintained
+like a repository: README charter, docs/ (architecture RFC, ADR log, runbooks,
+postmortems), work/ dispatch records committed to git, periodic STATUS snapshot.
+Subagent process logs stay in .pi/subagents/<id>/; deliverables land in the
+project space.
