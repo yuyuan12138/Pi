@@ -9,3 +9,4 @@ name the source project. Never record project-private data.
 - Dark mission-control read well; decoration must be tuned DOWN for work tools (40 deterministic stars, barely-there nebula) — mockup showroom ≠ daily dashboard.
 - Readability beats taxonomy: the user abolished the subproject category and raw date labels — every node needs a human name + role + what-it's-doing-now (activity line), and hierarchy comes from tree position, not node kinds.
 - Two rounds of "ugly" feedback both traced to missing information (no activity context, no roles), not just styling — ask what the user cannot READ before restyling.
+- 2026-11-11 distilled: procedural items moved to skills/design-workflow.md (this ledger keeps the episodic record + evidence).
