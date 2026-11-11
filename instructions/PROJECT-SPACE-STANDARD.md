@@ -200,6 +200,7 @@ needed, are frozen into `work/` records — never into README.
 | runbook | ≤120 lines | every operation failure it didn't cover |
 | postmortem | ≤150 lines | every qualifying incident |
 | work RECORD | ≤80 lines | every dispatch |
+| subproject charter | ≤30 lines | graduation; archive |
 
 ## Deliberately dropped from the industry canon
 
@@ -235,3 +236,54 @@ needed, are frozen into `work/` records — never into README.
 
 Reference implementation: `remote-agent/operations/20261029-minimal-sword-episode/`
 (see `work/2026-11-11-project-space-sample/RECORD.md`).
+
+## 10. Subprojects (v1 — convention only)
+
+A decomposition branch that **graduates** — criterion in `AGENT-ORG.md` §5.4: it needs
+its own ADRs or spans multiple work sessions — becomes a durable subproject inside the
+parent project space, never a new top-level project without user registration.
+
+```text
+<project-root>/
+└── subprojects/
+    └── <name>/
+        ├── README.md       # charter, ≤30 lines (skeleton below)
+        └── work/           # same RECORD template as the parent
+```
+
+Charter skeleton (inline in v1; no separate template file):
+
+```markdown
+# <name> — subproject of <parent>
+Status: active | done (archived <date>)
+Goal: <one sentence — what this branch must deliver>
+Parent: <pointer to the parent charter section / ADR that graduated it>
+Owned subagents: <profile[.spec]@<project>.<name> entries, one per line>
+Conventions: inherits the parent project space (§1–§8); work/ uses the parent RECORD template.
+```
+
+Rules:
+
+- **Attribution**: dispatch ids extend to
+  `role-<name>[.<spec>]@<project>.<subproject>` (e.g. `role-coder@minecraft.furnace`);
+  the work-record `Worker` / `Dispatched-by` fields carry it.
+- **Archive on completion**: write the closing postmortem/summary in the subproject,
+  merge lessons UP into the parent's memory tier (parent ADR or KB daily entry), set
+  `Status: done`; the directory stays as history — nothing is deleted.
+- **v2 deferred**: registry tree in pi-project-coordinator + a `/projects` panel;
+  v1 is convention-only, no engine changes.
+
+Example (minecraft, two graduated subprojects; record names from this standard's
+cited sample):
+
+```text
+minecraft/                        # parent project space
+├── README.md · docs/ · work/
+└── subprojects/
+    ├── furnace/                  # graduated: multi-session furnace campaign
+    │   ├── README.md             # goal: collector-green runs · owned subagents
+    │   └── work/                 # e.g. OPERATOR-RECORD-wave17-round8-…
+    └── safety-monitor/           # graduated: hazard false-positive class (post wave-30)
+        ├── README.md             # goal: zero safety trips · parent ADR-004
+        └── work/
+```
