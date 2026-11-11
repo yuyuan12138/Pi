@@ -201,6 +201,15 @@ describe("session-named dirs (pi-superagent dd08db5)", () => {
       assert.equal(deriveSession(n), n, n);
     }
   });
+  test("deriveSession strips the superagent collision token (-[0-9a-z]{4})", () => {
+    assert.equal(deriveSession("bridge-org-x1-2x41"), "bridge-org-x1");
+    assert.equal(deriveSession("medical-upstream-x1-a1b2"), "medical-upstream-x1");
+    // numeric chains keep the suffix (lineage, not session naming)
+    assert.equal(deriveSession("sa27-k3f9"), null);
+    assert.equal(deriveSession("sa9-b-sa1-k3f9"), null);
+    // a session dir that IS the token shape but has no dash is untouched
+    assert.equal(deriveSession("ab12"), "ab12");
+  });
 });
 
 describe("helpers", () => {

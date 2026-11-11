@@ -30,8 +30,8 @@ const org = new Function(
   orgClassifyRole: (id: string, label: string | null, session: string | null) => string | null;
   orgNaturalCompare: (a: string, b: string) => number;
   orgTrunc: (s: string | null, n: number) => string;
-  orgAttribution: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
-  orgProjectOf: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
+  orgAttribution: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown; eraCount?: number } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
+  orgProjectOf: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown; eraCount?: number } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
   orgRoleShort: (w: unknown) => string | null;
   orgTruncW: (s: unknown, maxUnits: number) => string;
   ORG_CHILD_PROJECT_SNAPSHOT: Array<{ project: string; id: string; displayName: string; tokens: string[] }>;
@@ -640,6 +640,36 @@ describe("live session-name attribution (<topic>-x<N> convention)", () => {
   test("static snapshot rows still resolve as the last resort (era-normalized ids)", () => {
     assert.equal(org.orgProjectOf({ id: "sa13-a#2", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }, REG, null), "PiAgents.harness");
     assert.equal(org.orgProjectOf({ id: "sa80", label: "Draft a blog post about the Pi-agent architecture; MC RSI is background" }, REG, null), "blog");
+  });
+  test("suffixed session values (superagent uniqueness token) still match topics", () => {
+    // the live scanner reports sessions like "bridge-org-x1-2x41" — the page
+    // strips the -[0-9a-z]{4} token before the topic match
+    assert.equal(org.orgProjectOf({ id: "bridge-org-x1-2x41", session: "bridge-org-x1-2x41", label: "Fix the session-named events dirs" }, REG, null), "PiAgents.bridge");
+    // dir-id fallback path: session-named dirs carrying the token
+    assert.equal(org.orgProjectOf({ id: "medical-upstream-x1-a1b2", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sa1", session: "notion-rsi-x1-k9f2", label: null }, REG, null), "notion-ops");
+  });
+  test("era-level inheritance: unambiguous dir row fills silent sibling eras", () => {
+    // sa2's manifest row is minecraft-only; eras whose own text carries no
+    // project signal inherit the dir-level attribution (era-split nodes only)
+    assert.equal(org.orgProjectOf({ id: "sa2#1", eraCount: 2, label: "任务：读这套环境配置，写一份迁移文档" }, REG, null), "minecraft");
+    assert.equal(org.orgProjectOf({ id: "sa2#4", eraCount: 2, label: "Reply with the single line: POST-RELOAD-OK. Do nothing else." }, REG, null), "minecraft");
+    // a whole dir (no eraCount) keeps the token-gated row rule — no inheritance
+    assert.equal(org.orgProjectOf({ id: "sa2#1", label: "任务：读这套环境配置，写一份迁移文档" }, REG, null), null);
+    // the dir's rows disagree (sa12 has harness AND org rows) -> no inheritance
+    assert.equal(org.orgProjectOf({ id: "sa12#3", eraCount: 2, label: "You are the coder role, implement the change with tests" }, REG, null), null);
+  });
+  test("era label evidence beats dir inheritance (harnessbench -> harness)", () => {
+    assert.equal(org.orgProjectOf({ id: "sa2#5", label: "ROLE: coder/operator. The full 20x2 HarnessBench A/B at /tmp/hbench-ab FAILED" }, REG, null), "PiAgents.harness");
+    assert.equal(org.orgProjectOf({ id: "sa5#3", label: "You are the coder role, continuing sa4's HarnessBench work" }, REG, null), "PiAgents.harness");
+    assert.equal(org.orgProjectOf({ id: "sa11#3", label: "You are the writer role. Update the Pi documentation site to reflect the new spawn rules" }, REG, null), "PiAgents-org");
+  });
+  test("era conflict stays unattributed (honesty rule)", () => {
+    // sa11's row is blog-only; an era naming TWO projects gets no inheritance
+    // and the row token (blog) does not match -> honest unattributed
+    assert.equal(org.orgProjectOf({ id: "sa11#9", eraCount: 2, label: "对比 minecraft 和 医疗平台 的进度" }, REG, null), null);
+    // no manifest row at all + no signal -> stays unattributed
+    assert.equal(org.orgProjectOf({ id: "sa22#5", eraCount: 2, label: "USER RULING: the subproject node kind is abolished" }, REG, null), null);
   });
   test("static snapshot rows never apply to session-named dirs (id gate)", () => {
     // a label that WOULD satisfy a harness crew token, on a dir the snapshot

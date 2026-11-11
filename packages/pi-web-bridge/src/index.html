@@ -1206,7 +1206,8 @@
   const ORG_PROJECT_EXTRA_ALIASES = {
     minecraft: ["rsi", "wave", "furnace", "episode", "木剑", "mineflayer", "remote-agent/operations"],
     medical: ["筛查", "screening"],
-    "PiAgents.harness": ["memory-index", "memidx", "terminal-bench", "yt-dlp", "whisper", "vlog-auto-edit", "vlog-edit-test", "video toolchain", "video-editing agent"],
+    "PiAgents.harness": ["memory-index", "memidx", "terminal-bench", "harnessbench", "hbench", "yt-dlp", "whisper", "vlog-auto-edit", "vlog-edit-test", "video toolchain", "video-editing agent"],
+    "PiAgents-org": ["pi documentation", "agent organization"],
   };
   // Manifest snapshot: dispatch id -> project, gated by a task token so a
   // reused id does not inherit yesterday's project. From CREW-MANIFEST.
@@ -1279,7 +1280,10 @@
   // 3 chars are too weak as bare prefixes ("mc", "ir") and never match. No
   // vocabulary hit -> null (never guess on weak evidence).
   function orgSessionTopicProject(name, registry) {
-    const s = String(name ?? "").trim();
+    // session values / session-named dir ids may carry the superagent
+    // uniqueness token ("bridge-org-x1-2x41") — strip it first, exactly like
+    // dir-name ancestry parsing does
+    const s = orgDirBase(String(name ?? "").trim());
     // the counter tail is "-x<N>" or "-<N>" ("rsi-live-c12-mon-2" ends "-2")
     const m = /^(.+?)-(?:x)?\d+$/.exec(s);
     if (!m) return null;
@@ -1365,6 +1369,18 @@
         if ((p?.root && label.includes(String(p.root).toLowerCase())) || aliased) hits.add(String(p.id));
       }
       if (hits.size === 1) return [...hits][0];
+      // (b2) era-level inheritance: a dir's snapshot row attributes the WHOLE
+      // dir, but era-split nodes carry their own task text. When the dir's
+      // manifest rows agree on ONE project and the era's own text carries NO
+      // project signal at all (nothing above matched — conservative), the era
+      // inherits the dir-level attribution. A conflicting signal (pseudo or
+      // registry ambiguity) skips inheritance entirely. Scoped to era-split
+      // nodes only (eraCount > 1): whole dirs keep the token-gated row rule.
+      if (s?.eraCount > 1 && pseudoHits.length === 0 && hits.size === 0) {
+        const dirProjects = new Set();
+        for (const e of ORG_CREW_DISPATCH_PROJECTS) if (e.ids.includes(baseId)) dirProjects.add(e.project);
+        if (dirProjects.size === 1) return [...dirProjects][0];
+      }
       // hits.size > 1 or 0: fall through to the token-gated snapshot
     }
     // (c2) static snapshot last resort: manifest rows keyed by dir id + task

@@ -430,9 +430,15 @@ function appendRecordsAtomic(sidecar: string, lines: string[]): void {
  */
 const NUMERIC_DIR_RE = /^sa\d+(?:-[A-Za-z0-9]+)*$/;
 
-/** Session id for a subagents dir name; null when the dir is numeric-style. */
+/**
+ * Session id for a subagents dir name; null when the dir is numeric-style.
+ * Session dirs may carry the superagent collision suffix ("-2x41", a trailing
+ * -[0-9a-z]{4} token): /state reports the CLEAN session id so consumers see
+ * the session the dir was named after.
+ */
 export function deriveSession(name: string): string | null {
-  return NUMERIC_DIR_RE.test(name) ? null : name;
+  if (NUMERIC_DIR_RE.test(name)) return null;
+  return name.replace(/-([0-9a-z]{4})$/, "") || name;
 }
 
 /**
