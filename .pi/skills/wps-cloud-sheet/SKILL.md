@@ -34,6 +34,9 @@ The tools live in `tools/wps-reader/`.
   CDP session. `entries.json` = `[{"date":"YYYY-MM-DD","category":..,"amount":..,"note":..}]`.
 
 ## Critical mechanics (learned the hard way)
+- **Locate sheets BY NAME, never by index** — sheet order in the workbook can differ from what old scripts assume (Item(4) was believed to be 流水-钧 but actually resolves to 年报-钧, a ~60-row summary sheet). Enumerate `ws.Count` + `Item(i).Name` to find the index, then use that index. An index-based append at "last+1" computed on the WRONG sheet can overwrite real data mid-sheet — the pre-mutation snapshot is what catches this.
+- **UsedRange can UNDERSTATE as well as overstate** (a freshly-synced core reported 61 rows on a 2004-row sheet). Never use UsedRange to find the append position; read an absolute range (e.g. rows 1..3000, cols 1..5) and compute the last row with any non-empty cell yourself. Append by absolute `Cells(row, col)` indices and verify read-back.
+- **`CDP.evaluate(expr, await_promise=False)` takes exactly ONE positional arg** — pass arguments by embedding them into the JS source via `json.dumps` (the working pattern in this file's READ_JS), not as extra evaluate params. A failed evaluate raises BEFORE the write reaches the sheet, but always re-read the target rows after any error to confirm zero partial writes.
 - **Promise-based proxy**: every `WPSOpenApi` property/method returns a thenable,
   not a value. Wrap each in a native Promise to await it:
   `function P(t){return new Promise(function(r,j){ if(t&&typeof t.then==='function')t.then(r,j); else r(t); });}`
