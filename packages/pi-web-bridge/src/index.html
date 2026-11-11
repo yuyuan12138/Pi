@@ -621,11 +621,12 @@
   #org-note .n-sub { font: 400 10px var(--mono); letter-spacing: .06em; color: var(--t3); margin-top: 7px; }
   /* edges: dispatch lineage — solid thin, dashed when the prefix-parent is not in the scan */
   .oedge { fill: none; stroke: var(--line); stroke-width: 1; transition: opacity .18s var(--ease), stroke .18s var(--ease); }
+  .oedge.crew { stroke-width: .7; opacity: .8; } /* thin project -> agent edges */
   .oedge.dashed { stroke-dasharray: 5 5; stroke: rgba(255, 255, 255, .14); }
   .oedge.hot { stroke: var(--sig); }
-  #orgsvg.focus .oedge:not(.hot) { opacity: .24; }
+  #orgsvg.focus .oedge:not(.hot) { opacity: .2; }
   .onode { cursor: default; transition: opacity .18s var(--ease); }
-  #orgsvg.focus .onode:not(.hot) { opacity: .38; }
+  #orgsvg.focus .onode:not(.hot) { opacity: .25; }
   .onode .obox { fill: rgba(255, 255, 255, .02); stroke: var(--line); transition: stroke .18s var(--ease); }
   .onode.running .obox { stroke: rgba(70, 224, 163, .66); }
   .onode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
@@ -638,6 +639,8 @@
   .onode .oid { fill: var(--t0); font-size: 9.5px; letter-spacing: .02em; }
   .onode.done .oid { fill: var(--t1); }
   .cnode .oid { font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; }
+  .pnode .oid { font-size: 9px; letter-spacing: .04em; }
+  .pnode.snode { opacity: .82; } /* subprojects read as intermediate structure */
   .cnode .obox { stroke: rgba(70, 224, 163, .4); fill: rgba(70, 224, 163, .035); }
   .cnode .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
   .cnode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
@@ -821,6 +824,7 @@
   <svg data-tpl="onode"><g class="onode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
   <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
   <svg data-tpl="oedge"><path class="oedge"/></svg>
+  <svg data-tpl="pnode"><g class="onode pnode"><rect class="obox" width="150" height="24" rx="12"/><circle class="ostatus" cx="11" cy="12" r="2.5"/><text class="oid" x="18" y="15.5"/><title/></g></svg>
 </div>
 
 <div id="backdrop"></div>
@@ -1120,46 +1124,145 @@
     if (h >= 130 && h <= 185) h = (h + 75) % 360;
     return h;
   }
-  function orgBuildTree(subs, bridgeProject) {
-    const list = Array.isArray(subs) ? subs : [];
-    const ids = new Set(list.map((s) => String(s.id)));
-    const nodes = new Map();
-    for (const s of list) {
-      const lin = orgDeriveParent(String(s.id), ids);
-      nodes.set(String(s.id), {
-        id: String(s.id),
-        status: s.status ?? "running",
-        model: s.model ?? null,
-        label: s.label ?? null,
-        session: s.session ?? null,
-        usage: s.usage ?? null,
-        lastActivity: s.lastActivity ?? null,
-        parent: lin.known ? lin.parent : null,
-        parentHint: lin.known ? null : lin.parent,
-        knownParent: lin.known,
-        project: orgAttribution(s, bridgeProject),
-        role: orgClassifyRole(String(s.id), s.label, s.session),
-        depth: 0,
-        children: [],
-      });
-    }
-    for (const n of nodes.values()) {
-      if (n.parent && n.parent !== n.id && nodes.has(n.parent)) nodes.get(n.parent).children.push(n);
-    }
-    const roots = [...nodes.values()].filter((n) => !n.parent);
-    const seen = new Set();
-    let maxDepth = 0;
-    const walk = (n, d) => {
-      if (seen.has(n.id)) return;
-      seen.add(n.id);
-      n.depth = d;
-      if (d > maxDepth) maxDepth = d;
-      for (const c of n.children) walk(c, d + 1);
-    };
-    for (const r of roots) walk(r, 0);
-    return { nodes, roots, maxDepth };
+  // ---------- hierarchy model: coordinator -> projects -> (subprojects) -> agents ----------
+  // GRAPH-SCHEMA shape for the Overview: project nodes (from the /projects
+  // payload — the same source as the selector chips) sit between the
+  // coordinator and the agents; each agent hangs under its attributed project
+  // via a thin crew_of edge; agents with no attribution (no explicit project
+  // AND no bridge project) gather under an explicit "unattributed" node.
+  // Working registry projects (fresh journal activity) appear even without
+  // agents; with NO subagents at all the graph stays the pure idle state
+  // (coordinator + note). v2 subprojects (registry entry .subprojects) render
+  // as intermediate nodes when the data exists — absent data means no layer.
+  const ORG_WORKING_MS = 30 * 60 * 1000;
+  function orgRegistryWorking(entry, nowMs) {
+    const t = entry?.lastActivity ? Date.parse(entry.lastActivity) : NaN;
+    return Number.isFinite(t) && nowMs - t < ORG_WORKING_MS;
   }
-  const ORG_LAYOUT = { coordW: 120, coordH: 26, nodeW: 140, nodeH: 26, gapX: 12, rowH: 44, padX: 20, padTop: 18, padBottom: 24 };
+  // v2 path: an agent whose explicit project names a registry subproject is
+  // routed under that subproject node instead of the project node.
+  function orgSubprojectTarget(s, registry) {
+    const raw = typeof s?.project === "string" ? s.project.trim() : "";
+    if (!raw) return null;
+    for (const p of Array.isArray(registry) ? registry : []) {
+      if (!p || !Array.isArray(p.subprojects)) continue;
+      for (const sp of p.subprojects) {
+        if (sp && sp.id === raw) return { project: p.id, subproject: sp.id };
+      }
+    }
+    return null;
+  }
+  // Build the full hierarchy. view = null renders the Overview (project layer
+  // per the rule above); a project key renders that single subtree
+  // (coordinator -> project -> agents), which is one crew_of subtree by construction.
+  function orgBuildModel(subs, bridgeProject, registry, view, nowMs) {
+    const list = Array.isArray(subs) ? subs : [];
+    const reg = (Array.isArray(registry) ? registry : []).filter((p) => p && typeof p.id === "string");
+    const regById = new Map(reg.map((p) => [p.id, p]));
+    // bucket agents by attribution; remember explicit subproject routing (v2)
+    const buckets = new Map(); // projectKey -> [{ sub, subTarget }]
+    for (const s of list) {
+      const target = orgSubprojectTarget(s, reg);
+      const key = target ? String(target.project) : (orgAttribution(s, bridgeProject) ?? ORG_UNATTRIBUTED);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push({ sub: s, subTarget: target });
+    }
+    let projKeys;
+    if (view) {
+      projKeys = [view]; // a project view always shows its (possibly empty) project node
+    } else if (!list.length) {
+      projKeys = []; // pure idle state: coordinator + note, no project layer
+    } else {
+      projKeys = [];
+      for (const p of reg) if (buckets.has(p.id) || orgRegistryWorking(p, nowMs)) projKeys.push(p.id);
+      for (const k of [...buckets.keys()].filter((k) => k !== ORG_UNATTRIBUTED).sort(orgNaturalCompare)) {
+        if (!projKeys.includes(k)) projKeys.push(k);
+      }
+      if (buckets.has(ORG_UNATTRIBUTED) && !projKeys.includes(ORG_UNATTRIBUTED)) projKeys.push(ORG_UNATTRIBUTED);
+    }
+    const nodes = new Map();
+    let maxSpawnDepth = 0;
+    for (const key of projKeys) {
+      const entry = regById.get(key) ?? null;
+      const pid = "__proj:" + key;
+      const projectNode = {
+        id: pid, kind: "project", projectKey: key,
+        display: key === ORG_UNATTRIBUTED ? "unattributed" : String(entry?.displayName || key),
+        registry: entry,
+        parent: null, parentHint: null,
+        depth: null, row: 1, children: [],
+      };
+      nodes.set(pid, projectNode);
+      const bucket = buckets.get(key) ?? [];
+      const spNodes = new Map();
+      if (entry && Array.isArray(entry.subprojects)) {
+        for (const sp of entry.subprojects) {
+          if (!sp || typeof sp.id !== "string") continue;
+          const spid = "__sub:" + key + ":" + sp.id;
+          const spNode = {
+            id: spid, kind: "subproject", projectKey: key,
+            display: String(sp.displayName || sp.id), registry: sp,
+            parent: pid, parentHint: null, depth: null, row: 0, children: [],
+          };
+          spNodes.set(sp.id, spNode);
+          nodes.set(spid, spNode);
+          projectNode.children.push(spNode);
+        }
+      }
+      // agents of this bucket: spawn lineage inside the bucket; roots hang
+      // under the project (or their routed subproject) via crew_of edges
+      const ids = new Set(bucket.map((b) => String(b.sub.id)));
+      const agents = new Map();
+      for (const b of bucket) {
+        const s = b.sub;
+        const lin = orgDeriveParent(String(s.id), ids);
+        agents.set(String(s.id), {
+          id: String(s.id), kind: "agent",
+          status: s.status ?? "running", model: s.model ?? null, label: s.label ?? null,
+          session: s.session ?? null, usage: s.usage ?? null, lastActivity: s.lastActivity ?? null,
+          parent: lin.known ? lin.parent : null,
+          parentHint: lin.known ? null : lin.parent,
+          knownParent: lin.known,
+          hostId: null,
+          project: key, subproject: b.subTarget?.subproject ?? null,
+          role: orgClassifyRole(String(s.id), s.label, s.session),
+          depth: 0, row: 0, children: [],
+        });
+      }
+      for (const a of agents.values()) {
+        if (a.parent && a.parent !== a.id && agents.has(a.parent)) agents.get(a.parent).children.push(a);
+      }
+      for (const a of agents.values()) {
+        if (a.parent) continue; // child agents attach via their agent parent
+        const host = a.subproject && spNodes.has(a.subproject) ? spNodes.get(a.subproject) : projectNode;
+        host.children.push(a);
+        a.hostId = host.id; // structural parent for the closure up-walk (crew_of edge)
+      }
+      const seen = new Set();
+      const walk = (a, d) => {
+        if (seen.has(a.id)) return;
+        seen.add(a.id);
+        a.depth = d;
+        if (d > maxSpawnDepth) maxSpawnDepth = d;
+        for (const c of a.children) walk(c, d + 1);
+      };
+      for (const a of agents.values()) if (!a.parent) walk(a, 0);
+      for (const a of agents.values()) nodes.set(a.id, a);
+    }
+    // structural rows: coordinator 0, projects 1, subprojects/agents below
+    let maxRow = projKeys.length ? 1 : 0;
+    const seenRow = new Set();
+    const setRow = (n, row) => {
+      if (seenRow.has(n.id)) return;
+      seenRow.add(n.id);
+      n.row = row;
+      if (row > maxRow) maxRow = row;
+      for (const c of n.children) setRow(c, row + 1);
+    };
+    for (const key of projKeys) setRow(nodes.get("__proj:" + key), 1);
+    return { nodes, projKeys, maxRow, maxSpawnDepth };
+  }
+  const ORG_LAYOUT = { coordW: 120, coordH: 26, nodeW: 140, nodeH: 26, projW: 150, projH: 24, gapX: 12, rowH: 44, padX: 20, padTop: 18, padBottom: 24 };
   // Fit-to-panel scaling: the whole tree is scaled uniformly into the visible
   // graph panel (never the document). Downscale is floored — past the floor a
   // very wide tree keeps the floor scale and pans INSIDE the panel.
@@ -1171,13 +1274,22 @@
     const applied = Math.max(ORG_FIT_FLOOR, Math.min(ORG_ZOOM_MAX, fit * (zoom || 1)));
     return { fit, applied };
   }
-  // Deterministic tidy-tree layout: leaves take sequential x slots in natural
-  // id order, parents center over their children, rows are depth bands (row 0
-  // = coordinator, row d+1 = depth-d subagents). Uneven trees stay uneven.
-  function orgLayoutTree(tree) {
+  // Deterministic tidy-tree layout over the full hierarchy: leaves take
+  // sequential x slots (projects in payload order, then subprojects, then
+  // agents in natural id order), parents center over their children, rows are
+  // structural bands (row 0 coordinator, row 1 projects, below that
+  // subprojects then agents by lineage). Agent nodes keep their SPAWN depth
+  // as the dN label; the structural row may sit deeper — both are honest.
+  function orgLayoutModel(model) {
     const L = ORG_LAYOUT;
-    for (const n of tree.nodes.values()) n.children.sort((a, b) => orgNaturalCompare(a.id, b.id));
-    const orderedRoots = [...tree.roots].sort((a, b) => orgNaturalCompare(a.id, b.id));
+    const kindW = (n) => (n.kind === "agent" ? L.nodeW : L.projW);
+    const kindH = (n) => (n.kind === "agent" ? L.nodeH : L.projH);
+    const order = (a, b) => {
+      if (a.kind !== b.kind) return a.kind === "subproject" ? -1 : b.kind === "subproject" ? 1 : 0;
+      return orgNaturalCompare(a.id, b.id);
+    };
+    for (const n of model.nodes.values()) n.children.sort(order);
+    const orderedRoots = model.projKeys.map((k) => model.nodes.get("__proj:" + k));
     let slot = 0;
     const place = (n) => {
       if (!n.children.length) { n._slot = slot++; return; }
@@ -1186,39 +1298,51 @@
     };
     for (const r of orderedRoots) place(r);
     const slotX = (i) => L.padX + i * (L.nodeW + L.gapX);
-    for (const n of tree.nodes.values()) {
-      n.x = Math.round(slotX(n._slot) + L.nodeW / 2);
-      n.y = L.padTop + (n.depth + 1) * L.rowH;
+    for (const n of model.nodes.values()) {
+      n.x = Math.round(slotX(n._slot) + L.nodeW / 2); // centers on the agent slot grid
+      n.y = L.padTop + n.row * L.rowH;
       n.childIds = n.children.map((c) => c.id);
     }
     let minX = Infinity;
     let maxX = -Infinity;
-    for (const r of orderedRoots) {
-      minX = Math.min(minX, r.x - L.nodeW / 2);
-      maxX = Math.max(maxX, r.x + L.nodeW / 2);
+    for (const n of model.nodes.values()) {
+      const w = kindW(n);
+      minX = Math.min(minX, n.x - w / 2);
+      maxX = Math.max(maxX, n.x + w / 2);
     }
-    const coordX = orderedRoots.length ? Math.round((minX + maxX) / 2) : Math.round(L.padX + L.nodeW / 2);
-    const width = Math.round(Math.max(coordX + L.coordW / 2, orderedRoots.length ? maxX : 0) + L.padX);
+    // span over ALL nodes: deep agent subtrees can reach far past their
+    // project node's center — roots-only math would clip the canvas
+    const anyNodes = model.nodes.size > 0;
+    const coordX = anyNodes ? Math.round((minX + maxX) / 2) : Math.round(L.padX + L.nodeW / 2);
+    const width = Math.round(Math.max(coordX + L.coordW / 2, anyNodes ? maxX : 0) + L.padX);
     const height = orderedRoots.length
-      ? L.padTop + (tree.maxDepth + 1) * L.rowH + L.nodeH + L.padBottom
+      ? L.padTop + model.maxRow * L.rowH + L.nodeH + L.padBottom
       : L.padTop + L.coordH + L.padBottom;
     const edges = [];
-    for (const r of orderedRoots) edges.push({ from: "__coord__", to: r.id, dashed: !!r.parentHint });
-    for (const n of tree.nodes.values()) {
-      for (const c of n.children) edges.push({ from: n.id, to: c.id, dashed: false });
+    for (const r of orderedRoots) edges.push({ from: "__coord__", to: r.id, kind: "entry", dashed: false });
+    for (const n of model.nodes.values()) {
+      for (const c of n.children) {
+        if (n.kind === "agent") edges.push({ from: n.id, to: c.id, kind: "spawn", dashed: false });
+        else edges.push({ from: n.id, to: c.id, kind: c.kind === "agent" ? "crew_of" : "sub", dashed: !!(c.kind === "agent" && c.parentHint) });
+      }
     }
     return {
       coordinator: { id: "__coord__", x: coordX, y: L.padTop, w: L.coordW, h: L.coordH },
-      nodes: [...tree.nodes.values()]
+      nodes: [...model.nodes.values()]
         .sort((a, b) => a.y - b.y || a.x - b.x || orgNaturalCompare(a.id, b.id))
         .map((n) => ({
-          id: n.id, x: n.x, y: n.y, w: L.nodeW, h: L.nodeH, depth: n.depth,
-          parent: n.parent, parentHint: n.parentHint, role: n.role, status: n.status,
-          model: n.model, label: n.label, usage: n.usage, lastActivity: n.lastActivity,
-          project: n.project, childIds: n.childIds,
+          id: n.id, kind: n.kind, x: n.x, y: n.y, w: kindW(n), h: kindH(n), row: n.row,
+          depth: n.kind === "agent" ? n.depth : null,
+          parent: n.parent, parentHint: n.parentHint, hostId: n.hostId ?? null,
+          project: n.kind === "agent" ? n.project : n.projectKey,
+          subproject: n.subproject ?? null,
+          display: n.display ?? null, registry: n.registry ?? null,
+          role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
+          label: n.label ?? null, usage: n.usage ?? null, lastActivity: n.lastActivity ?? null,
+          childIds: n.childIds,
         })),
       edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
-      width, height, maxDepth: tree.maxDepth,
+      width, height, maxDepth: model.maxSpawnDepth,
     };
   }
   // Ancestor path (up to the coordinator) + descendant subtree closure for
@@ -1232,9 +1356,10 @@
     let n = byId.get(id);
     while (n && !nodes.has(n.id)) {
       nodes.add(n.id);
-      if (n.parent) {
-        edges.add(n.parent + ">" + n.id);
-        n = byId.get(n.parent);
+      const up = n.parent ?? n.hostId ?? null;
+      if (up) {
+        edges.add(up + ">" + n.id);
+        n = byId.get(up);
       } else {
         edges.add("__coord__>" + n.id);
         nodes.add("__coord__");
@@ -2360,7 +2485,7 @@
     const bridge = typeof state.projectName === "string" && state.projectName.trim() ? state.projectName.trim() : null;
     const { keys, groups } = orgGroupByProject(subs, bridge);
     const pool = org.view === "__all__" ? subs : (groups.get(org.view) ?? []);
-    const model = orgLayoutTree(orgBuildTree(pool, bridge));
+    const model = orgLayoutModel(orgBuildModel(pool, bridge, state.projects, org.view === "__all__" ? null : org.view, Date.now()));
     org.model = model;
     const svg = $("#orgsvg");
     svg.setAttribute("width", String(model.width));
@@ -2379,6 +2504,7 @@
       const my = Math.round((y1 + y2) / 2);
       path.setAttribute("d", x1 === x2 ? `M ${x1} ${y1} V ${y2}` : `M ${x1} ${y1} V ${my} H ${x2} V ${y2}`);
       path.setAttribute("data-edge", e.key);
+      path.classList.add(e.kind);
       if (e.dashed) path.classList.add("dashed");
       edgesG.append(path);
     }
@@ -2402,6 +2528,26 @@
     cg.querySelector("title").textContent = "coordinator\nmain session \u2014 dispatches subagents, receives reports";
     nodesG.append(cg);
     for (const n of model.nodes) {
+      if (n.kind !== "agent") {
+        // project / subproject capsule: distinct shape, project hue carried in
+        // inline styles (hue space excludes the signal-green band)
+        const g = orgTpl("pnode").cloneNode(true);
+        g.setAttribute("data-node", n.id);
+        g.setAttribute("data-kind", n.kind);
+        g.setAttribute("data-project", n.project);
+        g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
+        if (n.kind === "subproject") g.classList.add("snode");
+        const hue = orgProjectHue(n.project);
+        g.querySelector(".obox").style.stroke = `hsl(${hue} 60% 62% / .55)`;
+        g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .07)`;
+        g.querySelector(".ostatus").style.fill = `hsl(${hue} 70% 68%)`;
+        const pt = g.querySelector(".oid");
+        pt.textContent = orgTrunc(n.display ?? n.project, 16);
+        pt.style.fill = `hsl(${hue} 65% 76%)`;
+        g.querySelector("title").textContent = `${n.display ?? n.project}\n${n.kind === "project" ? "project" : "subproject"} \u2014 click to highlight its subtree`;
+        nodesG.append(g);
+        continue;
+      }
       const g = orgTpl("onode").cloneNode(true);
       g.setAttribute("data-node", n.id);
       g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
@@ -2417,6 +2563,7 @@
     const viewName = org.view === "__all__" ? null : (orgProjectDisplay(org.view) ?? org.view);
     const live = pool.filter((s) => s.status !== "done").length;
     const done = pool.length - live;
+    const projCount = model.nodes.filter((n) => n.kind === "project").length;
     const note = $("#org-note");
     if (!pool.length) {
       $("#org-meta").textContent = viewName ? `no live work in ${viewName}` : "no live work";
@@ -2430,7 +2577,7 @@
     } else {
       $("#org-meta").textContent = viewName
         ? `${live} live \u00b7 ${done} done \u00b7 max depth d${model.maxDepth}`
-        : `${live} live \u00b7 ${done} done \u00b7 ${keys.length} project${keys.length === 1 ? "" : "s"} \u00b7 max depth d${model.maxDepth}`;
+        : `${live} live \u00b7 ${done} done \u00b7 ${projCount} project${projCount === 1 ? "" : "s"} \u00b7 max depth d${model.maxDepth}`;
       note.hidden = true;
     }
     $("#org-viewport").classList.toggle("idle", pool.length === 0);
@@ -2529,14 +2676,48 @@
       box.append(r);
     };
     if (n.id === "__coord__") {
-      const count = org.model?.nodes.length ?? 0;
+      const count = org.model?.nodes.filter((x) => x.kind === "agent").length ?? 0;
       row("Status", state.bridgeDown ? "bridge offline" : "alive \u00b7 main session");
-      row("Dispatches", `${count} subagent node${count === 1 ? "" : "s"} in view`);
-      row("Depth", "entry (d0 band)");
+      row("Dispatches", `${count} agent node${count === 1 ? "" : "s"} in view`);
+      row("Depth", "entry (row 0)");
       const p = document.createElement("div");
       p.className = "od-hint";
       p.style.marginTop = "10px";
-      p.textContent = "The entry node: every dispatch starts here; every report lands back here.";
+      p.textContent = "The entry node: dispatches flow to projects, then to their agents; reports return here.";
+      box.append(p);
+      return;
+    }
+    if (n.kind === "project" || n.kind === "subproject") {
+      const byId = new Map(org.model.nodes.map((x) => [x.id, x]));
+      let agentCount = 0;
+      const stack = [n.id];
+      while (stack.length) {
+        const cur = byId.get(stack.pop());
+        if (!cur) continue;
+        if (cur.kind === "agent") agentCount++;
+        for (const c of cur.childIds ?? []) stack.push(c);
+      }
+      row("Kind", n.kind);
+      row("Key", n.project);
+      row("Agents", String(agentCount));
+      const reg = n.registry;
+      if (reg) {
+        if (n.kind === "project") row("Registry", reg.status ?? "registered");
+        const t = reg.lastActivity ? Date.parse(reg.lastActivity) : NaN;
+        row("Journal", Number.isFinite(t)
+          ? `${relTime(t)}${reg.lastJournalStatus ? " \u00b7 " + reg.lastJournalStatus : ""}`
+          : "no journal activity");
+        if (reg.root) row("Root", reg.root);
+        if (n.kind === "project" && Array.isArray(reg.subprojects) && reg.subprojects.length) {
+          row("Subprojects", reg.subprojects.map((sp) => sp?.displayName || sp?.id).filter(Boolean).join(", "));
+        }
+      } else if (n.kind === "project") {
+        row("Registry", "not in registry");
+      }
+      const p = document.createElement("div");
+      p.className = "od-hint";
+      p.style.marginTop = "10px";
+      p.textContent = "Click again (or Esc / background) to clear the subtree highlight.";
       box.append(p);
       return;
     }
@@ -2571,6 +2752,7 @@
     const g = e.target.closest?.("[data-node]");
     const id = g?.getAttribute("data-node") ?? null;
     org.sel = id && id !== org.sel ? id : null;
+    if (!org.sel) org.hover = null; // dismissing the pin also clears the hover light
     applyOrgFocus(true); // force: hover may have already applied this focus id
   });
 
@@ -2952,7 +3134,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (document.body.dataset.route === "org") {
-      if (org.sel) { org.sel = null; applyOrgFocus(); }
+      if (org.sel) { org.sel = null; org.hover = null; applyOrgFocus(); }
       return;
     }
     if (state.openSub) closeSub();
