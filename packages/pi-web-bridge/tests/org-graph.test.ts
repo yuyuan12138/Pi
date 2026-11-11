@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -36,6 +36,8 @@ const org = new Function(
   orgLabelPrefix: (label: string | null) => string | null;
   orgDayOf: (ts: unknown) => string;
   orgInstanceKeyOf: (sub: Record<string, unknown> | null, sessionById: Map<string, string> | null) => { basis: "session" | "prefix" | "day"; key: string; label: string };
+  orgHumanDay: (ts: unknown, nowMs: number) => string | null;
+  orgRealSession: (sess: unknown) => string | null;
   orgRegistryWorking: (entry: Record<string, unknown> | null, nowMs: number) => boolean;
   orgSubprojectTarget: (sub: Record<string, unknown> | null, registry: Array<Record<string, unknown>>) => { project: string; subproject: string } | null;
   orgBuildModel: (subs: Array<Record<string, unknown>>, bridgeProject: string | null, registry: Array<Record<string, unknown>> | null, view: string | null, nowMs: number, sessionById?: Map<string, string> | null) => {
@@ -66,6 +68,7 @@ interface HNode {
   row: number;
   children: HNode[];
   display?: string | null;
+  sub?: string | null;
   session?: string | null;
   role?: string | null;
   count?: number;
@@ -80,7 +83,7 @@ interface OrgLayout {
   nodes: Array<{
     id: string; kind: "project" | "subproject" | "instance" | "agent"; x: number; y: number; w: number; h: number; row: number;
     depth: number | null; parent: string | null; parentHint: string | null; hostId: string | null; project: string;
-    display: string | null; status: string | null; childIds: string[];
+    display: string | null; sub: string | null; status: string | null; childIds: string[];
     collapsible: boolean; collapsed: boolean; hiddenCount: number;
     count: number | null; basis: "session" | "prefix" | "day" | null; session: string | null; dim: boolean; memberIds: string[] | null;
   }>;
@@ -207,6 +210,51 @@ describe("instance aggregation key (session -> shared label prefix -> dispatch d
   });
 });
 
+describe("humanized label rules (no raw keys ever)", () => {
+  test("orgHumanDay: today / same-year Mon DD / older year with year / unknown", () => {
+    assert.equal(org.orgHumanDay(NOW, NOW), "today");
+    const sameYear = org.orgHumanDay(NOW - 3 * 86400e3, NOW);
+    assert.match(sameYear!, /^(Nov|Dec|Oct) \d{1,2}$/); // short month + day, no year, tz-safe
+    assert.match(org.orgHumanDay(NOW - 400 * 86400e3, NOW)!, /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, 2022$/); // older year keeps the year
+    assert.equal(org.orgHumanDay(undefined, NOW), null);
+  });
+  test("orgRealSession: dates and letter-less ids are not real sessions", () => {
+    assert.equal(org.orgRealSession("bridge-org-x1"), "bridge-org-x1");
+    assert.equal(org.orgRealSession("2026-11-11"), null); // a date is not a session
+    assert.equal(org.orgRealSession("12345"), null);
+    assert.equal(org.orgRealSession(null), null);
+  });
+  test("unnamed instance with unknown session renders 'unnamed · <Mon DD>' — never a bare ISO key", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const m = org.orgBuildModel(
+      [sub("sa50", { project: "alpha", lastActivity: NOW - 30 * 3600e3 }), sub("sa51", { project: "alpha", lastActivity: NOW - 30 * 3600e3 })],
+      "bridge", registry, null, NOW,
+    );
+    const inst = [...m.nodes.values()].find((n) => n.kind === "instance")!;
+    assert.match(inst.display!, /^unnamed \u00b7 [A-Z][a-z]{2} \d{1,2}$/);
+    assert.doesNotMatch(inst.display!, /\d{4}-\d{2}-\d{2}/);
+    assert.match(inst.sub!, /\u00d72$/);
+  });
+  test("date-like session ids fall through to the humanized fallback", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const m = org.orgBuildModel(
+      [sub("sa99", { project: "alpha", session: "2026-11-11", lastActivity: NOW - 3600e3 })],
+      "bridge", registry, null, NOW,
+    );
+    const inst = [...m.nodes.values()].find((n) => n.kind === "instance")!;
+    assert.match(inst.display!, /^unnamed \u00b7 /);
+  });
+  test("dispatch subtitle: role, else 'dispatch' — never a lone em dash", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const m = org.orgBuildModel(
+      [sub("sa16", { project: "alpha" }), sub("sa42", { project: "alpha" })],
+      "bridge", registry, null, NOW,
+    );
+    assert.equal(m.nodes.get("sa16")!.sub, "coder.frontend");
+    assert.equal(m.nodes.get("sa42")!.sub, "dispatch");
+  });
+});
+
 describe("working-registry rule (project layer population)", () => {
   const reg = [
     { id: "alpha", lastActivity: iso(5 * 60_000) }, // working
@@ -259,7 +307,8 @@ describe("hierarchy model: coordinator -> projects -> instance crews -> dispatch
     const crewA = model.nodes.get("__inst:alpha:sess-crew-a")!;
     assert.equal(crewA.kind, "instance");
     assert.equal(crewA.count, 3);
-    assert.equal(crewA.display, "crew-a \u00b7 \u2014 \u00b7\u00d73"); // mixed member evidence -> honest em dash
+    assert.equal(crewA.display, "crew-a"); // name is the session; role moved to the subtitle
+    assert.equal(crewA.sub, "dispatch \u00b7\u00d73"); // mixed member evidence -> neutral kind word, never a bare em dash
     assert.deepEqual(crewA.memberIds, ["sa1", "sa1-a", "sa1-a-b"]);
     assert.equal(crewA.basis, "session");
     assert.equal(crewA.session, "crew-a");
@@ -436,7 +485,8 @@ describe("node roles: crew-manifest snapshot + priority chain", () => {
     );
     const inst = [...m.nodes.values()].find((n) => n.kind === "instance")!;
     assert.equal(inst.role, "coder.frontend");
-    assert.match(inst.display!, /\u00b7 coder\.frontend \u00b7\u00d72$/); // full role fits the capsule budget
+    assert.equal(inst.display, "bridge-org-x1");
+    assert.match(inst.sub!, /coder\.frontend \u00b7\u00d72$/); // full role fits the subtitle budget
     const m2 = org.orgBuildModel(
       [sub("sa1", { project: "alpha", session: "crew-a" }), sub("sa1-a", { project: "alpha", session: "crew-a" })],
       "bridge", registry, null, NOW,
