@@ -31,8 +31,8 @@ export interface CoordinatorProject {
   root: string;
   /** Registry alias list (e.g. ["minecraft", "mc", "sword", "我的世界"]). */
   aliases: string[];
-  /** Registry subproject tree — recursive (a subproject can nest its own). */
-  subprojects: SubprojectRef[];
+  /** Registry nested-project tree — recursive (any depth). Legacy wire key: "subprojects". */
+  subprojects: ChildProjectRef[];
   /** Registry status string (e.g. "registered"); null when the field is absent. */
   status: string | null;
   registeredAt: string | null;
@@ -52,6 +52,8 @@ export interface ProjectView extends CoordinatorProject {
   lastJournalStatus?: string;
   /** Newest project-space work record: a <root>/work subdirectory RECORD.md, if any. */
   work?: ProjectWorkHint;
+  /** UI-facing alias of the nested-project tree (node-kind "subproject" is abolished). */
+  childProjects?: ChildProjectRef[];
 }
 
 /** One project-space work record, parsed down to what a one-line activity needs. */
@@ -107,17 +109,17 @@ export const JOURNAL_WINDOW = 400;
  * entries, and [] for any garbage input (missing row, corrupt JSON, wrong
  * shape). `id` is the only required field; everything else coerces to null.
  */
-/** A subproject in the registry tree — recursive to arbitrary depth. */
-export interface SubprojectRef {
+/** A nested project in the registry tree — recursive to arbitrary depth. */
+export interface ChildProjectRef {
   id: string;
   displayName: string;
   aliases: string[];
-  subprojects: SubprojectRef[];
+  subprojects: ChildProjectRef[];
 }
 
-function normSubprojects(raw: unknown): SubprojectRef[] {
+function normSubprojects(raw: unknown): ChildProjectRef[] {
   if (!Array.isArray(raw)) return [];
-  const out: SubprojectRef[] = [];
+  const out: ChildProjectRef[] = [];
   for (const entry of raw as Array<Record<string, unknown>>) {
     if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
     out.push({
@@ -243,6 +245,7 @@ function readOnce(dbPath: string): ProjectsSnapshot {
       if (a) { view.lastActivity = a.lastActivity; view.lastJournalStatus = a.lastJournalStatus; }
       const w = p.root ? projectWorkHint(p.root) : null;
       if (w) view.work = w;
+      view.childProjects = p.subprojects;
       return view;
     });
     return { projects: views };

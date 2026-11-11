@@ -673,8 +673,7 @@
   .onode.k-project { --k: #1783FF; }
   .onode.k-instance { --k: #00C9C9; }
   .onode.k-agent { --k: #F08F56; }
-  .onode.k-subproject { --k: #D580FF; }
-  .onode.k-muted { --k: #6e7681; } /* unattributed bucket */
+   .onode.k-muted { --k: #6e7681; } /* unattributed bucket */
   /* subgraph regions: dark-tinted hash-hue rects with top-left labels */
   /* branch toggle (collapse/expand crews) — restyled to the B tokens */
   .otoggle { cursor: pointer; }
@@ -836,7 +835,7 @@
       <span class="lg-chip"><i style="background:#1783FF;box-shadow:0 0 6px rgba(23,131,255,.8)"></i>project</span>
       <span class="lg-chip"><i style="background:#00C9C9;box-shadow:0 0 6px rgba(0,201,201,.8)"></i>instance crew</span>
       <span class="lg-chip"><i style="background:#F08F56;box-shadow:0 0 6px rgba(240,143,86,.8)"></i>dispatch</span>
-      <span class="lg-chip"><i style="background:#D580FF;box-shadow:0 0 6px rgba(213,128,255,.8)"></i>subproject</span>
+      <span class="lg-chip"><i style="background:#1783FF;box-shadow:0 0 6px rgba(23,131,255,.8)"></i>nested project</span>
     </div>
     <div class="chiprow">
       <span class="lg-title">State</span>
@@ -1208,7 +1207,7 @@
     { ids: ["sa5", "sa10"], tok: "minecraft|木剑|rsi|sample space", project: "minecraft" },
     { ids: ["sa11"], tok: "blog|/piagents/", project: "blog" },
     { ids: ["sa3"], tok: "project-space|crew manifest", project: "PiAgents-org" },
-    { ids: ["sa12", "sa14", "sa15", "sa17", "sa18", "sa20", "sa21"], tok: "agent-org|roster|memory tier|subproject", project: "PiAgents-org" },
+    { ids: ["sa12", "sa14", "sa15", "sa17", "sa18", "sa20", "sa21"], tok: "agent-org|roster|memory tier|nested project", project: "PiAgents-org" },
     { ids: ["sa19"], tok: "dispatch authority|role card", project: "PiAgents-org" },
     { ids: ["sa16"], tok: "org graph|#/org|projects panel|mission-control", project: "PiAgents.bridge" },
     { ids: ["sa1"], tok: "#/org|org-graph|hierarchy", project: "PiAgents.bridge" },
@@ -1267,8 +1266,8 @@
     if (explicit) {
       // an explicit name may be a SUBPROJECT id — attribute to its root project
       for (const p of Array.isArray(registry) ? registry : []) {
-        const walk = (list) => (Array.isArray(list) ? list : []).some((sp) => sp?.id === explicit || walk(sp?.subprojects));
-        if (walk(p?.subprojects)) return String(p.id);
+        const walk = (list) => (Array.isArray(list) ? list : []).some((sp) => sp?.id === explicit || walk(sp?.childProjects));
+        if (walk(p?.childProjects)) return String(p.id);
       }
       return explicit;
     }
@@ -1338,7 +1337,7 @@
     if (h >= 130 && h <= 185) h = (h + 75) % 360;
     return h;
   }
-  // ---------- hierarchy model: coordinator -> projects -> (subprojects) -> agents ----------
+  // ---------- hierarchy model: coordinator -> projects (nested, any depth) -> agents ----------
   // GRAPH-SCHEMA shape for the Overview: project nodes (from the /projects
   // payload — the same source as the selector chips) sit between the
   // coordinator and the agents; each agent hangs under its attributed project
@@ -1346,7 +1345,7 @@
   // AND no bridge project) gather under an explicit "unattributed" node.
   // Working registry projects (fresh journal activity) appear even without
   // agents; with NO subagents at all the graph stays the pure idle state
-  // (coordinator + note). v2 subprojects (registry entry .subprojects) render
+  // (coordinator + note). v2 nested projects (registry entry .childProjects) render
   // as intermediate nodes when the data exists — absent data means no layer.
   const ORG_WORKING_MS = 30 * 60 * 1000;
   // AGGREGATE FIRST, then draw — the instance layer clusters a bucket's
@@ -1525,39 +1524,39 @@
     const t = entry?.lastActivity ? Date.parse(entry.lastActivity) : NaN;
     return Number.isFinite(t) && nowMs - t < ORG_WORKING_MS;
   }
-  // v2 path: an agent whose explicit project names a registry subproject is
-  // routed under that subproject node instead of the project node. RECURSIVE:
-  // a subproject can nest its own (project -> sub -> sub-sub, any depth).
-  function orgSubprojectTarget(s, registry) {
+  // v2 path: an agent whose explicit project names a nested project is
+  // routed under that nested project node instead of the root project node.
+  // RECURSIVE: a nested project can nest its own (any depth, child_of).
+  function orgChildProjectTarget(s, registry) {
     const raw = typeof s?.project === "string" ? s.project.trim() : "";
     if (!raw) return null;
     for (const p of Array.isArray(registry) ? registry : []) {
       if (!p) continue;
       const walk = (list) => {
         for (const sp of Array.isArray(list) ? list : []) {
-          if (sp && sp.id === raw) return { project: p.id, subproject: sp.id };
-          const deep = walk(sp?.subprojects);
+          if (sp && sp.id === raw) return { project: p.id, childProject: sp.id };
+          const deep = walk(sp?.childProjects);
           if (deep) return deep;
         }
         return null;
       };
-      const hit = walk(p.subprojects);
+      const hit = walk(p.childProjects);
       if (hit) return hit;
     }
     return null;
   }
   // ---- Subproject layer (recursive nesting) ------------------------------
-  // Sources, in order: the registry's .subprojects tree (any depth, passed
+  // Sources, in order: the registry's .childProjects tree (any depth, passed
   // through by /projects) and manifest/label evidence below. The coordinator
-  // journal carries only projectId (no subproject field), so nesting beyond
+  // journal carries only projectId (no nesting field), so nesting beyond
   // an explicit spawn arg comes from token-gated dispatch labels.
   // SNAPSHOT 2026-11-11 (medical dispatches name their screening branch).
-  const ORG_SUBPROJECT_SNAPSHOT = [
+  const ORG_CHILD_PROJECT_SNAPSHOT = [
     { project: "medical", id: "three-tier-screening", displayName: "Three-tier screening", tokens: ["三层筛查", "three-tier-screening"] },
   ];
-  // Normalized subproject tree for one project: registry tree + snapshot
+  // Normalized nested-project tree for one project: registry tree + snapshot
   // entries (deduped by id at any depth).
-  function orgSubprojectTree(entry, key) {
+  function orgChildProjectTree(entry, key) {
     const norm = (list) => (Array.isArray(list) ? list : [])
       .filter((sp) => sp && typeof sp.id === "string")
       .map((sp) => ({
@@ -1565,24 +1564,24 @@
         displayName: String(sp.displayName || sp.id),
         aliases: Array.isArray(sp.aliases) ? sp.aliases : [],
         tokens: [],
-        children: norm(sp.subprojects),
+        children: norm(sp.childProjects),
       }));
-    const root = norm(entry?.subprojects);
+    const root = norm(entry?.childProjects);
     const seen = new Set();
     const mark = (n) => { seen.add(n.id); for (const c of n.children) mark(c); };
     root.forEach(mark);
-    for (const snap of ORG_SUBPROJECT_SNAPSHOT) {
+    for (const snap of ORG_CHILD_PROJECT_SNAPSHOT) {
       if (snap.project !== key || seen.has(snap.id)) continue;
       root.push({ id: snap.id, displayName: snap.displayName, aliases: [], tokens: snap.tokens ?? [], children: [] });
       seen.add(snap.id);
     }
     return root;
   }
-  // Innermost subproject PATH for a dispatch: (a) explicit spawn arg naming a
-  // subproject id, (b) label evidence against sp aliases/tokens. A label that
-  // matches two different subprojects is ambiguous -> null. Paths that are
-  // prefixes of longer matches collapse into the deeper one.
-  function orgSubprojectPathOf(s, tree) {
+  // Innermost nested-project PATH for a dispatch: (a) explicit spawn arg
+  // naming a nested-project id, (b) label evidence against sp aliases/tokens.
+  // A label that matches two different nested projects is ambiguous -> null.
+  // Paths that are prefixes of longer matches collapse into the deeper one.
+  function orgChildProjectPathOf(s, tree) {
     const explicit = typeof s?.project === "string" ? s.project.trim() : "";
     const label = orgNormText(s?.label);
     const paths = [];
@@ -1611,10 +1610,10 @@
     const list = Array.isArray(subs) ? subs : [];
     const reg = (Array.isArray(registry) ? registry : []).filter((p) => p && typeof p.id === "string");
     const regById = new Map(reg.map((p) => [p.id, p]));
-    // bucket agents by attribution; remember explicit subproject routing (v2)
+    // bucket agents by attribution; remember explicit nested-project routing (v2)
     const buckets = new Map(); // projectKey -> [{ sub, subTarget }]
     for (const s of list) {
-      const target = orgSubprojectTarget(s, reg);
+      const target = orgChildProjectTarget(s, reg);
       const key = target ? String(target.project) : (orgAttribution(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push({ sub: s, subTarget: target });
@@ -1648,13 +1647,13 @@
       };
       nodes.set(pid, projectNode);
       const bucket = buckets.get(key) ?? [];
-      const spRoots = orgSubprojectTree(entry, key);
+      const spRoots = orgChildProjectTree(entry, key);
       const spById = new Map(); // "a.b" trail -> spNode
       const buildSp = (sp, parent, trail) => {
         const spid = "__sub:" + key + ":" + trail.join(".");
         const spNode = {
-          id: spid, kind: "subproject", projectKey: key,
-          subprojectId: sp.id, spPath: [...trail], subproject: sp.id,
+          id: spid, kind: "project", projectKey: key,
+          childProjectId: sp.id, spPath: [...trail], childProject: sp.id,
           display: orgTruncW(String(sp.displayName || sp.id), 16), registry: sp,
           parent: parent.id, parentHint: null, depth: null, row: 0, children: [],
         };
@@ -1667,18 +1666,18 @@
       for (const sp of spRoots) buildSp(sp, projectNode, [sp.id]);
       const spNodes = new Map(); // dispatch id -> innermost spNode (null = directly under project)
       for (const b of bucket) {
-        const path = orgSubprojectPathOf(b.sub, spRoots);
+        const path = orgChildProjectPathOf(b.sub, spRoots);
         spNodes.set(String(b.sub.id), path ? (spById.get(path.join(".")) ?? null) : null);
       }
       // AGGREGATE FIRST: cluster the bucket's dispatches into instances
       // (session key, else shared label prefix, else dispatch day), then draw
       // one instance node per cluster; member dispatches hide until expanded.
-      // Clustering is PER SUBPROJECT: crews under different nested subprojects
+      // Clustering is PER NESTED PROJECT: crews under different nested projects
       // never merge, so nested crews/dispatches belong to their innermost node.
       const instOf = new Map(); // dispatch id -> { basis, key, label }
       for (const b of bucket) instOf.set(String(b.sub.id), orgInstanceKeyOf(b.sub, sessionById));
       const spKey = (b) => (spNodes.get(String(b.sub.id))?.id ?? "");
-      // shared-prefix clusters need >= 2 members WITHIN one subproject group;
+      // shared-prefix clusters need >= 2 members WITHIN one nested-project group;
       // lonely prefixes fall back to day
       const preCount = new Map();
       for (const b of bucket) {
@@ -1753,7 +1752,7 @@
         }
         const instNode = {
           id: instId, kind: "instance", projectKey: key,
-          subproject: spNode?.subprojectId ?? null,
+          childProject: spNode?.childProjectId ?? null,
           display,
           sub,
           role: instRole,
@@ -1783,7 +1782,7 @@
             parentHint: lin.known ? null : lin.parent,
             knownParent: lin.known,
             hostId: null,
-            project: key, subproject: spNode?.subprojectId ?? null,
+            project: key, childProject: spNode?.childProjectId ?? null,
             role: orgNodeRole(String(s.id), s.label, s.session, sessionById),
             sub: null,
             depth: 0, row: 0, children: [],
@@ -1838,7 +1837,7 @@
       projectNode.sub = activity ?? "no activity yet";
       if (key === ORG_UNATTRIBUTED) projectNode.display = `unattributed \u00b7 ${bucketDispatches}`;
     }
-    // structural rows: coordinator 0, projects 1, subprojects/agents below
+    // structural rows: coordinator 0, projects (nested at any depth) below
     let maxRow = projKeys.length ? 1 : 0;
     const seenRow = new Set();
     const setRow = (n, row) => {
@@ -1925,7 +1924,7 @@
       depth: n.kind === "agent" ? n.depth : null,
       parent: n.parent, parentHint: n.parentHint, hostId: n.hostId ?? null,
       project: n.project ?? n.projectKey ?? (n.kind === "coordinator" ? "__coordinator" : ORG_UNATTRIBUTED),
-      subproject: n.subproject ?? null,
+      childProject: n.childProject ?? null,
       display: n.display ?? null, sub: n.sub ?? null, registry: n.registry ?? null,
       role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
       label: n.label ?? null, usage: n.usage ?? null, lastActivity: n.lastActivity ?? null,
@@ -1963,6 +1962,8 @@
     const projectOf = new Map();
     const parentOf = new Map();
     const hintOf = new Map();
+    const pathOf = new Map(); // nested-project path (child_of chain), e.g. ["three-tier-screening"]
+    const spTrees = new Map();
     for (const s of list) {
       const id = String(s.id);
       projectOf.set(id, orgProjectOf(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
@@ -1975,6 +1976,23 @@
       if (!parent && typeof s.spawned_by === "string" && s.spawned_by) hintOf.set(id, s.spawned_by);
       parentOf.set(id, parent);
     }
+    for (const s of list) {
+      const id = String(s.id);
+      const p = projectOf.get(id);
+      if (!spTrees.has(p)) spTrees.set(p, orgChildProjectTree(regById.get(p) ?? null, p));
+      pathOf.set(id, orgChildProjectPathOf(s, spTrees.get(p)));
+    }
+    // nested hops: group key = project + its child_of path
+    const spDisplay = (project, path) => {
+      if (!path || !path.length) return null;
+      let list2 = spTrees.get(project) ?? [];
+      let node = null;
+      for (const seg of path) {
+        node = (node ? node.children : list2).find((sp) => sp.id === seg);
+        if (!node) return null;
+      }
+      return node?.displayName ?? null;
+    };
     // cycle guard: a lineage loop demotes the dispatch to a root
     for (const id of ids) {
       const seen = new Set([id]);
@@ -2031,8 +2049,11 @@
       nodes.set(id, node);
       return node;
     };
-    const mkHop = (parentKey, project, dispatches, row) => {
-      const hopId = `__hop:${parentKey}:${project}`;
+    const mkHop = (parentKey, project, dispatches, row, path) => {
+      // path = the child_of chain INSIDE the parent hop (nested project); a
+      // nested hop nests under its parent hop by tree position (ruling: same
+      // project kind at any depth)
+      const hopId = path && path.length ? `${parentKey}/${path.join(".")}` : `__hop:${parentKey}:${project}`;
       const entry = regById.get(project) ?? null;
       let activity = null;
       const wh = entry?.work;
@@ -2046,9 +2067,12 @@
         const day = orgHumanDay(Date.parse(entry.lastActivity), nowMs);
         activity = `journal ${entry.lastJournalStatus ? entry.lastJournalStatus + " \u00b7 " : ""}${day ?? "earlier"}`.trim();
       }
+      const nestedName = spDisplay(project, path);
       const node = {
         id: hopId, kind: "project", projectKey: project,
-        display: project === ORG_UNATTRIBUTED ? `unattributed \u00b7 ${dispatches.length}` : orgTruncW(String(entry?.displayName || project), 16),
+        childProject: path && path.length ? path[path.length - 1] : null,
+        display: project === ORG_UNATTRIBUTED ? `unattributed \u00b7 ${dispatches.length}`
+          : orgTruncW(String(nestedName || entry?.displayName || project), 16),
         sub: activity ?? "no activity yet",
         registry: entry, status: statusOf(dispatches),
         count: dispatches.length, parent: parentKey, parentHint: null,
@@ -2059,14 +2083,48 @@
     };
     // recursive descent: agents under a parent, cross-project children grouped
     // into one hop per (parent, project)
+    // fill a project hop: path-less dispatches become direct agents; each
+    // nested-project path becomes a child hop (project kind, tree position
+    // expresses the child_of nesting) holding its own agents
+    const populateHop = (hop, project, dispatches, agentDepth, row) => {
+      const byPath = new Map();
+      for (const d of dispatches) {
+        const id = String(d.id);
+        const path = pathOf.get(id) ?? null;
+        const gk = path ? path.join(".") : "";
+        if (!byPath.has(gk)) byPath.set(gk, { path, group: [] });
+        byPath.get(gk).group.push(d);
+      }
+      for (const [, { path, group }] of [...byPath.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
+        if (!path) {
+          for (const d of group) {
+            const node = mkDispatch(d, hop.id, agentDepth, row);
+            hop.children.push(node);
+            const childDispatches = kids.get(String(d.id)) ?? [];
+            if (childDispatches.length) attach(node.id, project, childDispatches, agentDepth + 1, row + 1, node);
+          }
+        } else {
+          const childHop = mkHop(hop.id, project, group, row, path);
+          hop.children.push(childHop);
+          for (const d of group) {
+            const node = mkDispatch(d, childHop.id, agentDepth, row + 1);
+            childHop.children.push(node);
+            const childDispatches = kids.get(String(d.id)) ?? [];
+            if (childDispatches.length) attach(node.id, project, childDispatches, agentDepth + 1, row + 2, node);
+          }
+        }
+      }
+    };
     const attach = (parentKey, parentProject, dispatches, agentDepth, row, host) => {
       const byProject = new Map();
       for (const d of dispatches) {
-        const p = projectOf.get(String(d.id));
-        if (p === parentProject) {
+        const id = String(d.id);
+        const p = projectOf.get(id);
+        const path = pathOf.get(id) ?? null;
+        if (p === parentProject && !path) {
           const node = mkDispatch(d, parentKey, agentDepth, row);
           host.children.push(node);
-          const childDispatches = kids.get(String(d.id)) ?? [];
+          const childDispatches = kids.get(id) ?? [];
           if (childDispatches.length) attach(node.id, p, childDispatches, agentDepth + 1, row + 1, node);
         } else {
           if (!byProject.has(p)) byProject.set(p, []);
@@ -2074,14 +2132,9 @@
         }
       }
       for (const [p, group] of [...byProject.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
-        const hop = mkHop(parentKey, p, group, row);
+        const hop = mkHop(parentKey, p, group, row, null);
         host.children.push(hop);
-        for (const d of group) {
-          const node = mkDispatch(d, hop.id, agentDepth, row + 1);
-          hop.children.push(node);
-          const childDispatches = kids.get(String(d.id)) ?? [];
-          if (childDispatches.length) attach(node.id, p, childDispatches, agentDepth + 1, row + 2, node);
-        }
+        populateHop(hop, p, group, agentDepth, row + 1);
       }
     };
     // coordinator level: roots grouped by project into row-1 hops
@@ -2092,14 +2145,9 @@
       coordGroups.get(p).push(d);
     }
     for (const [p, group] of [...coordGroups.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
-      const hop = mkHop("__coord__", p, group, 1);
+      const hop = mkHop("__coord__", p, group, 1, null);
       rootIds.push(hop.id);
-      for (const d of group) {
-        const node = mkDispatch(d, hop.id, 1, 2);
-        hop.children.push(node);
-        const childDispatches = kids.get(String(d.id)) ?? [];
-        if (childDispatches.length) attach(node.id, p, childDispatches, 2, 3, node);
-      }
+      populateHop(hop, p, group, 1, 2);
     }
     return { nodes, projKeys: [], rootIds, maxDepth: 0 };
   }
@@ -2182,10 +2230,10 @@
     };
   }
   // Deterministic tidy-tree layout over the full hierarchy: leaves take
-  // sequential x slots (projects in payload order, then subprojects, then
+  // sequential x slots (projects in payload order, then nested projects, then
   // agents in natural id order), parents center over their children, rows are
   // structural bands (row 0 coordinator, row 1 projects, below that
-  // subprojects then agents by lineage). Agent nodes keep their SPAWN depth
+  // nested projects then agents by lineage). Agent nodes keep their SPAWN depth
   // as the dN label; the structural row may sit deeper — both are honest.
   function orgLayoutModel(model, isExpanded) {
     const vis = orgPruneExpanded(model, isExpanded);
@@ -2194,7 +2242,7 @@
     const kindH = (n) => (n.kind === "agent" ? L.nodeH : n.kind === "instance" ? L.instH : L.projH);
     const order = (a, b) => {
       if (a.kind !== b.kind) {
-        const rank = (k) => (k === "subproject" ? 0 : k === "instance" ? 1 : 2);
+        const rank = (k) => (k === "project" ? 0 : k === "instance" ? 1 : 2);
         return rank(a.kind) - rank(b.kind);
       }
       return orgNaturalCompare(a.id, b.id);
@@ -2267,7 +2315,7 @@
     const kindH = (n) => (n.kind === "agent" ? L.nodeH : n.kind === "instance" ? L.instH : L.projH);
     const order = (a, b) => {
       if (a.kind !== b.kind) {
-        const rank = (k) => (k === "subproject" ? 0 : k === "instance" ? 1 : 2);
+        const rank = (k) => (k === "project" ? 0 : k === "instance" ? 1 : 2);
         return rank(a.kind) - rank(b.kind);
       }
       return orgNaturalCompare(a.id, b.id);
@@ -3553,20 +3601,18 @@
     // ---- candidate-B node renderer ------------------------------------
     // Per-kind metrics (within-card geometry) + 5-hue luminous tints.
     // Presentation only: layout/interaction data comes from the model above.
-    const HUES = { coord: "#7863FF", project: "#1783FF", instance: "#00C9C9", agent: "#F08F56", subproject: "#D580FF", muted: "#6e7681" };
+    const HUES = { coord: "#7863FF", project: "#1783FF", instance: "#00C9C9", agent: "#F08F56", muted: "#6e7681" };
     const ICONS = {
       coord: '<circle cx="12" cy="12" r="3.1" fill="currentColor" stroke="none"/><circle cx="12" cy="4.4" r="1.7" fill="currentColor" stroke="none"/><circle cx="19.6" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="19.6" r="1.7" fill="currentColor" stroke="none"/><circle cx="4.4" cy="12" r="1.7" fill="currentColor" stroke="none"/><path d="M12 8.9V6.3M15.1 12h2.5M12 15.1v2.5M8.9 12H6.3"/>',
       project: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="7.5" r="2.5"/><path d="M6 8.5v7M18 10a8 8 0 0 1-8 7.4"/>',
       instance: '<circle cx="9.2" cy="8.2" r="3"/><path d="M3.6 18.6c.7-3.2 2.9-4.9 5.6-4.9s4.9 1.7 5.6 4.9"/><circle cx="16.8" cy="9.4" r="2.3"/><path d="M15.9 13.7c2.3.4 3.9 1.9 4.5 4.3"/>',
       agent: '<path d="M13.2 2.6 5.6 13.4h5L9.4 21.4 18.4 9.8h-5.2Z" fill="currentColor" stroke="none"/>',
-      subproject: '<path d="M12 3.6 20 8l-8 4.4L4 8Z"/><path d="M4.6 12.4 12 16.6l7.4-4.2"/><path d="M4.6 16.2 12 20.4l7.4-4.2"/>',
     };
     const METRICS = {
       coordinator: { av: [24, 32, 13, .8], name: [44, 29], sub: [44, 47], dot: [164, 14], mono: false },
       project:     { av: [23, 29, 12, .7], name: [41, 26], sub: [41, 43], dot: [150, 13], mono: false },
       instance:    { av: [23, 29, 12, .7], name: [41, 26], sub: [41, 43], dot: [164, 13], mono: false },
       agent:       { av: [20, 24, 8.5, .52], name: [33, 21], sub: [33, 38], dot: [156, 12], mono: true },
-      subproject:  { av: [21, 21, 9.5, .55], name: [36, 18.5], sub: [36, 33], dot: null, mono: false },
     };
     const cardNode = (n, kind, hue, sub, status) => {
       const M = METRICS[kind];
@@ -3575,7 +3621,7 @@
       g.setAttribute("data-kind", kind);
       g.setAttribute("data-project", n.project);
       g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
-      g.classList.add("k-" + (n.project === ORG_UNATTRIBUTED && kind !== "coordinator" ? "muted" : kind === "agent" ? "agent" : kind === "coordinator" ? "coord" : kind === "instance" ? "instance" : kind === "subproject" ? "subproject" : "project"));
+      g.classList.add("k-" + (n.project === ORG_UNATTRIBUTED && kind !== "coordinator" ? "muted" : kind === "agent" ? "agent" : kind === "coordinator" ? "coord" : kind === "instance" ? "instance" : "project"));
       if (n.dim) g.classList.add("dim");
       g.style.setProperty("--k", hue);
       const card = g.querySelector(".ocard");
@@ -3646,9 +3692,9 @@
       if (n.kind !== "agent") {
         const mutedBucket = n.project === ORG_UNATTRIBUTED || n.project === "personal-ops";
         const hue = mutedBucket ? HUES.muted : `hsl(${orgProjectHue(n.project)} 65% 62%)`;
-        const g = cardNode(n, n.kind, hue, n.sub, n.kind === "project" ? n.status : null);
+        const g = cardNode(n, "project", hue, n.sub, n.status);
         if (n.project === "personal-ops") g.classList.add("dim"); // dimmer variant of a project capsule
-        g.querySelector("title").textContent = `${n.display ?? n.project}${n.project === "personal-ops" ? "\nunregistered personal operations" : ""}\n${n.kind === "project" ? "project" : "subproject"} \u2014 click to highlight its subtree`;
+        g.querySelector("title").textContent = `${n.display ?? n.project}${n.project === "personal-ops" ? "\nunregistered personal operations" : ""}\nproject \u2014 click to highlight its subtree`;
         nodesG.append(g);
         continue;
       }
@@ -3679,7 +3725,7 @@
     // honestly when an expanded subtree interleaves with a neighbour)
     // Region rects were REMOVED by user ruling: the tinted boxes read as
     // decoration. Grouping stays logical only — which nodes belong to which
-    // project/subproject is expressed by tree nesting (capsule within its
+    // project nesting is expressed by tree position (capsule within its
     // parent's subtree) and the focus/dim closure, not by painted boxes.
     orgRenderTabs(keys, groups, bridge);
     // meta + empty state, per view
@@ -3840,7 +3886,7 @@
       box.append(p);
       return;
     }
-    if (n.kind === "project" || n.kind === "subproject") {
+    if (n.kind === "project") {
       const byId = new Map(org.model.nodes.map((x) => [x.id, x]));
       let agentCount = 0;
       const stack = [n.id];
@@ -3862,8 +3908,8 @@
           ? `${relTime(t)}${reg.lastJournalStatus ? " \u00b7 " + reg.lastJournalStatus : ""}`
           : "no journal activity");
         if (reg.root) row("Root", reg.root);
-        if (n.kind === "project" && Array.isArray(reg.subprojects) && reg.subprojects.length) {
-          row("Subprojects", reg.subprojects.map((sp) => sp?.displayName || sp?.id).filter(Boolean).join(", "));
+        if (n.kind === "project" && Array.isArray(reg.childProjects) && reg.childProjects.length) {
+          row("Nested projects", reg.childProjects.map((sp) => sp?.displayName || sp?.id).filter(Boolean).join(", "));
         }
       } else if (n.kind === "project") {
         row("Registry", "not in registry");

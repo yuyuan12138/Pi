@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, ORG_PSEUDO_PROJECTS, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgBuildInvocationTree, orgLayoutTree, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_CHILD_PROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, ORG_PSEUDO_PROJECTS, orgChildProjectTree, orgChildProjectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgBuildInvocationTree, orgLayoutTree, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgChildProjectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -34,9 +34,9 @@ const org = new Function(
   orgProjectOf: (sub: { project?: unknown; id?: unknown; label?: unknown; session?: unknown } | null, registry: Array<Record<string, unknown>> | null, sessionById: Map<string, string> | null) => string | null;
   orgRoleShort: (w: unknown) => string | null;
   orgTruncW: (s: unknown, maxUnits: number) => string;
-  ORG_SUBPROJECT_SNAPSHOT: Array<{ project: string; id: string; displayName: string; tokens: string[] }>;
-  orgSubprojectTree: (entry: Record<string, unknown> | null, key: string) => Array<Record<string, unknown>>;
-  orgSubprojectPathOf: (s: Record<string, unknown> | null, tree: Array<Record<string, unknown>>) => string[] | null;
+  ORG_CHILD_PROJECT_SNAPSHOT: Array<{ project: string; id: string; displayName: string; tokens: string[] }>;
+  orgChildProjectTree: (entry: Record<string, unknown> | null, key: string) => Array<Record<string, unknown>>;
+  orgChildProjectPathOf: (s: Record<string, unknown> | null, tree: Array<Record<string, unknown>>) => string[] | null;
   ORG_CREW_NAME_SNAPSHOT: Array<{ ids: string[]; name: string }>;
   ORG_PSEUDO_PROJECTS: Record<string, { displayName: string; aliases: string[]; muted?: boolean }>;
   orgCrewNameOf: (members: Array<{ sub: { id: unknown; label?: unknown } }> | null) => string | null;
@@ -63,7 +63,7 @@ const org = new Function(
   orgHumanDay: (ts: unknown, nowMs: number) => string | null;
   orgRealSession: (sess: unknown) => string | null;
   orgRegistryWorking: (entry: Record<string, unknown> | null, nowMs: number) => boolean;
-  orgSubprojectTarget: (sub: Record<string, unknown> | null, registry: Array<Record<string, unknown>>) => { project: string; subproject: string } | null;
+  orgChildProjectTarget: (sub: Record<string, unknown> | null, registry: Array<Record<string, unknown>>) => { project: string; childProject: string } | null;
   orgBuildModel: (subs: Array<Record<string, unknown>>, bridgeProject: string | null, registry: Array<Record<string, unknown>> | null, view: string | null, nowMs: number, sessionById?: Map<string, string> | null) => {
     nodes: Map<string, HNode>;
     projKeys: string[];
@@ -81,13 +81,13 @@ const org = new Function(
 
 interface HNode {
   id: string;
-  kind: "project" | "subproject" | "instance" | "agent";
+  kind: "project" | "instance" | "agent";
   status?: string | null;
   parent: string | null;
   parentHint: string | null;
   hostId?: string | null;
   project: string;
-  subproject?: string | null;
+  childProject?: string | null;
   depth: number | null;
   row: number;
   children: HNode[];
@@ -105,7 +105,7 @@ interface HNode {
 interface OrgLayout {
   coordinator: { id: string; x: number; y: number };
   nodes: Array<{
-    id: string; kind: "project" | "subproject" | "instance" | "agent"; x: number; y: number; w: number; h: number; row: number;
+    id: string; kind: "project" | "instance" | "agent"; x: number; y: number; w: number; h: number; row: number;
     depth: number | null; parent: string | null; parentHint: string | null; hostId: string | null; project: string;
     display: string | null; sub: string | null; status: string | null; childIds: string[];
     collapsible: boolean; collapsed: boolean; hiddenCount: number;
@@ -332,57 +332,57 @@ describe("humanized label rules (no raw keys ever)", () => {
   });
 });
 
-describe("recursive subproject hierarchy", () => {
+describe("recursive nested-project hierarchy", () => {
   const TREE = [
     { id: "core", displayName: "Core Pipeline", aliases: [], tokens: [], children: [
       { id: "parser", displayName: "Parser", aliases: ["parser"], tokens: [], children: [] },
     ] },
     { id: "ops", displayName: "Ops", aliases: [], tokens: [], children: [] },
   ];
-  test("orgSubprojectTree: registry tree passes through + snapshot appends + dedupes", () => {
-    const tree = org.orgSubprojectTree({ subprojects: TREE }, "alpha");
+  test("orgChildProjectTree: registry tree passes through + snapshot appends + dedupes", () => {
+    const tree = org.orgChildProjectTree({ childProjects: TREE }, "alpha");
     assert.deepEqual(tree.map((n) => n.id), ["core", "ops"]);
-    const med = org.orgSubprojectTree({}, "medical");
+    const med = org.orgChildProjectTree({}, "medical");
     assert.deepEqual(med.map((n) => n.id), ["three-tier-screening"]); // snapshot-only project
-    const both = org.orgSubprojectTree({ subprojects: [{ id: "three-tier-screening", displayName: "TT" }] }, "medical");
+    const both = org.orgChildProjectTree({ childProjects: [{ id: "three-tier-screening", displayName: "TT" }] }, "medical");
     assert.equal(both.length, 1); // snapshot does not duplicate a registry id
   });
-  test("orgSubprojectPathOf: explicit id at depth 2, tokens, ambiguity, prefix collapse", () => {
-    assert.deepEqual(org.orgSubprojectPathOf({ project: "parser" }, TREE), ["core", "parser"]);
-    assert.deepEqual(org.orgSubprojectPathOf({ project: "ops" }, TREE), ["ops"]);
-    assert.deepEqual(org.orgSubprojectPathOf({ label: "fix the parser queue" }, TREE), ["core", "parser"]);
-    assert.equal(org.orgSubprojectPathOf({ label: "nothing matches here" }, TREE), null);
+  test("orgChildProjectPathOf: explicit id at depth 2, tokens, ambiguity, prefix collapse", () => {
+    assert.deepEqual(org.orgChildProjectPathOf({ project: "parser" }, TREE), ["core", "parser"]);
+    assert.deepEqual(org.orgChildProjectPathOf({ project: "ops" }, TREE), ["ops"]);
+    assert.deepEqual(org.orgChildProjectPathOf({ label: "fix the parser queue" }, TREE), ["core", "parser"]);
+    assert.equal(org.orgChildProjectPathOf({ label: "nothing matches here" }, TREE), null);
     // label matches BOTH ops and parser -> ambiguous -> null
     const amb = [{ ...TREE[0], aliases: ["shared"], children: [] }, { ...TREE[1], aliases: ["shared"], children: [] }];
-    assert.equal(org.orgSubprojectPathOf({ label: "the shared queue" }, amb), null);
+    assert.equal(org.orgChildProjectPathOf({ label: "the shared queue" }, amb), null);
     // ancestor + descendant both match -> collapse to the deeper path
     const deep = [{ id: "core", displayName: "Core", aliases: ["core"], tokens: [], children: [
       { id: "leaf", displayName: "Leaf", aliases: ["core"], tokens: [], children: [] },
     ] }];
-    assert.deepEqual(org.orgSubprojectPathOf({ label: "core work" }, deep), ["core", "leaf"]);
+    assert.deepEqual(org.orgChildProjectPathOf({ label: "core work" }, deep), ["core", "leaf"]);
     // medical snapshot: label evidence routes to three-tier-screening
-    assert.deepEqual(org.orgSubprojectPathOf({ label: "任务：在已有的 feature/three-tier-screening 分支上对齐编码" }, org.orgSubprojectTree({}, "medical")), ["three-tier-screening"]);
+    assert.deepEqual(org.orgChildProjectPathOf({ label: "任务：在已有的 feature/three-tier-screening 分支上对齐编码" }, org.orgChildProjectTree({}, "medical")), ["three-tier-screening"]);
   });
-  // registry wire format: nested `subprojects` arrays (orgSubprojectTree
+  // registry wire format: nested `subprojects` arrays (orgChildProjectTree
   // normalizes them to `children` internally)
   const REG_TREE = [
-    { id: "core", displayName: "Core Pipeline", subprojects: [
-      { id: "parser", displayName: "Parser", subprojects: [] },
+    { id: "core", displayName: "Core Pipeline", childProjects: [
+      { id: "parser", displayName: "Parser", childProjects: [] },
     ] },
-    { id: "ops", displayName: "Ops", subprojects: [] },
+    { id: "ops", displayName: "Ops", childProjects: [] },
   ];
-  test("orgSubprojectTarget: recursive explicit routing", () => {
-    const registry = [{ id: "alpha", displayName: "Alpha", aliases: [], root: "", subprojects: REG_TREE }];
-    assert.deepEqual(org.orgSubprojectTarget({ project: "parser" }, registry), { project: "alpha", subproject: "parser" });
-    assert.deepEqual(org.orgSubprojectTarget({ project: "core" }, registry), { project: "alpha", subproject: "core" });
-    assert.deepEqual(org.orgSubprojectTarget({ project: "alpha" }, registry), null); // the project itself is not a sub
+  test("orgChildProjectTarget: recursive explicit routing", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha", aliases: [], root: "", childProjects: REG_TREE }];
+    assert.deepEqual(org.orgChildProjectTarget({ project: "parser" }, registry), { project: "alpha", childProject: "parser" });
+    assert.deepEqual(org.orgChildProjectTarget({ project: "core" }, registry), { project: "alpha", childProject: "core" });
+    assert.deepEqual(org.orgChildProjectTarget({ project: "alpha" }, registry), null); // the project itself is not a sub
   });
-  test("orgProjectOf: an explicit subproject id attributes to its ROOT project", () => {
-    const registry = [{ id: "alpha", displayName: "Alpha", aliases: [], root: "", subprojects: REG_TREE }];
+  test("orgProjectOf: an explicit nested-project id attributes to its ROOT project", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha", aliases: [], root: "", childProjects: REG_TREE }];
     assert.equal(org.orgProjectOf({ id: "w1", project: "parser", label: "" }, registry, null), "alpha");
   });
-  test("orgBuildModel: nested crews/dispatches attach to their innermost subproject", () => {
-    const registry = [{ id: "alpha", displayName: "Alpha Colony", aliases: [], root: "", lastActivity: iso(60_000), subprojects: REG_TREE }];
+  test("orgBuildModel: nested crews/dispatches attach to their innermost nested project", () => {
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", aliases: [], root: "", lastActivity: iso(60_000), childProjects: REG_TREE }];
     const m = org.orgBuildModel(
       [sub("sa60", { project: "parser" }), sub("sa61", { project: "core" }), sub("sa62", { project: "alpha", label: "plain alpha work" })],
       "bridge", registry, "alpha", NOW,
@@ -395,15 +395,15 @@ describe("recursive subproject hierarchy", () => {
     const parserInst = parser.children.find((c) => c.kind === "instance")!;
     const rootInst = (m.nodes.get("__proj:alpha")!.children).find((c) => c.kind === "instance")!;
     assert.ok(coreInst && parserInst && rootInst);
-    assert.equal(coreInst.subproject, "core");
-    assert.equal(parserInst.subproject, "parser");
-    assert.equal(rootInst.subproject, null); // directly under the project
+    assert.equal(coreInst.childProject, "core");
+    assert.equal(parserInst.childProject, "parser");
+    assert.equal(rootInst.childProject, null); // directly under the project
     // instance ids carry the sp trail so same aggregation keys never collide
     assert.match(coreInst.id, /__inst:alpha:core:/);
     assert.match(parserInst.id, /__inst:alpha:core\.parser:/);
   });
   test("orgBuildModel: an empty subproject still renders as a capsule under its parent", () => {
-    const registry = [{ id: "alpha", displayName: "Alpha Colony", aliases: [], root: "", lastActivity: iso(60_000), subprojects: TREE }];
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", aliases: [], root: "", lastActivity: iso(60_000), childProjects: TREE }];
     const m = org.orgBuildModel([sub("sa1", { label: "plain work" })], "bridge", registry, "alpha", NOW);
     const ops = m.nodes.get("__sub:alpha:ops")!;
     assert.ok(ops && ops.children.length === 0);
@@ -494,7 +494,7 @@ describe("activity preamble stripping", () => {
 
 describe("invocation tree (project/agent alternate by real spawn lineage)", () => {
   const REG = [
-    { id: "minecraft", displayName: "Minecraft", aliases: ["minecraft", "mc"], root: "", subprojects: [] },
+    { id: "minecraft", displayName: "Minecraft", aliases: ["minecraft", "mc"], root: "", childProjects: [] },
   ];
   test("spawn lineage nests a dispatch under its parent dispatch, not at rank 2", () => {
     const m = org.orgBuildInvocationTree(
@@ -547,6 +547,27 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
     assert.ok(m.nodes.has("sa8"), "ancestor chain kept");
     const mcHop = m.nodes.get("__hop:__coord__:minecraft");
     assert.ok(mcHop && (mcHop.children as Array<{ id: string }>).length === 1, "minecraft hop keeps only the ancestor chain (sa8)");
+  });
+  test("nested-project chain renders as a child hop inside its parent hop (tree position = child_of)", () => {
+    // medical's three-tier-screening snapshot routes those labels into a
+    // nested hop INSIDE the medical hop — same project kind, nesting by position
+    const reg = [{ id: "medical", displayName: "Medical platform", aliases: ["medical", "医疗"], root: "", childProjects: [] }];
+    const m = org.orgBuildInvocationTree(
+      [sub("sa4", { label: "任务：按甲方规范改医疗管理系统的三层筛查判别逻辑" }),
+       sub("sa6", { label: "任务：在已有的 feature/three-tier-screening 分支上对齐问卷编码" }),
+       sub("sa8", { label: "任务：医疗筛查系统两件事——合并到 fork main" })],
+      reg, null, NOW,
+    );
+    const medHop = m.nodes.get("__hop:__coord__:medical")!;
+    assert.ok(medHop, "medical hop exists");
+    const childHops = (medHop.children as Array<{ id: string; kind: string }>).filter((c) => c.kind === "project");
+    assert.equal(childHops.length, 1, "one nested hop for the three-tier-screening path");
+    assert.ok(childHops[0].id.startsWith("__hop:__coord__:medical/"), `nested hop id: ${childHops[0].id}`);
+    assert.equal(childHops[0].id.includes("three-tier-screening"), true);
+    const nestedKids = (m.nodes.get(childHops[0].id)!).children as Array<{ id: string }>;
+    assert.deepEqual(nestedKids.map((k) => k.id).sort(), ["sa4", "sa6"]);
+    const direct = (medHop.children as Array<{ id: string; kind: string }>).filter((c) => c.kind === "agent").map((c) => c.id);
+    assert.deepEqual(direct, ["sa8"]); // path-less dispatch stays a direct agent
   });
   test("layout: arbitrary depth wraps and bounds; edges are invocations", () => {
     const m = org.orgBuildInvocationTree(
@@ -624,10 +645,10 @@ describe("working-registry rule (project layer population)", () => {
     assert.equal(org.orgRegistryWorking(null, NOW), false);
   });
   test("v2 subproject routing matches explicit agent project against registry subprojects", () => {
-    const registry = [{ id: "alpha", subprojects: [{ id: "alpha-web" }] }];
-    assert.deepEqual(org.orgSubprojectTarget({ project: "alpha-web" }, registry), { project: "alpha", subproject: "alpha-web" });
-    assert.equal(org.orgSubprojectTarget({ project: "alpha" }, registry), null);
-    assert.equal(org.orgSubprojectTarget({}, registry), null);
+    const registry = [{ id: "alpha", childProjects: [{ id: "alpha-web" }] }];
+    assert.deepEqual(org.orgChildProjectTarget({ project: "alpha-web" }, registry), { project: "alpha", childProject: "alpha-web" });
+    assert.equal(org.orgChildProjectTarget({ project: "alpha" }, registry), null);
+    assert.equal(org.orgChildProjectTarget({}, registry), null);
   });
 });
 
@@ -724,17 +745,18 @@ describe("hierarchy model: coordinator -> projects -> instance crews -> dispatch
     assert.equal(n.parentHint, "sa2");
     assert.equal(n.depth, 0);
   });
-  test("v2 subprojects: intermediate nodes render when registry data exists, never fabricated", () => {
-    const reg2 = [{ id: "alpha", displayName: "Alpha Colony", subprojects: [{ id: "alpha-web", displayName: "Alpha Web" }] }];
+  test("nested projects: intermediate nodes render when registry data exists, never fabricated (unified kind)", () => {
+    const reg2 = [{ id: "alpha", displayName: "Alpha Colony", childProjects: [{ id: "alpha-web", displayName: "Alpha Web" }] }];
     const m = org.orgBuildModel(
       [sub("sa1", { project: "alpha", session: "crew-a" })],
       "bridge", reg2, null, NOW,
     );
     const sp = m.nodes.get("__sub:alpha:alpha-web")!;
-    assert.equal(sp.kind, "subproject");
+    assert.equal(sp.kind, "project"); // the subproject KIND is abolished — same kind, nesting via parent
+    assert.equal(sp.parent, "__proj:alpha");
     assert.equal(sp.row, 2);
     const inst = [...m.nodes.values()].find((n) => n.kind === "instance")!;
-    assert.equal(inst.row, 2); // instances and subprojects share the aggregate band
+    assert.equal(inst.row, 2); // instances and nested projects share the aggregate band
     const flat = org.orgBuildModel([sub("sa1", { project: "alpha" })], "bridge", registry, null, NOW);
     assert.ok(![...flat.nodes.keys()].some((k) => k.startsWith("__sub:"))); // absent data -> no layer
   });
