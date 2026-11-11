@@ -66,3 +66,42 @@ coder-2    {spec: frontend, level: mid,
             (precedent 2026-11-09); complements coder-1 (infra);
             memory: agents/coder/records/coder-2.md}
 ```
+
+## 2026-11-11 backfill attribution
+
+Retroactive project/role/name mapping for the #/org page (commit e78ed24 follow-up).
+Evidence sources: each session's first user task message (`.pi/subagents/<id>/events.jsonl`),
+the coordinator journal (projectId envelopes only — no dispatch links), KB daily notes
+(`knowledge-base/daily/`), and the registry aliases served by `GET /projects`. The page
+embeds these rows (`ORG_CREW_DISPATCH_PROJECTS` / `ORG_CREW_NAME_SNAPSHOT` in
+`packages/pi-web-bridge/src/index.html`) with token gates, so a reused id never inherits
+yesterday's project. Rendered labels are English-only (`ORG_CJK_GLOSSARY`); token gates
+stay bilingual for matching Chinese source text.
+
+| dispatch(es) | project | crew name / role | evidence |
+|---|---|---|---|
+| sa9 | PiAgents.harness | feishu mcp | task: 给 Pi 接飞书 MCP server，配凭证测通 (events.jsonl) |
+| sa12 | PiAgents.harness | feishu mcp | task: 飞书应用 scope 开通后各域 API 验证 |
+| sa13 | PiAgents.harness | feishu mcp | task: 飞书通讯录找 open_id + 发测试消息 |
+| sa14 | PiAgents.harness | feishu mcp | task: 事件日志/P2P 会话捞 open_id 并回复 |
+| sa15 | PiAgents.harness | feishu mcp | task: 证明 Pi 能读王若钧的飞书文档 |
+| sa17 | PiAgents.harness | feishu mcp | task: 文档共享，加可编辑协作者 |
+| sa18 | PiAgents.harness | feishu mcp | task: 共享后打不开（页面不存在）排查 |
+| sa10 | PiAgents.harness | — | task: 安装 cloudflare/security-audit-skill 到 Pi |
+| sa8-a/b/c | PiAgents.bridge | — | task: org-graph standalone HTML mockup BoN（label 内嵌 fixture 数据点名各项目 → 仅 work-type token 可归因） |
+| sa20 | PiAgents-org | — | task: 专门写文档的 subagent 角色，偏好固化进 skill（role-card wave） |
+| sa84 | PiAgents-org | — | task: Rewrite PiAgents README（与 sa88 同一 docs wave, 11-09） |
+| sa88 | PiAgents-org | — | task: README polish + docs-site，让 Pi agent setup 可被他人采用 |
+| sa29, sa33, sa37 | PiAgents.harness | — | capability installs: whisper.cpp / yt-dlp / video-editing skill (11-06/07) |
+| sa38, sa39, sa40, sa40-sa1, sa41 | PiAgents.harness | vlog toolchain bring-up | /tmp/vlog-edit-test workspace + vlog-auto-edit skill 首测 (11-07) |
+| sa53, sa54, sa55 | PiAgents.harness | memory-index | task: "Implement P0 of the Pi memory-index design" BoN ×3 (11-07) |
+| sa85 | PiAgents.harness | — | task: Terminal-Bench v2 feasibility recon vs 本地 agent stack (11-09) |
+| crew sa23+sa24 | minecraft | rsi episode monitor | labels: 只读监控 MC RSI episode（11-09，manifest 的 operator.monitoring 同族） |
+| crew sa9–sa18 wave | PiAgents.harness | feishu mcp ·×N | 11-11 harness day-crew 多数成员属 feishu MCP 能力接入 |
+| crew sa16+sa19+sa21 | (unattributed on purpose) | weekly report docx | 组会汇报 docx 任务同时点名 MC 与医疗平台 → 跨项目规则 |
+
+Left unattributed, each with its reason:
+- **sa80, sa82** — blog-draft tasks whose text also names minecraft content (≥2 registry projects → cross-project rule).
+- **sa56** — personal media deliverable (LoL highlights compilation), no registered project.
+- **sa90** — personal finance ops (WeChat bill → WPS ledger), no registered project.
+- **crew sa22+sa78** — unrelated tasks sharing a dispatch day; zero shared evidence → honest "unnamed · Nov 9" floor.
