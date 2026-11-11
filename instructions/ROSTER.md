@@ -7,6 +7,7 @@
 > → **INDIVIDUAL** (a person — spec mix + personal experience file, this registry)
 > → **INSTANCE** (an individual's engagement on a project —
 > `role-<individual>@<project>[.<subproject>]`, §5.1 of AGENT-ORG.md).
+> Hiring gate: entries are added only by user approval — the coordinator invokes, it never creates.
 
 ## Format
 
