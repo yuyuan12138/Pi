@@ -621,16 +621,16 @@
   #org-note .n-sub { font: 400 10px var(--mono); letter-spacing: .06em; color: var(--t3); margin-top: 7px; }
   /* edges: dispatch lineage — solid thin, dashed when the prefix-parent is not in the scan */
   .oedge { fill: none; stroke: var(--line); stroke-width: 1; transition: opacity .18s var(--ease), stroke .18s var(--ease); }
-  .oedge.crew { stroke-width: .7; opacity: .8; } /* thin project -> agent edges */
+  .oedge.crew, .oedge.dispatch { stroke-width: .7; opacity: .8; } /* thin project -> instance -> dispatch edges */
   .oedge.dashed { stroke-dasharray: 5 5; stroke: rgba(255, 255, 255, .14); }
   .oedge.hot { stroke: var(--sig); }
   #orgsvg.focus .oedge:not(.hot) { opacity: .2; }
   .onode { cursor: default; transition: opacity .18s var(--ease); }
   #orgsvg.focus .onode:not(.hot) { opacity: .25; }
   .onode .obox { fill: rgba(255, 255, 255, .02); stroke: var(--line); transition: stroke .18s var(--ease); }
-  .onode.running .obox { stroke: rgba(70, 224, 163, .66); }
-  .onode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
-  .onode.done .obox { stroke: var(--line-2); }
+  .onode.running .obox { stroke: rgba(70, 224, 163, .66); fill: rgba(70, 224, 163, .055); }
+  .onode.blocked .obox { stroke: rgba(230, 180, 90, .6); fill: rgba(230, 180, 90, .05); }
+  .onode.done .obox { stroke: var(--line-2); fill: rgba(255, 255, 255, .012); }
   .onode.sel .obox { stroke: var(--sig-dim); stroke-width: 1.4; }
   .onode .ostatus { fill: var(--t3); }
   .onode.running .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
@@ -640,12 +640,28 @@
   .onode.done .oid { fill: var(--t1); }
   .cnode .oid { font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; }
   .pnode .oid { font-size: 9px; letter-spacing: .04em; }
+  /* instance crews: indigo/violet kind color — distinct from project hues and
+     agent status colors, and paired with the capsule shape */
+  .pnode.inode .obox { stroke: hsl(262 60% 68% / .55); fill: hsl(262 55% 60% / .09); }
+  .pnode.inode .oid { fill: hsl(262 70% 80%); font-size: 7.5px; letter-spacing: .02em; }
+  .pnode.inode .ostatus { fill: hsl(262 70% 72%); }
+  .pnode.inode.dim { opacity: .55; } /* quiet crew: still one node, just dimmer */
+  .pnode.unattr .obox { stroke: var(--line); fill: var(--raise); }
+  .pnode.unattr .oid { fill: var(--t2); }
   .pnode.snode { opacity: .82; } /* subprojects read as intermediate structure */
-  .cnode .obox { stroke: rgba(70, 224, 163, .4); fill: rgba(70, 224, 163, .035); }
+  .cnode .obox { stroke: rgba(255, 255, 255, .32); fill: #101317; } /* coordinator: neutral dark accent */
   .cnode .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
   .cnode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
   .cnode.blocked .ostatus { fill: var(--warn); animation: none; }
   /* role hues live in the legend + detail panel; node boxes stay single-line */
+  .otoggle { cursor: pointer; }
+  .otoggle .thit { fill: transparent; stroke: none; } /* whole toggle + count is one hit target */
+  .otoggle circle { fill: rgba(13, 15, 18, .92); stroke: var(--line); }
+  .otoggle:hover circle { stroke: var(--sig-dim); }
+  .otoggle .tglyph { fill: var(--t2); }
+  .otoggle:hover .tglyph { fill: var(--t0); }
+  .otoggle.collapsed circle { stroke: rgba(255, 255, 255, .18); }
+  .otoggle .tcount { font: 400 8.5px var(--mono); fill: var(--t3); }
   /* side detail: hovered/pinned node readout */
   #org-detail {
     grid-area: detail; min-height: 0; overflow-y: auto;
@@ -780,7 +796,8 @@
   <header id="org-head">
     <h2>Org Graph</h2>
     <span id="org-meta" class="mono">connecting&hellip;</span>
-    <div id="org-zoom" role="group" aria-label="Zoom">
+    <div id="org-zoom" role="group" aria-label="Zoom and layout">
+      <button id="oz-layout" class="ozbtn" type="button" aria-label="Toggle layout orientation (vertical: root at top, wrapped rows; horizontal: left-to-right tiers)" title="Layout: vertical (root at top, wrapped rows) — click for horizontal tiers">vert</button>
       <button id="oz-out" class="ozbtn" type="button" aria-label="Zoom out">&minus;</button>
       <span id="oz-val" class="mono tnum" aria-live="off">&ndash;</span>
       <button id="oz-fit" class="ozbtn" type="button">fit</button>
@@ -808,6 +825,7 @@
       <svg id="orgsvg" role="img" aria-label="Live spawn tree">
         <g id="org-edges"></g>
         <g id="org-nodes"></g>
+        <g id="org-toggles"></g>
       </svg>
     </div>
     <div id="org-note" hidden>
@@ -824,6 +842,7 @@
   <svg data-tpl="onode"><g class="onode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
   <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
   <svg data-tpl="oedge"><path class="oedge"/></svg>
+  <svg data-tpl="otoggle"><g class="otoggle"><rect class="thit" x="-8" y="-8" width="34" height="20" fill="transparent"/><circle r="7"/><path class="tglyph"/><text class="tcount" x="10" y="10"/></g></svg>
   <svg data-tpl="pnode"><g class="onode pnode"><rect class="obox" width="150" height="24" rx="12"/><circle class="ostatus" cx="11" cy="12" r="2.5"/><text class="oid" x="18" y="15.5"/><title/></g></svg>
 </div>
 
@@ -1038,6 +1057,10 @@
   // is NOT a fixed pyramid: depth emerges from live spawn lineage branch by
   // branch (the variance is the point, shown as d0/d1/d2 labels), the 9
   // standing roles are a legend, and a node's role is a badge.
+  function orgTrunc(s, n) {
+    s = String(s ?? "");
+    return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
+  }
   const ORG_ROLES = ["scout", "researcher", "planner", "coder", "operator", "reviewer", "writer", "designer", "visualizer"];
   const ORG_ROLE_GROUPS = [
     { id: "intel", name: "Intelligence", roles: ["scout", "researcher", "planner"] },
@@ -1135,6 +1158,66 @@
   // (coordinator + note). v2 subprojects (registry entry .subprojects) render
   // as intermediate nodes when the data exists — absent data means no layer.
   const ORG_WORKING_MS = 30 * 60 * 1000;
+  // AGGREGATE FIRST, then draw — the instance layer clusters a bucket's
+  // dispatches so the graph draws aggregate nodes, not individual dispatches.
+  // Key = session id (the natural crew key: same session = same role
+  // instance). Fallback for missing session data, honestly: a shared label
+  // prefix (>= 2 dispatches) or the dispatch day; unique ones cluster by
+  // themselves. Instances with no activity in the last 24h render dim —
+  // but still occupy exactly ONE node each.
+  const ORG_DIM_MS = 24 * 3600e3;
+  function orgLabelPrefix(label) {
+    const p = String(label ?? "").split("\n")[0].replace(/\s+/g, " ").trim().toLowerCase();
+    return p.length >= 6 ? p.slice(0, 20) : null;
+  }
+  function orgDayOf(ts, nowMs) {
+    if (!Number.isFinite(ts)) return "undated";
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  // Returns { basis, key, label } — key is unique within a project bucket.
+  function orgInstanceKeyOf(s, sessionById) {
+    const sess = typeof s?.session === "string" && s.session.trim() ? s.session.trim()
+      : (typeof sessionById?.get === "function" ? sessionById.get(String(s?.id)) ?? null : null);
+    if (sess) return { basis: "session", key: "sess:" + sess, label: sess };
+    const prefix = orgLabelPrefix(s?.label);
+    if (prefix) return { basis: "prefix", key: "pre:" + prefix, label: prefix };
+    const day = orgDayOf(s?.lastActivity);
+    return { basis: "day", key: "day:" + day, label: day };
+  }
+  // Role on every node. Priority: (a) explicit role-<name> in the id/session
+  // (future-proof naming convention), (b) the crew manifest knowledge below,
+  // (c) label-keyword inference, (d) null — rendered as an honest "—".
+  // SNAPSHOT 2026-11-11 (instructions/CREW-MANIFEST-2026-11-11.md): known
+  // persistent session ids -> profile.spec. Future role-<individual>@<project>
+  // sessions flow through the role- convention above, not this table.
+  const ORG_CREW_SESSION_ROLES = {
+    "bridge-org-x1": "coder.frontend", // sa16/sa1 #/org + Projects panel wave (PiAgents.bridge)
+    "agent-org-x1": "designer.org", // AGENT-ORG/ROSTER design wave (PiAgents-org)
+    "mc-episode-ops": "operator.episodes", // closed-loop RSI monitor ops (minecraft.rsi)
+  };
+  // SNAPSHOT 2026-11-11 (same manifest): dispatch id -> profile.spec. The
+  // manifest notes ids were REUSED across the day for different tasks — where
+  // an id carried several roles the day's defining dispatch is mapped; treat
+  // as best-effort, superseded by real session ids.
+  const ORG_CREW_DISPATCH_ROLES = {
+    sa1: "coder.frontend", sa2: "writer", sa3: "writer", sa4: "writer", sa5: "writer",
+    sa6: "writer", sa7: "writer", sa8: "writer", sa9: "writer", sa10: "writer",
+    sa11: "writer", sa12: "designer.org", sa13: "coder.infra", sa14: "coder.infra",
+    sa15: "operator.monitoring", sa16: "coder.frontend", sa17: "designer.org",
+    sa18: "designer.org", sa19: "writer", sa20: "designer.org", sa21: "designer.org",
+    "sa13-a": "coder", "sa13-b": "coder", "sa13-c": "coder",
+  };
+  function orgNodeRole(id, label, session, sessionById) {
+    if (id.startsWith("role-")) return id.slice(5) || null;
+    const sess = (typeof session === "string" && session.trim()) || (typeof sessionById?.get === "function" ? sessionById.get(String(id)) ?? null : null);
+    if (sess) {
+      if (sess.startsWith("role-")) return sess.slice(5) || null;
+      if (ORG_CREW_SESSION_ROLES[sess]) return ORG_CREW_SESSION_ROLES[sess];
+    }
+    if (ORG_CREW_DISPATCH_ROLES[id]) return ORG_CREW_DISPATCH_ROLES[id];
+    return orgClassifyRole(id, label, null); // label-keyword inference, else null -> "—"
+  }
   function orgRegistryWorking(entry, nowMs) {
     const t = entry?.lastActivity ? Date.parse(entry.lastActivity) : NaN;
     return Number.isFinite(t) && nowMs - t < ORG_WORKING_MS;
@@ -1152,10 +1235,12 @@
     }
     return null;
   }
-  // Build the full hierarchy. view = null renders the Overview (project layer
-  // per the rule above); a project key renders that single subtree
-  // (coordinator -> project -> agents), which is one crew_of subtree by construction.
-  function orgBuildModel(subs, bridgeProject, registry, view, nowMs) {
+  // Build the full hierarchy: coordinator -> project capsules -> INSTANCE
+  // nodes (aggregated dispatches) -> (expandable) dispatch nodes — the
+  // GRAPH-SCHEMA instance-vs-work shape. view = null renders the Overview;
+  // a project key renders that single subtree. sessionById joins dispatch
+  // ids to session ids when /state cannot derive them (main-log spawn args).
+  function orgBuildModel(subs, bridgeProject, registry, view, nowMs, sessionById) {
     const list = Array.isArray(subs) ? subs : [];
     const reg = (Array.isArray(registry) ? registry : []).filter((p) => p && typeof p.id === "string");
     const regById = new Map(reg.map((p) => [p.id, p]));
@@ -1209,45 +1294,100 @@
           projectNode.children.push(spNode);
         }
       }
-      // agents of this bucket: spawn lineage inside the bucket; roots hang
-      // under the project (or their routed subproject) via crew_of edges
-      const ids = new Set(bucket.map((b) => String(b.sub.id)));
-      const agents = new Map();
+      // AGGREGATE FIRST: cluster the bucket's dispatches into instances
+      // (session key, else shared label prefix, else dispatch day), then draw
+      // one instance node per cluster; member dispatches hide until expanded.
+      const instOf = new Map(); // dispatch id -> { basis, key, label }
+      for (const b of bucket) instOf.set(String(b.sub.id), orgInstanceKeyOf(b.sub, sessionById));
+      // shared-prefix clusters need >= 2 members; lonely prefixes fall back to day
+      const preCount = new Map();
+      for (const v of instOf.values()) if (v.basis === "prefix") preCount.set(v.key, (preCount.get(v.key) ?? 0) + 1);
+      const subById = new Map(bucket.map((b) => [String(b.sub.id), b.sub]));
+      for (const [sid, v] of instOf) {
+        if (v.basis === "prefix" && (preCount.get(v.key) ?? 0) < 2) {
+          const day = orgDayOf(subById.get(sid)?.lastActivity);
+          instOf.set(sid, { basis: "day", key: "day:" + day, label: day });
+        }
+      }
+      const clusters = new Map(); // instKey -> members[]
       for (const b of bucket) {
-        const s = b.sub;
-        const lin = orgDeriveParent(String(s.id), ids);
-        agents.set(String(s.id), {
-          id: String(s.id), kind: "agent",
-          status: s.status ?? "running", model: s.model ?? null, label: s.label ?? null,
-          session: s.session ?? null, usage: s.usage ?? null, lastActivity: s.lastActivity ?? null,
-          parent: lin.known ? lin.parent : null,
-          parentHint: lin.known ? null : lin.parent,
-          knownParent: lin.known,
-          hostId: null,
-          project: key, subproject: b.subTarget?.subproject ?? null,
-          role: orgClassifyRole(String(s.id), s.label, s.session),
-          depth: 0, row: 0, children: [],
-        });
+        const ik = instOf.get(String(b.sub.id)).key;
+        if (!clusters.has(ik)) clusters.set(ik, []);
+        clusters.get(ik).push(b);
       }
-      for (const a of agents.values()) {
-        if (a.parent && a.parent !== a.id && agents.has(a.parent)) agents.get(a.parent).children.push(a);
+      const instOrder = [...clusters.keys()].sort((a, b) => {
+        const la = Math.max(...clusters.get(a).map((m) => m.sub.lastActivity ?? 0));
+        const lb = Math.max(...clusters.get(b).map((m) => m.sub.lastActivity ?? 0));
+        return lb - la || orgNaturalCompare(a, b);
+      });
+      for (const ik of instOrder) {
+        const members = clusters.get(ik);
+        const meta = instOf.get(members[0].sub.id);
+        const lastActivity = Math.max(...members.map((m) => m.sub.lastActivity ?? 0));
+        const instId = `__inst:${key}:${meta.key.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+        const anyRunning = members.some((m) => m.sub.status === "running");
+        const anyBlocked = members.some((m) => m.sub.status === "blocked");
+        const memberRoles = members.map((m) => orgNodeRole(String(m.sub.id), m.sub.label, m.sub.session, sessionById));
+        const equalRole = memberRoles.every((r) => r === memberRoles[0]) ? memberRoles[0] : null;
+        // session-keyed crews resolve their role from the crew manifest directly,
+        // even when member-level evidence is mixed
+        const sess = meta.basis === "session" ? meta.label : null;
+        const instRole = sess && ORG_CREW_SESSION_ROLES[sess] ? ORG_CREW_SESSION_ROLES[sess]
+          : sess && sess.startsWith("role-") ? sess.slice(5)
+          : equalRole;
+        const instNode = {
+          id: instId, kind: "instance", projectKey: key,
+          display: `${orgTrunc(meta.label, 13)} \u00b7 ${orgTrunc(instRole || "\u2014", 14)} \u00b7\u00d7${members.length}`,
+          role: instRole,
+          basis: meta.basis, session: meta.basis === "session" ? meta.label : null,
+          count: members.length, lastActivity,
+          status: anyRunning ? "running" : anyBlocked ? "blocked" : "done",
+          dim: nowMs - lastActivity >= ORG_DIM_MS,
+          memberIds: members.map((m) => String(m.sub.id)),
+          registry: null, parent: pid, parentHint: null,
+          depth: null, row: 0, children: [],
+        };
+        nodes.set(instId, instNode);
+        projectNode.children.push(instNode);
+        // member dispatches: spawn lineage among the members; roots hang under
+        // the instance node until it is expanded
+        const memberIds = new Set(instNode.memberIds);
+        const agents = new Map();
+        for (const b of members) {
+          const s = b.sub;
+          const lin = orgDeriveParent(String(s.id), memberIds);
+          agents.set(String(s.id), {
+            id: String(s.id), kind: "agent",
+            status: s.status ?? "running", model: s.model ?? null, label: s.label ?? null,
+            session: s.session ?? null, usage: s.usage ?? null, lastActivity: s.lastActivity ?? null,
+            parent: lin.known ? lin.parent : null,
+            parentHint: lin.known ? null : lin.parent,
+            knownParent: lin.known,
+            hostId: null,
+            project: key, subproject: null,
+            role: orgNodeRole(String(s.id), s.label, s.session, sessionById),
+            depth: 0, row: 0, children: [],
+          });
+        }
+        for (const a of agents.values()) {
+          if (a.parent && a.parent !== a.id && agents.has(a.parent)) agents.get(a.parent).children.push(a);
+        }
+        for (const a of agents.values()) {
+          if (a.parent) continue;
+          instNode.children.push(a);
+          a.hostId = instId; // structural parent for the closure up-walk
+        }
+        const seen = new Set();
+        const walk = (a, d) => {
+          if (seen.has(a.id)) return;
+          seen.add(a.id);
+          a.depth = d;
+          if (d > maxSpawnDepth) maxSpawnDepth = d;
+          for (const c of a.children) walk(c, d + 1);
+        };
+        for (const a of agents.values()) if (!a.parent) walk(a, 0);
+        for (const a of agents.values()) nodes.set(a.id, a);
       }
-      for (const a of agents.values()) {
-        if (a.parent) continue; // child agents attach via their agent parent
-        const host = a.subproject && spNodes.has(a.subproject) ? spNodes.get(a.subproject) : projectNode;
-        host.children.push(a);
-        a.hostId = host.id; // structural parent for the closure up-walk (crew_of edge)
-      }
-      const seen = new Set();
-      const walk = (a, d) => {
-        if (seen.has(a.id)) return;
-        seen.add(a.id);
-        a.depth = d;
-        if (d > maxSpawnDepth) maxSpawnDepth = d;
-        for (const c of a.children) walk(c, d + 1);
-      };
-      for (const a of agents.values()) if (!a.parent) walk(a, 0);
-      for (const a of agents.values()) nodes.set(a.id, a);
     }
     // structural rows: coordinator 0, projects 1, subprojects/agents below
     let maxRow = projKeys.length ? 1 : 0;
@@ -1262,17 +1402,81 @@
     for (const key of projKeys) setRow(nodes.get("__proj:" + key), 1);
     return { nodes, projKeys, maxRow, maxSpawnDepth };
   }
-  const ORG_LAYOUT = { coordW: 120, coordH: 26, nodeW: 140, nodeH: 26, projW: 150, projH: 24, gapX: 12, rowH: 44, padX: 20, padTop: 18, padBottom: 24 };
+  const ORG_LAYOUT = { coordW: 120, coordH: 26, nodeW: 150, nodeH: 26, projW: 150, projH: 24, instW: 180, instH: 24, gapX: 12, rowH: 44, subH: 40, padX: 20, padTop: 18, padBottom: 24 };
   // Fit-to-panel scaling: the whole tree is scaled uniformly into the visible
-  // graph panel (never the document). Downscale is floored — past the floor a
-  // very wide tree keeps the floor scale and pans INSIDE the panel.
+  // graph panel (never the document). mode "v" (vertical, default) fits the
+  // WIDTH only — depth grows downward and scrolls inside the panel, so the
+  // scale stays readable; mode "h" (horizontal alternate) fits both axes.
+  // Downscale is floored — past the floor a very wide tree keeps the floor
+  // scale and pans INSIDE the panel.
   const ORG_FIT_FLOOR = 0.02;
   const ORG_ZOOM_MAX = 3;
-  function orgFitScale(width, height, panelW, panelH, zoom) {
-    const raw = panelW > 0 && panelH > 0 ? Math.min(panelW / width, panelH / height) : 1;
+  function orgFitScale(width, height, panelW, panelH, zoom, mode) {
+    const raw = panelW > 0 && panelH > 0
+      ? (mode === "v" ? panelW / width : Math.min(panelW / width, panelH / height))
+      : 1;
     const fit = Math.max(ORG_FIT_FLOOR, Math.min(raw, 1)); // never upscale, never below the floor
     const applied = Math.max(ORG_FIT_FLOOR, Math.min(ORG_ZOOM_MAX, fit * (zoom || 1)));
     return { fit, applied };
+  }
+  // Collapse support: a node's children render only while the node is
+  // expanded. Default rule: structural row <= ORG_DEFAULT_EXPAND_ROW
+  // (coordinator, projects, first agent tier) — deeper levels start collapsed
+  // so the first view shows the shape, not every leaf of a deep fanout.
+  const ORG_DEFAULT_EXPAND_ROW = 2;
+  function orgHiddenCount(n) {
+    let c = 0;
+    for (const k of n.children) c += 1 + orgHiddenCount(k);
+    return c;
+  }
+  // Marks visibleChildren on the full model per the expansion predicate and
+  // returns the visible metrics (max row / spawn depth over visible nodes).
+  function orgPruneExpanded(model, isExpanded) {
+    let maxRow = 0;
+    let maxSpawnDepth = 0;
+    const visit = (n) => {
+      n._vis = true;
+      if (n.row > maxRow) maxRow = n.row;
+      if (n.kind === "agent" && n.depth > maxSpawnDepth) maxSpawnDepth = n.depth;
+      const kids = !isExpanded || isExpanded(n.id) ? n.children : [];
+      n.visibleChildren = kids;
+      for (const c of kids) visit(c);
+    };
+    for (const n of model.nodes.values()) n._vis = false;
+    for (const k of model.projKeys) visit(model.nodes.get("__proj:" + k));
+    return { nodes: model.nodes, projKeys: model.projKeys, maxRow, maxSpawnDepth };
+  }
+  // Edge geometry: straight when aligned; adjacent bands elbow through the
+  // empty gap between them; multi-band (wrapped) edges route through the left
+  // rail at x=8 so the vertical run never crosses a pill.
+  function orgEdgeD(from, to, mode) {
+    const fx = from.x, fy = from.y + from.h, tx = to.x, ty = to.y;
+    if (fx === tx) return `M ${fx} ${fy} V ${ty}`;
+    if (mode === "v") {
+      if (ty - fy <= ORG_LAYOUT.subH + 4) {
+        const my = Math.round((fy + ty) / 2);
+        return `M ${fx} ${fy} V ${my} H ${tx} V ${ty}`;
+      }
+      return `M ${fx} ${fy} V ${fy + 4} H 8 V ${ty - 4} H ${tx} V ${ty}`;
+    }
+    const my = Math.round((fy + ty) / 2);
+    return `M ${fx} ${fy} V ${my} H ${tx} V ${ty}`;
+  }
+  function orgNodeOut(n, w, h) {
+    return {
+      id: n.id, kind: n.kind, x: n.x, y: n.y, w, h, row: n.row,
+      depth: n.kind === "agent" ? n.depth : null,
+      parent: n.parent, parentHint: n.parentHint, hostId: n.hostId ?? null,
+      project: n.kind === "agent" || n.kind === "instance" ? n.project : n.projectKey,
+      subproject: n.subproject ?? null,
+      display: n.display ?? null, registry: n.registry ?? null,
+      role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
+      label: n.label ?? null, usage: n.usage ?? null, lastActivity: n.lastActivity ?? null,
+      childIds: n.childIds,
+      collapsible: n.collapsible, collapsed: n.collapsed, hiddenCount: n.hiddenCount,
+      count: n.count ?? null, basis: n.basis ?? null, session: n.session ?? null,
+      dim: n.dim ?? false, memberIds: n.memberIds ?? null,
+    };
   }
   // Deterministic tidy-tree layout over the full hierarchy: leaves take
   // sequential x slots (projects in payload order, then subprojects, then
@@ -1280,69 +1484,157 @@
   // structural bands (row 0 coordinator, row 1 projects, below that
   // subprojects then agents by lineage). Agent nodes keep their SPAWN depth
   // as the dN label; the structural row may sit deeper — both are honest.
-  function orgLayoutModel(model) {
+  function orgLayoutModel(model, isExpanded) {
+    const vis = orgPruneExpanded(model, isExpanded);
     const L = ORG_LAYOUT;
-    const kindW = (n) => (n.kind === "agent" ? L.nodeW : L.projW);
-    const kindH = (n) => (n.kind === "agent" ? L.nodeH : L.projH);
+    const kindW = (n) => (n.kind === "agent" ? L.nodeW : n.kind === "instance" ? L.instW : L.projW);
+    const kindH = (n) => (n.kind === "agent" ? L.nodeH : n.kind === "instance" ? L.instH : L.projH);
     const order = (a, b) => {
-      if (a.kind !== b.kind) return a.kind === "subproject" ? -1 : b.kind === "subproject" ? 1 : 0;
+      if (a.kind !== b.kind) {
+        const rank = (k) => (k === "subproject" ? 0 : k === "instance" ? 1 : 2);
+        return rank(a.kind) - rank(b.kind);
+      }
       return orgNaturalCompare(a.id, b.id);
     };
-    for (const n of model.nodes.values()) n.children.sort(order);
-    const orderedRoots = model.projKeys.map((k) => model.nodes.get("__proj:" + k));
+    for (const n of model.nodes.values()) if (n.visibleChildren) n.visibleChildren.sort(order);
+    const orderedRoots = vis.projKeys.map((k) => model.nodes.get("__proj:" + k)).filter((r) => r._vis);
     let slot = 0;
     const place = (n) => {
-      if (!n.children.length) { n._slot = slot++; return; }
-      for (const c of n.children) place(c);
-      n._slot = (n.children[0]._slot + n.children[n.children.length - 1]._slot) / 2;
+      if (!n.visibleChildren.length) { n._slot = slot++; return; }
+      for (const c of n.visibleChildren) place(c);
+      n._slot = (n.visibleChildren[0]._slot + n.visibleChildren[n.visibleChildren.length - 1]._slot) / 2;
     };
     for (const r of orderedRoots) place(r);
     const slotX = (i) => L.padX + i * (L.nodeW + L.gapX);
     for (const n of model.nodes.values()) {
+      if (!n._vis) continue;
       n.x = Math.round(slotX(n._slot) + L.nodeW / 2); // centers on the agent slot grid
       n.y = L.padTop + n.row * L.rowH;
-      n.childIds = n.children.map((c) => c.id);
+      n.w = kindW(n);
+      n.h = kindH(n);
+      n.childIds = n.visibleChildren.map((c) => c.id);
+      n.collapsible = n.children.length > 0;
+      n.collapsed = n.collapsible && n.visibleChildren.length === 0;
+      n.hiddenCount = n.collapsed ? orgHiddenCount(n) : 0;
     }
     let minX = Infinity;
     let maxX = -Infinity;
     for (const n of model.nodes.values()) {
+      if (!n._vis) continue;
       const w = kindW(n);
       minX = Math.min(minX, n.x - w / 2);
       maxX = Math.max(maxX, n.x + w / 2);
     }
-    // span over ALL nodes: deep agent subtrees can reach far past their
-    // project node's center — roots-only math would clip the canvas
-    const anyNodes = model.nodes.size > 0;
+    // span over ALL visible nodes: deep agent subtrees can reach far past
+    // their project node's center — roots-only math would clip the canvas
+    const anyNodes = Number.isFinite(maxX);
     const coordX = anyNodes ? Math.round((minX + maxX) / 2) : Math.round(L.padX + L.nodeW / 2);
-    const width = Math.round(Math.max(coordX + L.coordW / 2, anyNodes ? maxX : 0) + L.padX);
+    const width = Math.round(Math.max(coordX + L.coordW / 2, anyNodes ? maxX : 0) + L.padX + 14);
     const height = orderedRoots.length
-      ? L.padTop + model.maxRow * L.rowH + L.nodeH + L.padBottom
+      ? L.padTop + vis.maxRow * L.rowH + L.nodeH + L.padBottom
       : L.padTop + L.coordH + L.padBottom;
+    const coord = { id: "__coord__", x: coordX, y: L.padTop, w: L.coordW, h: L.coordH };
     const edges = [];
-    for (const r of orderedRoots) edges.push({ from: "__coord__", to: r.id, kind: "entry", dashed: false });
+    for (const r of orderedRoots) edges.push({ from: "__coord__", to: r.id, kind: "entry", dashed: false, d: orgEdgeD(coord, r, "h") });
     for (const n of model.nodes.values()) {
-      for (const c of n.children) {
-        if (n.kind === "agent") edges.push({ from: n.id, to: c.id, kind: "spawn", dashed: false });
-        else edges.push({ from: n.id, to: c.id, kind: c.kind === "agent" ? "crew_of" : "sub", dashed: !!(c.kind === "agent" && c.parentHint) });
+      if (!n._vis) continue;
+      for (const c of n.visibleChildren) {
+        const kind = n.kind === "agent" ? "spawn" : c.kind === "agent" ? (n.kind === "instance" ? "dispatch" : "crew_of") : c.kind === "instance" ? "crew_of" : "sub";
+        edges.push({ from: n.id, to: c.id, kind, dashed: !!(c.kind === "agent" && c.parentHint), d: orgEdgeD(n, c, "h") });
       }
     }
     return {
-      coordinator: { id: "__coord__", x: coordX, y: L.padTop, w: L.coordW, h: L.coordH },
+      coordinator: coord,
       nodes: [...model.nodes.values()]
+        .filter((n) => n._vis)
         .sort((a, b) => a.y - b.y || a.x - b.x || orgNaturalCompare(a.id, b.id))
-        .map((n) => ({
-          id: n.id, kind: n.kind, x: n.x, y: n.y, w: kindW(n), h: kindH(n), row: n.row,
-          depth: n.kind === "agent" ? n.depth : null,
-          parent: n.parent, parentHint: n.parentHint, hostId: n.hostId ?? null,
-          project: n.kind === "agent" ? n.project : n.projectKey,
-          subproject: n.subproject ?? null,
-          display: n.display ?? null, registry: n.registry ?? null,
-          role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
-          label: n.label ?? null, usage: n.usage ?? null, lastActivity: n.lastActivity ?? null,
-          childIds: n.childIds,
-        })),
+        .map((n) => orgNodeOut(n, kindW(n), kindH(n))),
       edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
-      width, height, maxDepth: model.maxSpawnDepth,
+      width, height, maxDepth: vis.maxSpawnDepth,
+    };
+  }
+  // Vertical (default) layout: root at top, children grow downward; siblings
+  // spread left->right within a structural row and WRAP into sub-rows when the
+  // row would exceed the panel width — width always fits the panel, depth
+  // grows into the panel's natural vertical scroll.
+  function orgLayoutVertical(model, wrapWidth, isExpanded) {
+    const vis = orgPruneExpanded(model, isExpanded);
+    const L = ORG_LAYOUT;
+    const kindW = (n) => (n.kind === "agent" ? L.nodeW : n.kind === "instance" ? L.instW : L.projW);
+    const kindH = (n) => (n.kind === "agent" ? L.nodeH : n.kind === "instance" ? L.instH : L.projH);
+    const order = (a, b) => {
+      if (a.kind !== b.kind) {
+        const rank = (k) => (k === "subproject" ? 0 : k === "instance" ? 1 : 2);
+        return rank(a.kind) - rank(b.kind);
+      }
+      return orgNaturalCompare(a.id, b.id);
+    };
+    for (const n of model.nodes.values()) if (n.visibleChildren) n.visibleChildren.sort(order);
+    const roots = vis.projKeys.map((k) => model.nodes.get("__proj:" + k)).filter((r) => r._vis);
+    // DFS order groups each parent's children consecutively, so a wrap keeps
+    // families together and edges read top-down
+    const byRow = new Map();
+    const dfs = (n) => {
+      if (!byRow.has(n.row)) byRow.set(n.row, []);
+      byRow.get(n.row).push(n);
+      for (const c of n.visibleChildren) dfs(c);
+    };
+    for (const r of roots) dfs(r);
+    const columns = Math.max(1, Math.floor(((wrapWidth || 0) - 2 * L.padX + L.gapX) / (L.nodeW + L.gapX)) || 1);
+    const bandY = new Map();
+    let y = L.padTop + L.subH; // band 0 belongs to the coordinator
+    for (const r of [...byRow.keys()].sort((a, b) => a - b)) {
+      bandY.set(r, y);
+      y += Math.ceil(byRow.get(r).length / columns) * L.subH;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let maxBottom = L.padTop + L.coordH;
+    let row1MinX = Infinity;
+    let row1MaxX = -Infinity;
+    for (const [r, list] of byRow) {
+      const base = bandY.get(r);
+      list.forEach((n, i) => {
+        const col = i % columns;
+        const sub = Math.floor(i / columns);
+        n.x = Math.round(L.padX + col * (L.nodeW + L.gapX) + L.nodeW / 2);
+        n.y = base + sub * L.subH;
+        n.w = kindW(n);
+        n.h = kindH(n);
+        n.childIds = n.visibleChildren.map((c) => c.id);
+        n.collapsible = n.children.length > 0;
+        n.collapsed = n.collapsible && n.visibleChildren.length === 0;
+        n.hiddenCount = n.collapsed ? orgHiddenCount(n) : 0;
+        minX = Math.min(minX, n.x - kindW(n) / 2);
+        maxX = Math.max(maxX, n.x + kindW(n) / 2);
+        maxBottom = Math.max(maxBottom, n.y + kindH(n));
+        if (r === 1) { row1MinX = Math.min(row1MinX, n.x - kindW(n) / 2); row1MaxX = Math.max(row1MaxX, n.x + kindW(n) / 2); }
+      });
+    }
+    const coordX = Number.isFinite(row1MinX)
+      ? Math.round((row1MinX + row1MaxX) / 2)
+      : Math.round(L.padX + L.nodeW / 2);
+    const width = Math.round(Math.max(coordX + L.coordW / 2, Number.isFinite(maxX) ? maxX : 0) + L.padX + 14);
+    const height = roots.length ? maxBottom + L.padBottom : L.padTop + L.coordH + L.padBottom;
+    const coord = { id: "__coord__", x: coordX, y: L.padTop, w: L.coordW, h: L.coordH };
+    const edges = [];
+    for (const r of roots) edges.push({ from: "__coord__", to: r.id, kind: "entry", dashed: false, d: orgEdgeD(coord, r, "v") });
+    for (const [, list] of byRow) {
+      for (const n of list) {
+        for (const c of n.visibleChildren) {
+          const kind = n.kind === "agent" ? "spawn" : c.kind === "agent" ? (n.kind === "instance" ? "dispatch" : "crew_of") : c.kind === "instance" ? "crew_of" : "sub";
+          edges.push({ from: n.id, to: c.id, kind, dashed: !!(c.kind === "agent" && c.parentHint), d: orgEdgeD(n, c, "v") });
+        }
+      }
+    }
+    return {
+      coordinator: coord,
+      nodes: [...model.nodes.values()]
+        .filter((n) => n._vis)
+        .sort((a, b) => a.y - b.y || a.x - b.x || orgNaturalCompare(a.id, b.id))
+        .map((n) => orgNodeOut(n, kindW(n), kindH(n))),
+      edges: edges.map((e) => ({ ...e, key: e.from + ">" + e.to })),
+      width, height, maxDepth: vis.maxSpawnDepth,
     };
   }
   // Ancestor path (up to the coordinator) + descendant subtree closure for
@@ -2409,18 +2701,24 @@
   // ---------- org graph page (#/org) ----------
   // Dynamic spawn tree from live lineage (pure model above). The SVG is
   // rebuilt only when /state changes; hover/pin just toggles classes.
-  const org = { sig: null, model: null, sel: null, hover: null, applied: undefined, view: "__all__", projectsSig: null, zoom: 1, fitScale: 1, appliedScale: 1 };
+  const org = { sig: null, model: null, fullModel: null, sel: null, hover: null, applied: undefined, view: "__all__", projectsSig: null, zoom: 1, fitScale: 1, appliedScale: 1, layout: "v", expand: new Map() };
+
+  // Default expansion rule for the org tree: structural row <= 2 (coordinator,
+  // projects, aggregate layer position), EXCEPT instance nodes — the aggregate
+  // layer starts collapsed so the first view shows one node per session/crew,
+  // not one per dispatch. User toggles override per node until view switch.
+  function orgDefaultExpanded(id) {
+    const n = org.fullModel?.nodes.get(id);
+    if (!n) return true;
+    if (n.kind === "instance") return false;
+    return n.row <= ORG_DEFAULT_EXPAND_ROW;
+  }
 
   function orgSync(subs) {
     const sig = JSON.stringify(subs.map((s) => [s.id, s.status, s.model, s.label, s.session ?? null, s.usage?.totalTokens ?? null]));
     if (sig === org.sig) return;
     org.sig = sig;
     if (document.body.dataset.route === "org") renderOrg();
-  }
-
-  function orgTrunc(s, n) {
-    s = String(s ?? "");
-    return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
   }
 
   function orgTpl(name) {
@@ -2459,6 +2757,7 @@
         org.sel = null;
         org.hover = null;
         org.zoom = 1; // view switch resets to the fit default
+        org.expand.clear(); // and to the default expansion shape
         renderOrg();
       });
       box.append(b);
@@ -2485,7 +2784,21 @@
     const bridge = typeof state.projectName === "string" && state.projectName.trim() ? state.projectName.trim() : null;
     const { keys, groups } = orgGroupByProject(subs, bridge);
     const pool = org.view === "__all__" ? subs : (groups.get(org.view) ?? []);
-    const model = orgLayoutModel(orgBuildModel(pool, bridge, state.projects, org.view === "__all__" ? null : org.view, Date.now()));
+    // join dispatch ids to session ids from the main-log spawn args (the
+    // /state session field is null until the scanner derives it)
+    const sessionById = new Map();
+    for (const c of win("main").stats?.subagents ?? []) {
+      if (c && typeof c.id === "string" && typeof c.session === "string" && c.session.trim()) sessionById.set(c.id, c.session.trim());
+    }
+    const fullModel = orgBuildModel(pool, bridge, state.projects, org.view === "__all__" ? null : org.view, Date.now(), sessionById);
+    org.fullModel = fullModel;
+    // default expansion lives in orgDefaultExpanded (module scope, shared with
+    // the click handlers): structural row <= 2, EXCEPT instance nodes — the
+    // aggregate layer starts collapsed, dispatches hide until expanded
+    const effExpanded = (id) => (org.expand.has(id) ? org.expand.get(id) : orgDefaultExpanded(id));
+    const model = org.layout === "v"
+      ? orgLayoutVertical(fullModel, Math.max($("#org-viewport").clientWidth, 200), effExpanded)
+      : orgLayoutModel(fullModel, effExpanded);
     org.model = model;
     const svg = $("#orgsvg");
     svg.setAttribute("width", String(model.width));
@@ -2494,15 +2807,9 @@
     const edgesG = $("#org-edges"), nodesG = $("#org-nodes");
     edgesG.textContent = "";
     nodesG.textContent = "";
-    const pos = new Map([["__coord__", model.coordinator]]);
-    for (const n of model.nodes) pos.set(n.id, n);
     for (const e of model.edges) {
-      const a = pos.get(e.from), b = pos.get(e.to);
-      if (!a || !b) continue;
       const path = orgTpl("oedge").cloneNode(true);
-      const x1 = a.x, y1 = a.y + a.h, x2 = b.x, y2 = b.y;
-      const my = Math.round((y1 + y2) / 2);
-      path.setAttribute("d", x1 === x2 ? `M ${x1} ${y1} V ${y2}` : `M ${x1} ${y1} V ${my} H ${x2} V ${y2}`);
+      path.setAttribute("d", e.d || "");
       path.setAttribute("data-edge", e.key);
       path.classList.add(e.kind);
       if (e.dashed) path.classList.add("dashed");
@@ -2517,46 +2824,84 @@
       acc.setAttribute("fill", `hsl(${hue} 55% 60% / .55)`);
       g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .045)`;
     };
-    // entry node: the coordinator (amber only while the bridge itself is down)
+    // entry node: the coordinator — neutral dark accent (kind color), green
+    // pulse only while the bridge is alive; amber while it is down
     const c = model.coordinator;
     const cg = orgTpl("cnode").cloneNode(true);
     cg.setAttribute("data-node", "__coord__");
     cg.setAttribute("transform", `translate(${c.x - c.w / 2}, ${c.y})`);
     cg.classList.add(state.bridgeDown ? "blocked" : "running");
-    paintProject(cg, bridge);
     cg.querySelector(".oid").textContent = "coordinator";
     cg.querySelector("title").textContent = "coordinator\nmain session \u2014 dispatches subagents, receives reports";
     nodesG.append(cg);
     for (const n of model.nodes) {
+      if (n.kind === "instance") {
+        // aggregated-instance capsule: indigo/violet kind color; dims when the
+        // whole crew has been quiet for >24h; click expands the member dispatches
+        const g = orgTpl("pnode").cloneNode(true);
+        g.setAttribute("data-node", n.id);
+        g.setAttribute("data-kind", "instance");
+        g.setAttribute("data-project", n.project);
+        g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
+        g.classList.add("inode");
+        if (n.dim) g.classList.add("dim");
+        const it = g.querySelector(".oid");
+        it.textContent = n.display ?? n.id;
+        g.querySelector("title").textContent = `${n.display}\ninstance \u00b7 ${n.count} dispatch${n.count === 1 ? "" : "es"} \u00b7 click to ${n.collapsed ? "expand" : "collapse"}`;
+        nodesG.append(g);
+        continue;
+      }
       if (n.kind !== "agent") {
-        // project / subproject capsule: distinct shape, project hue carried in
-        // inline styles (hue space excludes the signal-green band)
+        // project / subproject capsule: hash-hue kind color; the unattributed
+        // bucket renders muted gray instead of an invented hue
         const g = orgTpl("pnode").cloneNode(true);
         g.setAttribute("data-node", n.id);
         g.setAttribute("data-kind", n.kind);
         g.setAttribute("data-project", n.project);
         g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
         if (n.kind === "subproject") g.classList.add("snode");
-        const hue = orgProjectHue(n.project);
-        g.querySelector(".obox").style.stroke = `hsl(${hue} 60% 62% / .55)`;
-        g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .07)`;
-        g.querySelector(".ostatus").style.fill = `hsl(${hue} 70% 68%)`;
         const pt = g.querySelector(".oid");
-        pt.textContent = orgTrunc(n.display ?? n.project, 16);
-        pt.style.fill = `hsl(${hue} 65% 76%)`;
+        if (n.project === ORG_UNATTRIBUTED) {
+          g.classList.add("unattr");
+          pt.textContent = orgTrunc(n.display ?? n.project, 16);
+        } else {
+          const hue = orgProjectHue(n.project);
+          g.querySelector(".obox").style.stroke = `hsl(${hue} 60% 62% / .55)`;
+          g.querySelector(".obox").style.fill = `hsl(${hue} 60% 60% / .07)`;
+          g.querySelector(".ostatus").style.fill = `hsl(${hue} 70% 68%)`;
+          pt.textContent = orgTrunc(n.display ?? n.project, 16);
+          pt.style.fill = `hsl(${hue} 65% 76%)`;
+        }
         g.querySelector("title").textContent = `${n.display ?? n.project}\n${n.kind === "project" ? "project" : "subproject"} \u2014 click to highlight its subtree`;
         nodesG.append(g);
         continue;
       }
       const g = orgTpl("onode").cloneNode(true);
       g.setAttribute("data-node", n.id);
+      g.setAttribute("data-kind", "agent");
       g.setAttribute("transform", `translate(${n.x - n.w / 2}, ${n.y})`);
       g.classList.add(n.status);
       paintProject(g, n.project);
-      // single short line: dot + "id \u00b7 status" — everything else lives in the detail panel
-      g.querySelector(".oid").textContent = `${orgTrunc(n.id, 10)} \u00b7 ${n.status}`;
-      g.querySelector("title").textContent = [n.id, n.label, n.model].filter(Boolean).join("\n");
+      // single short line: dot + "id \u00b7 role" (status lives in the dot color
+      // and the detail panel); unknown roles render an honest em dash
+      g.querySelector(".oid").textContent = orgTrunc(`${n.id} \u00b7 ${n.role || "\u2014"}`, 22);
+      g.querySelector("title").textContent = [n.id, n.role ? "role " + n.role : null, n.label, n.model].filter(Boolean).join("\n");
       nodesG.append(g);
+    }
+    // ▸/▾ branch toggles: separate hit areas (never trigger node select)
+    const togG = $("#org-toggles");
+    togG.textContent = "";
+    for (const n of model.nodes) {
+      if (!n.collapsible) continue;
+      const t = orgTpl("otoggle").cloneNode(true);
+      t.setAttribute("data-toggle", n.id);
+      t.setAttribute("transform", `translate(${n.x + n.w / 2 + 3}, ${n.y + n.h / 2 - 7})`);
+      t.classList.toggle("collapsed", !!n.collapsed);
+      t.querySelector("path").setAttribute("d", n.collapsed ? "M0 0L6 3.5L0 7Z" : "M0 0L7 0L3.5 6Z");
+      const tc = t.querySelector(".tcount");
+      if (n.collapsed && n.hiddenCount > 0) tc.textContent = String(n.hiddenCount);
+      else tc.remove();
+      togG.append(t);
     }
     orgRenderTabs(keys, groups, bridge);
     // meta + empty state, per view
@@ -2575,9 +2920,11 @@
         : "finished spawn trees stay visible while their logs exist on disk";
       note.hidden = false;
     } else {
+      const hidden = model.nodes.reduce((a, n) => a + (n.hiddenCount ?? 0), 0);
+      const hiddenBit = hidden > 0 ? ` \u00b7 ${hidden} hidden` : "";
       $("#org-meta").textContent = viewName
-        ? `${live} live \u00b7 ${done} done \u00b7 max depth d${model.maxDepth}`
-        : `${live} live \u00b7 ${done} done \u00b7 ${projCount} project${projCount === 1 ? "" : "s"} \u00b7 max depth d${model.maxDepth}`;
+        ? `${live} live \u00b7 ${done} done \u00b7 max depth d${model.maxDepth}${hiddenBit}`
+        : `${live} live \u00b7 ${done} done \u00b7 ${projCount} project${projCount === 1 ? "" : "s"} \u00b7 max depth d${model.maxDepth}${hiddenBit}`;
       note.hidden = true;
     }
     $("#org-viewport").classList.toggle("idle", pool.length === 0);
@@ -2592,7 +2939,7 @@
     const panel = $("#org-viewport"), canvas = $("#org-canvas");
     const pw = panel.clientWidth, ph = panel.clientHeight;
     if (pw <= 0 || ph <= 0) return; // hidden route: nothing measurable yet
-    const { fit, applied } = orgFitScale(model.width, model.height, pw, ph, org.zoom);
+    const { fit, applied } = orgFitScale(model.width, model.height, pw, ph, org.zoom, org.layout);
     org.fitScale = fit;
     org.appliedScale = applied;
     canvas.style.width = Math.ceil(model.width * applied) + "px";
@@ -2611,6 +2958,11 @@
   $("#oz-in").addEventListener("click", () => orgZoomTo(org.appliedScale * 1.3));
   $("#oz-out").addEventListener("click", () => orgZoomTo(org.appliedScale / 1.3));
   $("#oz-fit").addEventListener("click", () => { org.zoom = 1; applyOrgScale(); });
+  $("#oz-layout").addEventListener("click", () => {
+    org.layout = org.layout === "v" ? "h" : "v";
+    $("#oz-layout").textContent = org.layout === "v" ? "vert" : "horiz";
+    renderOrg();
+  });
   // wheel zoom on the graph panel (desktop): zoom, pan via the contained scrollbars
   $("#org-viewport").addEventListener("wheel", (e) => {
     if (!org.model || document.body.dataset.route !== "org") return;
@@ -2687,6 +3039,21 @@
       box.append(p);
       return;
     }
+    if (n.kind === "instance") {
+      const members = (n.memberIds ?? []).join(", ");
+      row("Kind", `instance \u00b7 aggregated (${n.basis === "session" ? "session" : n.basis === "prefix" ? "label prefix" : "dispatch day"})`);
+      row("Key", n.project);
+      row("Dispatches", String(n.count));
+      row("Status", [n.status, n.session ? `session ${n.session}` : null].filter(Boolean).join(" \u00b7 "));
+      row("Activity", n.lastActivity ? relTime(n.lastActivity) : "\u2014");
+      row("Members", members || "\u2014");
+      const p = document.createElement("div");
+      p.className = "od-hint";
+      p.style.marginTop = "10px";
+      p.textContent = n.collapsed ? "Click to expand the member dispatches." : "Click to collapse back to the aggregate.";
+      box.append(p);
+      return;
+    }
     if (n.kind === "project" || n.kind === "subproject") {
       const byId = new Map(org.model.nodes.map((x) => [x.id, x]));
       let agentCount = 0;
@@ -2698,8 +3065,9 @@
         for (const c of cur.childIds ?? []) stack.push(c);
       }
       row("Kind", n.kind);
+      row("Name", n.display ?? n.project);
       row("Key", n.project);
-      row("Agents", String(agentCount));
+      row("Agents (visible)", String(agentCount));
       const reg = n.registry;
       if (reg) {
         if (n.kind === "project") row("Registry", reg.status ?? "registered");
@@ -2749,8 +3117,25 @@
     if (org.hover) { org.hover = null; applyOrgFocus(); }
   });
   $("#orgsvg").addEventListener("click", (e) => {
+    const tg = e.target.closest?.("[data-toggle]");
+    if (tg) {
+      // branch toggle: distinct hit area — flips expansion, re-fits, never selects
+      const id = tg.getAttribute("data-toggle");
+      const cur = org.expand.has(id) ? org.expand.get(id) : orgDefaultExpanded(id);
+      org.expand.set(id, !cur);
+      renderOrg();
+      return;
+    }
     const g = e.target.closest?.("[data-node]");
     const id = g?.getAttribute("data-node") ?? null;
+    const nd = id ? org.fullModel?.nodes.get(id) : null;
+    if (nd?.kind === "instance") {
+      // aggregated instance: click expands/collapses its member dispatches
+      const cur = org.expand.has(id) ? org.expand.get(id) : false;
+      org.expand.set(id, !cur);
+      renderOrg();
+      return;
+    }
     org.sel = id && id !== org.sel ? id : null;
     if (!org.sel) org.hover = null; // dismissing the pin also clears the hover light
     applyOrgFocus(true); // force: hover may have already applied this focus id
