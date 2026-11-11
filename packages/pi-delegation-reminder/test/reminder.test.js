@@ -32,6 +32,11 @@ describe("REMINDER constant", () => {
     assert.match(REMINDER, /GLM-5\.3-Flash/);
     assert.match(REMINDER, /edit\/write/);
   });
+
+  test("carries both injected rules: decompose-first and the dispatch gate", () => {
+    assert.match(REMINDER, /DECOMPOSE FIRST/);
+    assert.match(REMINDER, /subagent_spawn/);
+  });
 });
 
 describe("extension registration", () => {

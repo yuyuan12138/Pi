@@ -1,11 +1,16 @@
 // pi-delegation-reminder — mechanical router-role reminder for the main session.
 //
-// The user's standing rule (~/.pi/agent/AGENTS.md): the main session is a
-// router/coordinator. Every delegatable task must be dispatched via
-// subagent_spawn (model GLM-5.3-Flash); main-session edit/write is allowed only
-// for cross-module integration glue, unavailable delegation tools, or an
-// explicit user instruction in the current turn. Prose alone gets forgotten
-// under flow, so this extension mechanically re-injects the rule.
+// The user's standing rules (~/.pi/agent/AGENTS.md) for the main session,
+// a router/coordinator:
+//   (1) DECOMPOSE FIRST — every nontrivial request gets decompose-or-execute
+//       (independently verifiable? disjointly owned? context/budget favor
+//       delegation?), with the split stated before acting;
+//   (2) the edit→dispatch gate — every delegatable task is dispatched via
+//       subagent_spawn (model GLM-5.3-Flash); main-session edit/write is allowed
+//       only for cross-module integration glue, unavailable delegation tools, or
+//       an explicit user instruction in the current turn.
+// Prose alone gets forgotten under flow, so this extension mechanically
+// re-injects both rules.
 //
 // Mechanism: on every run start ("before_agent_start") the reminder is written
 // into the structured system prompt as its own section
@@ -19,12 +24,15 @@
 /** Key under systemPromptOptions.sections; namespaced to avoid clobbering other extensions. */
 export const SECTION_KEY = "delegation-reminder";
 
-/** The fixed reminder. Keep it short and imperative. */
+/** The fixed reminder. Keep it short and imperative (both rules, <= 70 words). */
 export const REMINDER =
-  "ROUTER CHECK: You are the dispatcher. Before any edit/write in this session, " +
-  "state the routing decision or dispatch via subagent_spawn (model GLM-5.3-Flash). " +
-  "Main-session edits only for cross-module glue, unavailable delegation tools, " +
-  "or explicit user instruction this turn.";
+  "ROUTER CHECK: You are the dispatcher. " +
+  "(1) DECOMPOSE FIRST — for every nontrivial request apply decompose-or-execute " +
+  "(independently verifiable? disjointly owned? context/budget favor delegation?), " +
+  "state the split before acting. " +
+  "(2) Before any edit/write, state the routing decision or dispatch via " +
+  "subagent_spawn (model GLM-5.3-Flash). Main-session edits only for cross-module " +
+  "glue, unavailable delegation tools, or explicit user instruction this turn.";
 
 export default function delegationReminderExtension(pi) {
   pi.on("before_agent_start", async (event) => {

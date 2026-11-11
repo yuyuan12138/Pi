@@ -16,12 +16,14 @@ necessary but not sufficient; this extension re-injects the rule mechanically.
 Single constant (`REMINDER`) at the top of `index.js` — edit it there, then
 `/reload`:
 
-> ROUTER CHECK: You are the dispatcher. Before any edit/write in this session,
-> state the routing decision or dispatch via subagent_spawn (model
-> GLM-5.3-Flash). Main-session edits only for cross-module glue, unavailable
-> delegation tools, or explicit user instruction this turn.
+> ROUTER CHECK: You are the dispatcher. (1) DECOMPOSE FIRST — for every
+> nontrivial request apply decompose-or-execute (independently verifiable?
+> disjointly owned? context/budget favor delegation?), state the split before
+> acting. (2) Before any edit/write, state the routing decision or dispatch via
+> subagent_spawn (model GLM-5.3-Flash). Main-session edits only for cross-module
+> glue, unavailable delegation tools, or explicit user instruction this turn.
 
-(~37 words; the tests assert it stays ≤ 60.)
+(~57 words; the tests assert it stays ≤ 60.)
 
 ## How it works
 
