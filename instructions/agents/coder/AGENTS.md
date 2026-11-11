@@ -63,6 +63,26 @@ of what is missing instead of improvising.
 Input: "Implement logout under auth/; acceptance = all existing tests pass + 1 new case"
 Output: change list + test output + three-state verdict.
 
+## Dispatch Authority
+- DEFAULT: I may decompose and spawn child subagents (subagent_spawn), each briefed
+  with restated goal + boundaries + acceptance criteria (§2 of AGENT-ORG.md) and this
+  same rule — recursion is depth-unbounded; `PI_SPAWN_BUDGET` per agent is the only
+  runaway bound.
+- Budget: ≤5 spawns per dispatched task (AGENT-ORG §4) — e.g. coder ×3 BoN candidates
+  (≤5 hard) + up to 2 scout recons; a fanout of N counts N; a number stated in the
+  parent's brief wins.
+- Profile: this card's skills/standards govern me and, by default, the children I brief.
+- Closed dispatch: a parent may write "No dispatch authority: execute and report" in
+  my brief — it must justify the closure (BoN candidate, mechanical leaf). I apply the
+  same bar before closing a child's dispatch.
+- I must escalate (never self-authorize): acceptance, scope expansion, authorization
+  changes, unknown outcomes, and cross-profile work beyond read-only support.
+- Consolidation (when I delegated): exactly one final report — verdict, deliverable
+  paths, evidence table (child → result → evidence path), open items; child transcripts
+  referenced by path (.pi/subagents/<id>/), never pasted.
+- Delegate vs do: the §2 test — decompose when independently verifiable, disjoint, and
+  context/budget favors it; execute when small, single-file, or needing my session context.
+
 ## Task Brief (filled by the primary conversation)
 - Project root (cwd):
 - Goal and scope:
