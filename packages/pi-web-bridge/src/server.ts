@@ -8,6 +8,7 @@ import { SubagentScanner } from "./state.ts";
 import { MainLogReader, readHistoryBefore } from "./mainlog.ts";
 import { readSubLog, readSubHistory } from "./sublog.ts";
 import { EMPTY_STREAM, type StreamSnapshot } from "./stream.ts";
+import { readCoordinatorProjects, type ProjectsSnapshot } from "./projects.ts";
 
 /** Hard cap on request body size (brief: 32KB). */
 export const MAX_BODY_BYTES = 32 * 1024;
@@ -51,6 +52,8 @@ export interface BridgeDeps {
   indexHtml: () => string;
   /** Live in-flight assistant snapshot for GET /stream (defaults to a neutral idle snapshot). */
   stream?: () => StreamSnapshot;
+  /** Coordinator projects snapshot for GET /projects (defaults to reading the real coordinator DB read-only). */
+  projects?: () => ProjectsSnapshot;
   /** Subagent scanner (defaults to a fresh one). */
   scanner?: SubagentScanner;
   /** Main session log reader (defaults to a fresh one). */
@@ -122,6 +125,7 @@ function hostAllowed(host: string | undefined, port: number): boolean {
 export function createBridgeServer(deps: BridgeDeps): BridgeServer {
   const scanner = deps.scanner ?? new SubagentScanner();
   const mainLog = deps.mainLog ?? new MainLogReader();
+  const projectsFn = deps.projects ?? readCoordinatorProjects;
   const log = deps.log ?? (() => {});
   const inbox = deps.inboxDir?.() ?? join(homedir(), ".pi", "agent", "inbox");
   const outbox = deps.outboxDir?.() ?? join(homedir(), ".pi", "agent", "outbox");
@@ -179,6 +183,23 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
     if (method === "GET" && path === "/stream") {
       // Live in-flight assistant view; additive — existing routes/shapes unchanged.
       return sendJson(res, 200, deps.stream?.() ?? EMPTY_STREAM);
+    }
+    if (method === "GET" && path === "/projects") {
+      // Coordinator project registry + working status; additive read-only view
+      // over ~/.pi/agent/project-coordinator/coordinator.db. The reader never
+      // throws (missing DB/tables degrade to an empty list + note); this
+      // catch-all is belt and braces so the route can never 500 the panel.
+      let snap: ProjectsSnapshot;
+      try { snap = projectsFn(); } catch (e) {
+        log(`projects read failed: ${(e as Error).message}`);
+        snap = { projects: [], note: "coordinator database unavailable" };
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        projects: snap.projects,
+        ...(snap.note ? { note: snap.note } : {}),
+        generatedAt: new Date().toISOString(),
+      });
     }
     if (method === "GET" && path === "/main-log") {
       const after = url.searchParams.get("after");

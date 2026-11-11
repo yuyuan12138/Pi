@@ -359,6 +359,30 @@
   .linklike:hover { color: var(--t0); border-color: rgba(255, 255, 255, .22); }
   .panel-empty { padding: 20px 10px; color: var(--t2); font-size: 12px; }
 
+  /* ---------- projects section (coordinator registry readout) ---------- */
+  /* Read-only rows below the live-work cards: same hairline card grid, a
+     status chip instead of a badge. Green = journal activity < 30 min. */
+  #projects-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    margin-top: 12px; padding: 12px 8px 4px; border-top: 1px solid var(--line-2);
+  }
+  #projects-note { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
+  #projects-note.warn { color: var(--warn); }
+  .pcard {
+    display: grid; width: 100%; margin: 3px 0; padding: 9px 13px 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "dot name state" "sub sub sub" "tick tick tick";
+    align-items: center; column-gap: 8px; row-gap: 2px;
+    border: 1px solid var(--line-2); border-radius: 8px;
+    transition: border-color .18s var(--ease), background-color .18s var(--ease);
+  }
+  .pcard:hover { background: var(--raise); border-color: var(--line); }
+  /* recently-active project: steady signal green (no breathe — it is not in-flight work) */
+  .dot.working { background: var(--sig); box-shadow: var(--sig-glow); }
+  .pstate { grid-area: state; font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--t2); }
+  .pstate.working { color: var(--sig); }
+  .pstate.nodata { color: var(--t3); }
+
   /* ---------- usage: instrument cluster + hairline details ---------- */
   .usage { flex: none; border-bottom: 1px solid var(--line-2); }
   .usage-head {
@@ -600,6 +624,11 @@
       <button id="done-toggle" class="linklike" type="button" hidden></button>
       <div id="done-cards" hidden></div>
       <div id="panel-empty" class="panel-empty" hidden>No subagents yet &mdash; spawned agents appear here.</div>
+      <div id="projects-head">
+        <span class="label">Projects</span>
+        <span id="projects-note"></span>
+      </div>
+      <div id="projects"></div>
     </div>
   </aside>
 </div>
@@ -1771,6 +1800,59 @@
   }
   function toggleSub(id) { state.openSub === id ? closeSub() : openSub(id); }
 
+  // ---------- projects panel (GET /projects) ----------
+  // Registered coordinator projects + working status. "working" = latest
+  // journal activity < 30 min; "idle" otherwise; "no data" when the project
+  // has no attributable journal rows. Polls on the state cadence.
+  const PROJECT_WORKING_MS = 30 * 60 * 1000;
+  let projectsSig = "\u00b7"; // forces the first render
+  function projectChipState(p) {
+    const t = p.lastActivity ? Date.parse(p.lastActivity) : NaN;
+    if (!Number.isFinite(t)) return "no data";
+    return Date.now() - t < PROJECT_WORKING_MS ? "working" : "idle";
+  }
+  const pollProjects = withInFlight(async () => {
+    const r = await api("/projects");
+    if (!r.ok || !r.body) return; // transient failure: keep the current view
+    const projects = Array.isArray(r.body.projects) ? r.body.projects : [];
+    const note = typeof r.body.note === "string" ? r.body.note : null;
+    const sig = JSON.stringify([projects, note]);
+    if (sig === projectsSig) return;
+    projectsSig = sig;
+    const box = $("#projects");
+    box.textContent = "";
+    for (const p of projects) {
+      const chip = projectChipState(p);
+      const row = document.createElement("div");
+      row.className = "pcard";
+      const dot = document.createElement("span");
+      dot.className = "dot" + (chip === "working" ? " working" : "");
+      const name = document.createElement("span");
+      name.className = "card-name";
+      name.textContent = p.displayName || p.id || "?";
+      const state = document.createElement("span");
+      state.className = "pstate" + (chip === "working" ? " working" : chip === "no data" ? " nodata" : "");
+      state.textContent = chip;
+      const sub = document.createElement("span");
+      sub.className = "card-sub";
+      sub.textContent = p.root || "";
+      sub.title = p.root || ""; // full path on hover (the row truncates)
+      const tick = document.createElement("span");
+      tick.className = "card-ticker";
+      const t = p.lastActivity ? Date.parse(p.lastActivity) : NaN;
+      tick.textContent = Number.isFinite(t)
+        ? `${relTime(t)}${p.lastJournalStatus ? " \u00b7 " + p.lastJournalStatus : ""}`
+        : "no journal activity";
+      row.append(dot, name, state, sub, tick);
+      row.title = [p.root, p.status ? `registry: ${p.status}` : null, p.registeredAt ? `registered ${p.registeredAt}` : null]
+        .filter(Boolean).join("\n");
+      box.append(row);
+    }
+    const noteEl = $("#projects-note");
+    noteEl.textContent = note ?? (projects.length ? String(projects.length) : "none registered");
+    noteEl.classList.toggle("warn", !!note);
+  });
+
   // ---------- polling ----------
   const pollState = withInFlight(async () => {
     let data;
@@ -2146,6 +2228,7 @@
     pollState();
     pollLogs();
     pollStream();
+    pollProjects();
   }
   // Byte cursors stay valid across suspension (the session log is append-only,
   // offsets are stable), so a resume does NOT reset them: the server deep-reads
@@ -2166,9 +2249,11 @@
   // ---------- boot ----------
   pollState().then(pollLogs);
   pollStream();
+  pollProjects();
   setInterval(pollState, 3000);
   setInterval(pollLogs, 2000);
   setInterval(pollStream, 600);
+  setInterval(pollProjects, 3000);
 })();
 </script>
 </body>

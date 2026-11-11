@@ -16,7 +16,12 @@ The v2 layout is a **hero conversation + right LIVE WORK panel** (no left rail):
   while `running`, the agent id, an unread badge counting new lines since you
   last opened it, elapsed/last-activity time, a `status · tokens · model` line,
   and a mono ticker showing the latest event (tool call, assistant text, or
-  milestone report). Finished agents fold behind a "Show done" toggle.
+  milestone report). Finished agents fold behind a "Show done" toggle. Below
+  the cards, a **Projects** readout lists every registered coordinator project
+  (read-only view over `~/.pi/agent/project-coordinator/coordinator.db`) with a
+  status chip: green **working** when its latest journal activity is < 30 min
+  old, neutral **idle** otherwise, **no data** when the project has no journal
+  rows yet (or the coordinator DB is unavailable, surfaced as a note).
 - **Slide-over transcript** — clicking a card slides a full transcript over the
   page: status header, its own usage panel, the event log, and a reply composer
   (POSTs to `/message` with the subagent target; delivered two-hop via the
@@ -98,6 +103,7 @@ subagent's window; routing metadata travels in the request, never in the text.
 | `GET /state` | `{project, now, mainSessionAlive, main:{sessionFile, sessionMtime, alive}, subagents:[{id,label,session,model,status,lastActivity,lastExcerpt,result}]}` — status is `running` / `blocked` (last `report_to_parent` status) / `done` (`result.md` present) |
 | `GET /main-log?after=<byteCursor>[&file=<sessionPath>]` | incremental conversation items parsed from the session JSONL: `web-chat` custom messages (user) + assistant text entries + one compact line per `toolCall` block (terminal-like activity flow); `{file, cursor, reset, items:[{kind:"user"|"assistant"|"tool",name?,text,ts,id,offset}]}` — the additive `file` param lets the server deep-read the log straight from the client's cursor when it has fallen behind the item ring (no gap after a busy turn or a suspended tab) |
 | `GET /stream` | live in-flight assistant view fed by the pi `message_start`/`message_update`/`message_end` hooks (the session JSONL only persists complete messages, so this is the only true streaming source): `{streaming, text, turnStartedAt, runStartedAt, tool:{name,summary}|null, tools:[{id,name,summary}]}` — `text` is bounded to the last 8000 chars of the growing reply; `tools` accumulates every tool call of the current run in order (bounded to the last 30, deduped by toolCall id) so earlier calls stay visible while the next one streams; the single-slot `tool` field is kept for backward compatibility |
+| `GET /projects` | coordinator project registry + working status, read-only over `~/.pi/agent/project-coordinator/coordinator.db` (Node built-in `node:sqlite`): `{ok, projects:[{id, displayName, root, status, registeredAt, lastActivity?, lastJournalStatus?}], generatedAt[, note]}` — `lastActivity`/`lastJournalStatus` come from the newest journal row attributable to the project (each task's `received` envelope carries `projectId`; bounded recent-window queries); a project without attributable journal rows omits both keys. A missing/unreadable DB or missing tables degrade to `{ok:true, projects:[], note}` — the route never fails the panel |
 | `GET /history?before=<byteOffset>[&limit=N]` | backwards-paged main-conversation history: up to `limit` items (default 200, max 500) strictly before the byte offset; `{items, oldest}` — `oldest` is the next page's `before`, `null` at file start |
 | `GET /sub-history?id=<id>&before=<byteOffset>[&limit=N]` | the same backwards paging over a subagent's events.jsonl (default 300, max 1000) |
 | `GET /sub-log?id=<id>&after=<byteCursor>` | compact events.jsonl tail (`tool` / `assistant` / `report` / `event` lines) + `result` (tail of result.md); `{id, cursor, reset, lines, result, done}` |
