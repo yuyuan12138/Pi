@@ -8,13 +8,11 @@ export const REPORT_TOOL = "report_to_parent";
 export const SPAWN_TOOL = "subagent_spawn";
 /** Max fanout per spawn call (best-of-N candidates). */
 export const MAX_FANOUT = 3;
-/** Max spawn depth: depth 1 = spawned by the root session; agents at this depth cannot spawn further. */
-export const MAX_SPAWN_DEPTH = 3;
 /** Per-agent spawn budget when PI_SPAWN_BUDGET is unset (fanout of N counts as N). */
 export const DEFAULT_SPAWN_BUDGET = 3;
 const FANOUT_LETTERS = ["a", "b", "c"];
 
-/** Spawn depth of this process from PI_SPAWN_DEPTH; unset/empty = 0 (root). A corrupt value fails closed. */
+/** Spawn depth of this process from PI_SPAWN_DEPTH; unset/empty = 0 (root). A corrupt value is kept as a huge number: depth is lineage/observability only and never gates spawning. */
 export function parseSpawnDepth(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return 0;
   const n = Number.parseInt(raw, 10);
@@ -62,7 +60,7 @@ export interface ManagerOptions {
   progressThrottleMs?: number;
   resultMaxChars?: number;
   now?: () => number;
-  /** This agent's spawn depth (default: PI_SPAWN_DEPTH env, unset = 0 = root). Depths >= MAX_SPAWN_DEPTH refuse to spawn. */
+  /** This agent's spawn depth (default: PI_SPAWN_DEPTH env, unset = 0 = root). Observability only — nesting depth is uncapped; the spawn budget is the only bound. */
   spawnDepth?: number;
   /** This agent's ancestor id chain, root-first (default: PI_SPAWN_CHAIN env). */
   spawnChain?: string[];
@@ -88,7 +86,7 @@ export class SubagentManager {
   private resultMax: number;
   private now: () => number;
   private groups = new Map<string, FanoutGroup>();
-  /** This agent's spawn depth: 0 = root session, MAX_SPAWN_DEPTH = leaf (cannot spawn). */
+  /** This agent's spawn depth: 0 = root session. Uncapped observability/lineage — the spawn budget is the only runaway bound. */
   private depth: number;
   /** Prefix for spawned child ids: the agent's own id + "-" so ids stay unique across the whole spawn tree. */
   private idPrefix: string;
@@ -150,10 +148,8 @@ export class SubagentManager {
     const n = opts.fanout ?? 1;
     if (!Number.isInteger(n) || n < 1 || n > MAX_FANOUT) throw new Error(`fanout must be an integer between 1 and ${MAX_FANOUT}, got ${String(opts.fanout)}`);
     if (n > 1 && opts.session !== undefined) throw new Error("fanout cannot be combined with a named session: each member needs its own session");
-    // Recursion guard: an agent at MAX_SPAWN_DEPTH (or with a corrupt PI_SPAWN_DEPTH, which fails
-    // closed) cannot spawn further. Clear error, never a silent no-op.
-    if (this.depth >= MAX_SPAWN_DEPTH) throw new Error(`subagent_spawn refused: max spawn depth ${MAX_SPAWN_DEPTH} reached (this agent is at depth ${this.depth}); subagents cannot spawn further subagents`);
-    // Per-agent spawn budget: a fanout of N counts as N. Exhaustion is a loud error.
+    // Runaway guard: the per-agent spawn budget is the ONLY bound (nesting depth is uncapped).
+    // A fanout of N counts as N. Exhaustion is a loud error, never a silent no-op.
     if (this.used + n > this.budget) throw new Error(`subagent_spawn budget exhausted: ${this.used}/${this.budget} spawns used (PI_SPAWN_BUDGET=${this.budget}); ${n} more requested (a fanout of N counts as N)`);
     if (opts.isolate && !this.o.exec) throw new Error("isolate requires git exec");
     const base = `${this.idPrefix}sa${++this.n}`;
@@ -224,8 +220,8 @@ export class SubagentManager {
       // Exact allowlist (workflow limit, not a sandbox): [] maps to --no-tools, names map to --tools.
       // The child's protocol tools are registered by the -e extension, and a --tools allowlist only
       // activates tools it names — so they must be appended explicitly. report_to_parent is the
-      // reporting protocol; subagent_spawn enables recursion (the manager refuses with a clear
-      // error at max depth, keeping the refusal observable even under a strict allowlist).
+      // reporting protocol; subagent_spawn enables recursion (the manager enforces the spawn
+      // budget, keeping exhaustion observable even under a strict allowlist).
       if (l.info.tools.length === 0) args.push("--no-tools");
       else args.push("--tools", [...l.info.tools, REPORT_TOOL, SPAWN_TOOL].join(","));
     }
@@ -235,8 +231,8 @@ export class SubagentManager {
     const defaultModel = process.env.PI_SUBAGENT_MODEL || "training-coder/GLM-5.3-Flash";
     args.push("--model", l.info.model || defaultModel);
     // Recursion: children learn their position in the spawn tree via env. PI_SPAWN_DEPTH 1 =
-    // spawned by the root session; the extension refuses further spawns at depth >= MAX_SPAWN_DEPTH
-    // and enforces the per-agent budget (PI_SPAWN_BUDGET, fanout counts as N). PI_SPAWN_CHAIN is
+    // spawned by the root session; depth is uncapped observability/lineage, and the per-agent
+    // budget (PI_SPAWN_BUDGET, fanout counts as N) is the only runaway bound. PI_SPAWN_CHAIN is
     // the child's ancestor id chain for lineage reporting.
     const env = { ...process.env, PI_SUBAGENT_ID: id, SUPERAGENT_WORKER: "1", PI_SPAWN_DEPTH: String(this.childDepth), PI_SPAWN_CHAIN: this.childSpawnedBy.join(",") };
     let child: ChildLike;

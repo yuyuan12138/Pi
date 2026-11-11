@@ -40,7 +40,7 @@ export interface SubagentInfo {
   toolCalls: number;
   /** Chain of ancestor agent ids that produced this agent (root-first). [] = spawned by the root session. */
   spawnedBy: string[];
-  /** Spawn depth: 1 = spawned by the root session; agents at MAX_SPAWN_DEPTH cannot spawn further. */
+  /** Spawn depth: 1 = spawned by the root session. Uncapped (observability/lineage only — the spawn budget is the only bound). */
   depth: number;
   /** Present on members of a fanout group (fanout > 1): the group id and this member's position. */
   fanout?: { groupId: string; total: number; index: number; memberIds: string[] };

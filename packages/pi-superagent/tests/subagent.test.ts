@@ -65,7 +65,7 @@ describe("subagent manager", () => {
     expect(args).not.toContain("--no-session");
     expect(args).toContain("--tools");
     // The child's protocol tools must be named explicitly or the allowlist would deactivate them:
-    // report_to_parent (reporting) and subagent_spawn (recursion; the manager refuses at max depth).
+    // report_to_parent (reporting) and subagent_spawn (recursion; the manager enforces the spawn budget).
     expect(args[args.indexOf("--tools") + 1]).toBe("read,bash,report_to_parent,subagent_spawn");
     expect(args).toContain("--session-dir");
     expect(args[args.indexOf("--session-dir") + 1]).toBe(join(dir, "sessions"));
@@ -267,20 +267,44 @@ describe("fanout / recursion / budget / lineage", () => {
     expect(combined).toHaveLength(2);
   });
 
-  it("refuses to spawn at max depth (>= 3) with a clear error", async () => {
-    const { m } = await setup(happy("ok"), { spawnDepth: 3 });
-    await expect(m.spawn({ task: "t" })).rejects.toThrow("max spawn depth 3 reached");
-    await expect(m.spawn({ task: "t", fanout: 2 })).rejects.toThrow("max spawn depth 3 reached");
-    expect(m.list()).toHaveLength(0);
+  it("spawns beyond the old depth cap: a depth-3 agent proceeds while budget remains", async () => {
+    const { m, envs } = await setup(happy("ok"), { spawnDepth: 3 });
+    const i = await m.spawn({ task: "t" });
+    expect(i.depth).toBe(4); // nesting is uncapped; depth is observability only
+    expect(envs[0].PI_SPAWN_DEPTH).toBe("4");
+    const fan = await m.spawn({ task: "t2", fanout: 2 }); // also proceeds; budget (3) now used up
+    expect(fan.depth).toBe(4);
+    expect(m.list()).toHaveLength(3);
   });
 
-  it("PI_SPAWN_DEPTH env: unset = root (can spawn), 3 or corrupt = refused (fails closed)", async () => {
+  it("PI_SPAWN_DEPTH env: unset = root, deep or corrupt values still spawn (depth is never a refusal)", async () => {
     const { m } = await setup(happy("ok"));
     await expect(m.spawn({ task: "t" })).resolves.toMatchObject({ depth: 1 });
     const { m: m3 } = await setup(happy("ok"), {}, { PI_SPAWN_DEPTH: "3" });
-    await expect(m3.spawn({ task: "t" })).rejects.toThrow("max spawn depth");
+    await expect(m3.spawn({ task: "t" })).resolves.toMatchObject({ depth: 4 });
     const { m: mg } = await setup(happy("ok"), {}, { PI_SPAWN_DEPTH: "garbage" });
-    await expect(mg.spawn({ task: "t" })).rejects.toThrow("max spawn depth");
+    const g = await mg.spawn({ task: "t" });
+    expect(g.depth).toBeGreaterThan(1e15); // corrupt value stays visible in lineage, never gates spawning
+  });
+
+  it("a chain deeper than the old cap keeps spawning while budget lasts", async () => {
+    const { m, envs } = await setup(happy("ok"), {}, { PI_SUBAGENT_ID: "sa5-c", PI_SPAWN_DEPTH: "5", PI_SPAWN_CHAIN: "sa5,sa5-b" });
+    for (let i = 1; i <= 3; i++) {
+      const g = await m.spawn({ task: `level ${i}` }); // default budget 3: all three succeed
+      expect(g.depth).toBe(6);
+      expect(g.spawnedBy).toEqual(["sa5", "sa5-b", "sa5-c"]);
+      expect(envs[i - 1].PI_SPAWN_DEPTH).toBe("6");
+    }
+  });
+
+  it("budget exhaustion still refuses at deep depth (budget is the only bound, never depth)", async () => {
+    const { m } = await setup(happy("ok"), { spawnBudget: 1 }, { PI_SPAWN_DEPTH: "7" });
+    await m.spawn({ task: "first" });
+    let err: Error | undefined;
+    try { await m.spawn({ task: "second" }); } catch (e) { err = e as Error; }
+    expect(err?.message).toContain("budget exhausted");
+    expect(err?.message).not.toContain("depth"); // refusal names the budget, not a depth cap
+    expect(m.list()).toHaveLength(1);
   });
 
   it("a nested manager stamps lineage and passes depth+1 env to grandchildren", async () => {
