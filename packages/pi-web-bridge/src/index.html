@@ -573,7 +573,17 @@
     text-transform: uppercase; color: var(--t1);
   }
   #org-head h2::before { content: ""; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); flex: none; }
-  #org-meta { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #org-meta { margin-left: auto; flex: 1; min-width: 0; text-align: right; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* zoom cluster: fit is the default state; +/- and wheel zoom relative to it */
+  #org-zoom { display: flex; align-items: center; gap: 4px; flex: none; margin-left: 8px; }
+  .ozbtn {
+    min-width: 22px; height: 20px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px;
+    background: none; color: var(--t2); font: 600 9.5px var(--mono); letter-spacing: .06em; cursor: pointer;
+    transition: color .15s var(--ease), border-color .15s var(--ease);
+  }
+  .ozbtn:hover { color: var(--t0); border-color: rgba(255, 255, 255, .2); }
+  .ozbtn.on { color: var(--sig); border-color: rgba(70, 224, 163, .4); }
+  #oz-val { min-width: 34px; text-align: center; font-size: 9.5px; color: var(--t2); font-variant-numeric: tabular-nums; }
   /* project view selector: Overview + per-project buckets */
   #org-tabs { grid-area: tabs; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 24px; border-bottom: 1px solid var(--line-2); }
   .ochip {
@@ -603,7 +613,8 @@
   .lg-dash { width: 18px; border-top: 1px dashed rgba(255, 255, 255, .3); }
   #org-viewport { grid-area: view; min-height: 0; min-width: 0; overflow: auto; padding: 8px 0 20px; }
   #org-viewport.idle { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
-  #orgsvg { display: block; margin: 0 auto; }
+  #org-canvas { position: relative; overflow: hidden; margin: 0 auto; } /* box = tree bbox × applied scale; center when narrower, pan when wider */
+  #orgsvg { display: block; transform-origin: 0 0; }
   #orgsvg text { font-family: var(--mono); user-select: none; -webkit-user-select: none; }
   #org-note { text-align: center; padding: 30px 20px 12px; }
   #org-note .n-main { font: 500 12px var(--mono); letter-spacing: .06em; color: var(--t1); }
@@ -624,9 +635,9 @@
   .onode.running .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
   .onode.blocked .ostatus { fill: var(--warn); }
   .onode .oaccent { fill: none; }
-  .onode .oid { fill: var(--t0); font-size: 10px; letter-spacing: .02em; }
+  .onode .oid { fill: var(--t0); font-size: 9.5px; letter-spacing: .02em; }
   .onode.done .oid { fill: var(--t1); }
-  .cnode .oid { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+  .cnode .oid { font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; }
   .cnode .obox { stroke: rgba(70, 224, 163, .4); fill: rgba(70, 224, 163, .035); }
   .cnode .ostatus { fill: var(--sig); animation: breathe 2.4s ease-in-out infinite; }
   .cnode.blocked .obox { stroke: rgba(230, 180, 90, .6); }
@@ -766,6 +777,12 @@
   <header id="org-head">
     <h2>Org Graph</h2>
     <span id="org-meta" class="mono">connecting&hellip;</span>
+    <div id="org-zoom" role="group" aria-label="Zoom">
+      <button id="oz-out" class="ozbtn" type="button" aria-label="Zoom out">&minus;</button>
+      <span id="oz-val" class="mono tnum" aria-live="off">&ndash;</span>
+      <button id="oz-fit" class="ozbtn" type="button">fit</button>
+      <button id="oz-in" class="ozbtn" type="button" aria-label="Zoom in">+</button>
+    </div>
   </header>
   <div id="org-tabs" role="tablist" aria-label="Project views"></div>
   <div class="org-legend" aria-label="Legend">
@@ -784,10 +801,12 @@
     <span class="lg-state"><span class="mono">d2</span>spawn depth</span>
   </div>
   <div id="org-viewport">
-    <svg id="orgsvg" role="img" aria-label="Live spawn tree">
-      <g id="org-edges"></g>
-      <g id="org-nodes"></g>
-    </svg>
+    <div id="org-canvas">
+      <svg id="orgsvg" role="img" aria-label="Live spawn tree">
+        <g id="org-edges"></g>
+        <g id="org-nodes"></g>
+      </svg>
+    </div>
     <div id="org-note" hidden>
       <p class="n-main">no live decomposition &mdash; spawn something</p>
       <p class="n-sub">finished spawn trees stay visible while their logs exist on disk</p>
@@ -799,8 +818,8 @@
 <!-- clone sources for the SVG tree (HTML-parsed, so nodes carry the SVG
      namespace without ever constructing one in JS); never displayed -->
 <div id="org-tpl" hidden aria-hidden="true">
-  <svg data-tpl="onode"><g class="onode"><rect class="obox" width="150" height="30" rx="8"/><rect class="oaccent" x="1" y="26" width="148" height="3" rx="1.5"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
-  <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="150" height="30" rx="8"/><rect class="oaccent" x="1" y="26" width="148" height="3" rx="1.5"/><circle class="ostatus" cx="12" cy="15" r="3"/><text class="oid" x="21" y="19.5"/><title/></g></svg>
+  <svg data-tpl="onode"><g class="onode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
+  <svg data-tpl="cnode"><g class="onode cnode"><rect class="obox" width="140" height="26" rx="7"/><rect class="oaccent" x="1" y="21.5" width="138" height="2.5" rx="1.25"/><circle class="ostatus" cx="11" cy="13" r="2.5"/><text class="oid" x="18" y="16.5"/><title/></g></svg>
   <svg data-tpl="oedge"><path class="oedge"/></svg>
 </div>
 
@@ -1140,7 +1159,18 @@
     for (const r of roots) walk(r, 0);
     return { nodes, roots, maxDepth };
   }
-  const ORG_LAYOUT = { coordW: 150, coordH: 30, nodeW: 150, nodeH: 30, gapX: 22, rowH: 62, padX: 28, padTop: 24, padBottom: 36 };
+  const ORG_LAYOUT = { coordW: 120, coordH: 26, nodeW: 140, nodeH: 26, gapX: 12, rowH: 44, padX: 20, padTop: 18, padBottom: 24 };
+  // Fit-to-panel scaling: the whole tree is scaled uniformly into the visible
+  // graph panel (never the document). Downscale is floored — past the floor a
+  // very wide tree keeps the floor scale and pans INSIDE the panel.
+  const ORG_FIT_FLOOR = 0.02;
+  const ORG_ZOOM_MAX = 3;
+  function orgFitScale(width, height, panelW, panelH, zoom) {
+    const raw = panelW > 0 && panelH > 0 ? Math.min(panelW / width, panelH / height) : 1;
+    const fit = Math.max(ORG_FIT_FLOOR, Math.min(raw, 1)); // never upscale, never below the floor
+    const applied = Math.max(ORG_FIT_FLOOR, Math.min(ORG_ZOOM_MAX, fit * (zoom || 1)));
+    return { fit, applied };
+  }
   // Deterministic tidy-tree layout: leaves take sequential x slots in natural
   // id order, parents center over their children, rows are depth bands (row 0
   // = coordinator, row d+1 = depth-d subagents). Uneven trees stay uneven.
@@ -2254,7 +2284,7 @@
   // ---------- org graph page (#/org) ----------
   // Dynamic spawn tree from live lineage (pure model above). The SVG is
   // rebuilt only when /state changes; hover/pin just toggles classes.
-  const org = { sig: null, model: null, sel: null, hover: null, applied: undefined, view: "__all__", projectsSig: null };
+  const org = { sig: null, model: null, sel: null, hover: null, applied: undefined, view: "__all__", projectsSig: null, zoom: 1, fitScale: 1, appliedScale: 1 };
 
   function orgSync(subs) {
     const sig = JSON.stringify(subs.map((s) => [s.id, s.status, s.model, s.label, s.session ?? null, s.usage?.totalTokens ?? null]));
@@ -2303,6 +2333,7 @@
         org.view = key;
         org.sel = null;
         org.hover = null;
+        org.zoom = 1; // view switch resets to the fit default
         renderOrg();
       });
       box.append(b);
@@ -2377,7 +2408,7 @@
       g.classList.add(n.status);
       paintProject(g, n.project);
       // single short line: dot + "id \u00b7 status" — everything else lives in the detail panel
-      g.querySelector(".oid").textContent = `${orgTrunc(n.id, 11)} \u00b7 ${n.status}`;
+      g.querySelector(".oid").textContent = `${orgTrunc(n.id, 10)} \u00b7 ${n.status}`;
       g.querySelector("title").textContent = [n.id, n.label, n.model].filter(Boolean).join("\n");
       nodesG.append(g);
     }
@@ -2404,7 +2435,44 @@
     }
     $("#org-viewport").classList.toggle("idle", pool.length === 0);
     applyOrgFocus(true);
+    applyOrgScale();
   }
+
+  // ---------- fit-to-panel scale + zoom (whole tree visible by default) ----------
+  function applyOrgScale() {
+    const model = org.model;
+    if (!model) return;
+    const panel = $("#org-viewport"), canvas = $("#org-canvas");
+    const pw = panel.clientWidth, ph = panel.clientHeight;
+    if (pw <= 0 || ph <= 0) return; // hidden route: nothing measurable yet
+    const { fit, applied } = orgFitScale(model.width, model.height, pw, ph, org.zoom);
+    org.fitScale = fit;
+    org.appliedScale = applied;
+    canvas.style.width = Math.ceil(model.width * applied) + "px";
+    canvas.style.height = Math.ceil(model.height * applied) + "px";
+    $("#orgsvg").style.transform = `scale(${applied})`;
+    $("#oz-val").textContent = Math.round(applied * 100) + "%";
+    $("#oz-fit").classList.toggle("on", Math.abs(applied - fit) < 0.001);
+  }
+
+  function orgZoomTo(target) {
+    if (!org.model || !org.fitScale) return;
+    org.zoom = Math.max(ORG_FIT_FLOOR, Math.min(ORG_ZOOM_MAX, target)) / org.fitScale;
+    applyOrgScale();
+  }
+
+  $("#oz-in").addEventListener("click", () => orgZoomTo(org.appliedScale * 1.3));
+  $("#oz-out").addEventListener("click", () => orgZoomTo(org.appliedScale / 1.3));
+  $("#oz-fit").addEventListener("click", () => { org.zoom = 1; applyOrgScale(); });
+  // wheel zoom on the graph panel (desktop): zoom, pan via the contained scrollbars
+  $("#org-viewport").addEventListener("wheel", (e) => {
+    if (!org.model || document.body.dataset.route !== "org") return;
+    e.preventDefault();
+    orgZoomTo(org.appliedScale * (e.deltaY < 0 ? 1.12 : 1 / 1.12));
+  }, { passive: false });
+  window.addEventListener("resize", () => {
+    if (document.body.dataset.route === "org") applyOrgScale();
+  });
 
   function orgFindDetail(id) {
     if (id === "__coord__") return { id: "__coord__", status: state.bridgeDown ? "blocked" : "running" };

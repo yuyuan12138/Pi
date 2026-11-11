@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgAttribution, orgGroupByProject, orgProjectHue, orgBuildTree, orgLayoutTree, ORG_LAYOUT, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, orgRoleGroupOf, orgDeriveParent, orgClassifyRole, orgNaturalCompare, orgAttribution, orgGroupByProject, orgProjectHue, orgBuildTree, orgLayoutTree, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -40,6 +40,9 @@ const org = new Function(
     maxDepth: number;
   };
   ORG_LAYOUT: { nodeW: number; gapX: number; rowH: number; padTop: number };
+  ORG_FIT_FLOOR: number;
+  ORG_ZOOM_MAX: number;
+  orgFitScale: (width: number, height: number, panelW: number, panelH: number, zoom?: number) => { fit: number; applied: number };
   orgFocusClosure: (model: ReturnType<typeof org.orgLayoutTree>, id: string) => { nodes: Set<string>; edges: Set<string> };
 };
 
@@ -237,6 +240,36 @@ describe("deterministic depth-banded layout", () => {
   test("natural id order: sa2 sorts before sa10", () => {
     assert.ok(org.orgNaturalCompare("sa2", "sa10") < 0);
     assert.ok(org.orgNaturalCompare("sa10", "sa2") > 0);
+  });
+});
+
+describe("fit-to-panel scaling", () => {
+  test("fit never upscales and is the default applied scale", () => {
+    const r = org.orgFitScale(1000, 200, 800, 600, 1);
+    assert.equal(r.fit, 0.8);
+    assert.equal(r.applied, 0.8);
+  });
+  test("height can be the binding dimension on wide short panels", () => {
+    const r = org.orgFitScale(400, 400, 1200, 300, 1);
+    assert.equal(r.fit, 0.75);
+  });
+  test("small trees never upscale past 100%", () => {
+    const r = org.orgFitScale(160, 68, 1200, 700, 1);
+    assert.equal(r.fit, 1);
+    assert.equal(r.applied, 1);
+  });
+  test("downscale floors; zoom clamps to [floor, max] in applied terms", () => {
+    const r = org.orgFitScale(20000, 300, 390, 600, 1);
+    assert.equal(r.fit, org.ORG_FIT_FLOOR); // extreme width keeps the floor, panel pans
+    const zin = org.orgFitScale(1000, 200, 800, 600, 10);
+    assert.equal(zin.applied, org.ORG_ZOOM_MAX);
+    const zout = org.orgFitScale(1000, 200, 800, 600, 0.001);
+    assert.equal(zout.applied, org.ORG_FIT_FLOOR);
+  });
+  test("degenerate panels stay safe", () => {
+    const r = org.orgFitScale(1000, 200, 0, 0, 1);
+    assert.equal(r.fit, 1);
+    assert.equal(r.applied, 1);
   });
 });
 
