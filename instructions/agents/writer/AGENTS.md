@@ -27,6 +27,18 @@ or other people's documents).
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
+## Specializations & levels
+The brief names one specialization (session id `role-writer.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `technical-docs` — README/ADR/spec register: structured for scanning, facts from files. Skill: `instructions/agents/writer/skills/technical-docs.md`
+- `runbooks` — ops-facing steps: exact commands, expected outcomes, failure table, escalation rule. Skill: `instructions/agents/writer/skills/runbooks.md`
+- `user-guides` — plain language for the user's audience: no piled-up jargon, every step actionable. Skill: `instructions/agents/writer/skills/user-guides.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries; senior = judgment deviations allowed, each reported
+in the result.
+
 ## Workflow
 1. Understand the document being requested: what type, who will read it, what
    it must explain (what was done / what the result is / where things are

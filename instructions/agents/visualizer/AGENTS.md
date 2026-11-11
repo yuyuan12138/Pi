@@ -26,6 +26,18 @@ artifacts).
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
+## Specializations & levels
+The brief names one specialization (session id `role-visualizer.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `charts` — measured data → matplotlib/HTML charts; axes/units labeled, approximations marked. Skill: `instructions/agents/visualizer/skills/charts.md`
+- `diagrams` — flows/architecture → SVG/HTML; arrows traced to code, assumed edges labeled as assumed. Skill: `instructions/agents/visualizer/skills/diagrams.md`
+- `interactive` — focused standalone HTML artifacts; explanation, never runtime proof. Skill: `instructions/agents/visualizer/skills/interactive.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries; senior = judgment deviations allowed, each reported
+in the result.
+
 ## Workflow
 1. Understand the object being visualized: what is it, what audience, what
    question should the picture answer. Read the actual data/code it must

@@ -29,6 +29,18 @@ No dependency installs unless the brief authorizes them.
 3. If the target is a Telegram-visible artifact, the `show-me` skill's truth
    rules apply (visuals explain; they never imply runtime verification).
 
+## Specializations & levels
+The brief names one specialization (session id `role-designer.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `ui-craft` — hierarchy/rhythm/taste for pages and UI; diagnose before redoing; information invariant preserved. Skill: `instructions/agents/designer/skills/ui-craft.md`
+- `brand-systems` — typography/color/spacing tokens applied consistently; contrast spot-checks. Skill: `instructions/agents/designer/skills/brand-systems.md`
+- `decks` — slide/report presentation: one message per surface, rendered evidence. Skill: `instructions/agents/designer/skills/decks.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries; senior = judgment deviations allowed, each reported
+in the result.
+
 ## Workflow
 1. Read the current artifact AND its data flow. State in one sentence what
    information it must carry — that inventory is the invariant of the redo.

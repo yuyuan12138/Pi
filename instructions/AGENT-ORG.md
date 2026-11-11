@@ -52,23 +52,20 @@ flowchart TB
 ```
 
 Depth is decided per node by the decomposition test (§2), never by position: another
-requirement may stop at depth 1 everywhere or run deeper on every branch.
-`PI_SPAWN_BUDGET` per agent is the only bound. Instances are per
-(role × project × engagement) — `role-coder@medical`, `role-coder@blog` —
-instantiated on demand, fully async (§5.1).
+requirement may stop at depth 1 everywhere or run deeper on every branch. `PI_SPAWN_BUDGET`
+per agent is the only bound. Instances are per (role × project × engagement) —
+`role-coder@medical`, `role-coder@blog` — instantiated on demand, fully async (§5.1).
 
 ## 2. The node decision rule — decompose or execute
 
-ONE rule applies identically at every node — the coordinator at the root, a depth-1
-coder node, a depth-3 scout node. Every agent, on receiving a goal, runs:
+ONE rule applies identically at every node — the coordinator at the root, a depth-1 coder node, a depth-3 scout node. Every agent, on receiving a goal, runs:
 
 1. **Restate** — the goal in your own words: what is actually needed and why; any
    divergence from the literal instruction is flagged upward, never silently obeyed.
 2. **Judge — the decomposition test**, answered from first principles, not position:
    - Can the work be split into sub-goals that are each **independently verifiable**
      (own acceptance criteria, checkable without the others)?
-   - Are the sub-goals **disjointly owned** (separate files or isolated copies, no
-     shared writes)?
+   - Are the sub-goals **disjointly owned** (separate files or isolated copies, no shared writes)?
    - Do **context and budget favor delegation** — is my remaining context better
      spent integrating than holding per-item detail, and is budget left for children?
    - Is the work mechanical, parallelizable, or per-item context-heavy (→ delegate),
@@ -86,8 +83,7 @@ concrete question) instead of dispatching a brief it does not understand.
 
 ## 3. UP-CHECK — the rework loop
 
-A named mechanism, run at every edge of the tree (§1): delivery moves up one hop at a
-time; each parent verifies before passing anything further up.
+A named mechanism, run at every edge of the tree (§1): delivery moves up one hop at a time; each parent verifies before passing anything further up.
 
 1. **Complete** — the child finishes the work inside its brief.
 2. **Self-check** — the child tests itself against the brief's acceptance criteria
@@ -99,10 +95,8 @@ time; each parent verifies before passing anything further up.
    inspects the diff, reads the files). A child's PASS is a claim, not acceptance.
 5. **Branch** — pass → consolidate and move up one level; fail → **push back down with
    a specific diagnosis**: which criterion failed, observed vs expected, the required
-   change. A pushback without a diagnosis ("just redo it") is forbidden. The
-   coordinator's rejection of a child's consolidated report is this same pushback
-   (the node reworks itself or its children); the user remains the final acceptance
-   point.
+   change. A pushback without a diagnosis ("just redo it") is forbidden; the
+   coordinator's rejection of a consolidated report is this same pushback (user is final).
 6. **Rework** — the child fixes and re-enters at step 2; prefer steering the live child
    (`subagent_message`) over re-spawning, unless its context is compromised.
 
@@ -115,17 +109,17 @@ coordinator (filesystem-verified), then user (final).
 
 The thirteen roles are **expertise profiles, not layers or positions**. A profile changes
 skills, standards, and the tool allowlist — never dispatch rights: any node may spawn
-children (budget-bounded) and any node may carry any profile. A coder node spawns
-scout children for repo facts; a reviewer node spawns focused reviewers per concern.
-"Typical children" = what a node wearing this profile usually spawns; deviation is a
-judgment, not a violation. There is no separate "worker" row: a spawned agent is the
-same node type — its profile sets skills, its brief sets boundaries (§5.2).
+children (budget-bounded) and any node may carry any profile (a coder node spawns scout
+children for repo facts; a reviewer node, focused reviewers per concern). "Typical
+children" = what a node wearing this profile usually spawns; deviation is a judgment, not a
+violation. There is no separate "worker" row: a spawned agent is the same node type — its
+profile sets skills, its brief sets boundaries (§5.2).
 
 Escalation is uniform: a `blocked` report with one concrete question to the parent;
 never self-authorize, never retry unknown outcomes. "BoN" = best-of-N; a fanout of N
 counts N against the budget. Every node is proposal-only on acceptance, scope, budget,
-and authorization — those belong to the dispatching parent and, finally, the
-coordinator entry point.
+and authorization — those belong to the dispatching parent and, finally, the coordinator
+entry point.
 
 | Profile | Typical children | Reports to | Escalates when | Authority | Budget / task |
 |---|---|---|---|---|---|
@@ -143,52 +137,56 @@ coordinator entry point.
 | designer | designer per artifact | parent | ugliness is structural | presentation-only execution | ≤2 |
 | visualizer | visualizer per artifact | parent | data missing/ambiguous | new-artifact-only execution | ≤2 |
 
+**Within-profile axes** (2026-11-11): real orgs specialize within one role and carry seniority —
+profiles do too, as **behavioral axes, not tiers**. (a) **Specialization**: each role card names
+2-5 specializations (`skills/<spec>.md` stubs, promoted into full methodology as verified lessons
+accumulate); the brief names the one to wear, and the session id extends to
+`role-<name>.<spec>@<project>` (§5.1). BoN candidates MAY be deliberately dispatched with
+different specializations — diversity is part of the value of N. (b) **Level**: junior = strict
+adherence to the card's workflow/skills/boundaries; senior = judgment deviations allowed, each
+reported in the result. Neither axis changes dispatch rights, budget, or acceptance authority.
+
 ## 5. Node conventions — sessions, dispatch, reporting
 
 ### 5.1 Session and lifecycle
-- **Session id = `role-<name>@<project>`** (e.g. `role-coder@medical`) — a
-  profile×project resume key, not a tier membership; plain `role-<name>` when no
-  concurrent same-role task exists. Created on first instruction via `subagent_spawn`
-  (always background), resumed via the `session` arg; naming rules → below.
+- **Session id = `role-<name>[.<spec>]@<project>`** (e.g. `role-coder.frontend@medical`)
+  — a profile×spec×project resume key, not a tier membership; the spec segment is dropped
+  when the brief names no specialization; plain `role-<name>` when no concurrent same-role
+  task exists. Created on first instruction via `subagent_spawn` (always background),
+  resumed via the `session` arg; naming rules → below.
 - **Standing brief = the role's `AGENTS.md` + its `records/experience.md`** (§6). The
   instance reads both and its own skills first, then the task brief. Continuity is the
-  the point: budgets spent, candidate rankings, child quality, and project quirks
-  persist across dispatches.
+  point: budgets spent, candidate rankings, child quality, and project quirks persist.
 - **Memory is layered (§6)**: this session is tier-1(a) ephemeral; durable lessons go
   to tier-1(b) `records/experience.md` only after a verified result; project facts stay
   in tier-2; global reach only through the tier-3 KB scope gate.
 - **Instantiated on demand, never resident.** A resumed agent is a saved session, not a
   running process: spawned when an instruction arrives, idle after reporting up. No
-  polling, keepalive, scheduled wake-ups, or waiting for work; resuming with no new
-  instruction does nothing.
-- Model discipline unchanged: agents inherit the session provider (worker
-  default per `~/.pi/agent/AGENTS.md`) unless the user authorizes a change; the brief
-  states the model for every spawn.
+  polling, keepalive, or scheduled wake-ups; resuming with no new instruction does nothing.
+- Model discipline unchanged: agents inherit the session provider (worker default per
+  `~/.pi/agent/AGENTS.md`) unless the user authorizes a change; the brief states the model for every spawn.
 
-**Concurrency & namespacing — async by default.** Every dispatch is background:
-`subagent_spawn` returns immediately and consolidated reports arrive as new messages —
-no node ever blocks its turn on a chain; it routes, releases attention, and acts on
-the report when it arrives.
+**Concurrency & namespacing — async by default.** Every dispatch is background: `subagent_spawn`
+returns immediately and consolidated reports arrive as new messages — no node ever blocks its turn
+on a chain; it routes, releases attention, and acts on the report when it arrives.
 
-1. **One active task per session.** An instance serializes its own work; concurrent
-   dispatches to the same session id are forbidden (the router creates another
-   instance instead).
+1. **One active task per session.** An instance serializes its own work; concurrent dispatches to
+   the same session id are forbidden (the router creates another instance instead).
 2. **Same role + different projects, concurrently → separate instances** by
    namespacing: `role-coder@medical`, `role-coder@blog`. Same expertise, isolated
    working memory; durable knowledge stays SHARED via tier-1b `records/experience.md`
    and tier-3 KB — §6 already separates working state from durable capability.
-3. **Same role + same project + concurrent tasks → suffixed instances**
-   `role-<name>@<project>-2`, `-3` (or task-scoped ids), each with disjoint file
-   ownership per the §2 decomposition protocol.
-4. **The router derives the id mechanically** from (role, project, in-flight set) —
-   never ask the user which instance to use.
+3. **Same role + same project + concurrent tasks → suffixed instances** `role-<name>@<project>-2`,
+   `-3` (or task-scoped ids), each with disjoint file ownership per the §2 decomposition protocol.
+4. **The router derives the id mechanically** from (profile × spec × project × in-flight
+   set) — never ask the user which instance to use.
 
 ### 5.2 `DISPATCH AUTHORITY` — default ON for every spawned agent
 Dispatch authority is the **default** for every spawned agent, budget-bounded — a
-property of being an agent in this org, not of a tier. A parent may close it only in
-the child's brief with a stated justification (e.g. a BoN candidate must not
-re-decompose the same task; a mechanical leaf). Every `instructions/agents/*/AGENTS.md`
-gains this section immediately before "Task Brief":
+property of being an agent in this org, not of a tier. A parent may close it only in the
+child's brief with a stated justification (e.g. a BoN candidate must not re-decompose the
+same task; a mechanical leaf). Every `instructions/agents/*/AGENTS.md` gains this section
+immediately before "Task Brief":
 
 ```markdown
 ## Dispatch Authority
@@ -211,10 +209,9 @@ gains this section immediately before "Task Brief":
 
 ### 5.3 Consolidated reporting — one report up, evidence attached
 A node that chose to decompose (§2) spawns children with disjoint ownership, runs the
-UP-CHECK loop per §3, and returns **exactly one** `ready` report to its parent: verdict
-→ deliverable paths → evidence table → open items. Child evidence is attached *by path*
-(logs, diffs, test output, `work/` RECORDs) so the parent can re-verify without reading
-transcripts.
+UP-CHECK loop per §3, and returns **exactly one** `ready` report to its parent: verdict →
+deliverable paths → evidence table → open items. Child evidence is attached *by path*
+(logs, diffs, test output, `work/` RECORDs) so the parent can re-verify without reading transcripts.
 
 ## 6. Memory architecture — three tiers, separate by design
 
@@ -229,23 +226,20 @@ memory are separate (user directive 2026-11-11). Infrastructure verified before 
 | **2 — Project memory** | one project root | the project space itself — README/ADRs/runbooks/postmortems/`work/` records (per `PROJECT-SPACE-STANDARD.md`) + the per-project journal and registry (`~/.pi/agent/project-coordinator/`, private, documented in the global AGENTS.md) | any agent, **only when working that project** | executing nodes write `work/` RECORDs; the project primary refreshes README status, ADRs, runbooks |
 | **3 — Global memory** | all projects | `knowledge-base/` — `daily/` log, `knowledge/concepts/` + `wiki/` — plus the cross-session FTS5 index (pi-memory-index: `memory_search` over distilled memory only — compaction observations, daily entries, concepts — project-scoped) | all roles | primary conversation appends `daily/` after verified results; concept promotion is gated (below); nodes propose only |
 
-**Contamination rules.** A lesson learned in project A must never surface in project B
-unless promoted through the KB scope gate (`knowledge-base/AGENTS.md`, "Concept scope
-certification"): concept frontmatter carries `scope: global | pending | project:<name>`;
-`pending` is treated as project-local and never retrieved globally; `scope: global`
-requires `evidence:` citing **≥ 2 distinct projects** AND `approval: user-approved`,
-enforced fail-closed (lint error, exit 1) by `scripts/compile_kb.py`. Tier-2 memory
-never leaves its project root; tier-1(a) session memory is never cited as acceptance
-evidence and dies with retirement.
+**Contamination rules.** A lesson learned in project A must never surface in project B unless
+promoted through the KB scope gate (`knowledge-base/AGENTS.md`, "Concept scope certification"):
+concept frontmatter carries `scope: global | pending | project:<name>`; `pending` is treated as
+project-local and never retrieved globally; `scope: global` requires `evidence:` citing **≥ 2
+distinct projects** AND `approval: user-approved`, enforced fail-closed (lint error, exit 1) by
+`scripts/compile_kb.py`. Tier-2 memory never leaves its project root; tier-1(a) session memory
+is never cited as acceptance evidence and dies with retirement.
 
-**What qualifies as a lesson (tier 1b / 3):** a transferable insight from a **verified**
-result that would change a future dispatch — a pitfall with its mechanism, an
-acceptance criterion that caught a real defect, a budget or spawn heuristic validated
-in practice. **What does not:** project-private details, secrets, one-off task state,
-and unverified hypotheses (labeled as such or dropped).
+**What qualifies as a lesson (tier 1b / 3):** a transferable insight from a **verified** result that
+would change a future dispatch — a pitfall with its mechanism, an acceptance criterion that caught
+a real defect, a budget or spawn heuristic validated in practice. **What does not:** project-private
+details, secrets, one-off task state, and unverified hypotheses (labeled as such or dropped).
 
-**Promotion path — each arrow is a gate, not a copy** (the evolution loop of incident
-→ verified fix → lesson → inheritance is this cycle read forward):
+**Promotion path — each arrow is a gate, not a copy** (the evolution loop of incident → verified fix → lesson → inheritance is this cycle read forward):
 
 ```mermaid
 flowchart LR
@@ -263,24 +257,20 @@ flowchart LR
    first. The coordinator is not exempt: below the user it is a node like any other.
    Narrow exception: a single bounded, no-follow-up check may be executed directly with
    the reason stated in the turn (mirrors `delegation_gate.py --exception`).
-2. **Resident daemons.** Agents drifting into standing idle processes — polling,
-   heartbeat loops, "watching" a project, or auto-resuming without an instruction.
-   Resumed sessions exist between an instruction and their report; between tasks
-   they are files on disk, not cycles on CPU.
-3. **Self-acceptance.** A node marking its own consolidated output (or a child's
-   PASS) as user-facing done. Acceptance authority **always** returns up to the
-   dispatching parent and, finally, the coordinator entry point, which re-verifies
-   against real files/tests — nodes propose and consolidate, never self-accept. The
-   user is final.
-4. **Pass-through relay.** A node that forwards briefs verbatim or concatenates
-   child reports without restating goals, owning budgets, ranking candidates, and
-   attaching evidence adds latency, not value — give it closed-dispatch leaf briefs
-   in future dispatches (§8).
-5. **Fixed-layer thinking.** Designing dispatch rights by tier — "coordinators and
-   instances dispatch, workers execute" — instead of per-node decomposition judgment.
-   Layers are emergent properties of one requirement's recursion; a node's right to
-   decompose comes from the §2 test plus budget, never from position. (This
-   document's v1.0/v1.1 pyramid was exactly this error; corrected 2026-11-11.)
+2. **Resident daemons.** Agents drifting into standing idle processes — polling, heartbeat loops,
+   "watching" a project, or auto-resuming without an instruction. Resumed sessions exist between
+   an instruction and their report; between tasks they are files on disk, not cycles on CPU.
+3. **Self-acceptance.** A node marking its own consolidated output (or a child's PASS) as
+   user-facing done. Acceptance authority **always** returns up to the dispatching parent and,
+   finally, the coordinator entry point, which re-verifies against real files/tests — nodes
+   propose and consolidate, never self-accept. The user is final.
+4. **Pass-through relay.** A node that forwards briefs verbatim or concatenates child reports
+   without restating goals, owning budgets, ranking candidates, and attaching evidence adds
+   latency, not value — give it closed-dispatch leaf briefs in future dispatches (§8).
+5. **Fixed-layer thinking.** Designing dispatch rights by tier — "coordinators and instances
+   dispatch, workers execute" — instead of per-node decomposition judgment. Layers are emergent
+   properties of one requirement's recursion; a node's right to decompose comes from the §2 test
+   plus budget, never from position. (v1.0/v1.1 of this document was exactly that error.)
 
 ## 8. Phased rollout
 
@@ -295,15 +285,14 @@ flowchart LR
   `DELEGATION-ROUTING.md` (ownership = per-node §2 test + budget, not tiers), the
   role cards (§5.2 default-ON dispatch), and the work-record `Dispatched-by` field
   (node session id + depth).
-- **Validation (per pilot profile, before promotion):** one real multi-level chain —
-  coordinator → node → child (≥2 levels below the coordinator, uneven depths fine) —
-  with evidence that (a) a session id was
-  reused on a second dispatch (resumability), (b) exactly one consolidated report with
-  child evidence paths arrived, (c) the parent independently re-verified the
-  deliverable (diff/tests/filesystem), (d) `subagent_list` showed nothing resident after
-  consolidation, (e) a `work/` RECORD names the chain (session ids + depths), and (f) at least one
-  UP-CHECK rework round ran with a written diagnosis (or a deliberate one was
-  demonstrated, if zero rework was genuinely needed).
+- **Validation (per pilot profile, before promotion):** one real multi-level chain — coordinator →
+  node → child (≥2 levels below the coordinator, uneven depths fine) — with evidence that (a) a
+  session id was reused on a second dispatch (resumability), (b) exactly one consolidated report
+  with child evidence paths arrived, (c) the parent independently re-verified the deliverable
+  (diff/tests/filesystem), (d) `subagent_list` showed nothing resident after consolidation, (e) a
+  `work/` RECORD names the chain (session ids + depths), and (f) at least one UP-CHECK rework round
+  ran with a written diagnosis (or a deliberate one was demonstrated, if zero rework was genuinely
+  needed).
 - **Rollback rule:** if a pilot shows relay overhead without consolidation value, default
   that profile to closed-dispatch leaf briefs and record the decision as an ADR — the
   org serves the dispatch, never the reverse.

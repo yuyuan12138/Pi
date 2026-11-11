@@ -17,6 +17,18 @@ A clean-context independent reviewer. Finds what the primary conversation cannot
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
+## Specializations & levels
+The brief names one specialization (session id `role-reviewer.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `correctness-review` — logic, edge cases, error paths; findings carry `path:line` + the evidence actually read. Skill: `instructions/agents/reviewer/skills/correctness-review.md`
+- `security-review` — vuln-focused pass (authn/authz, injection, secrets, crypto); blocking = exploitable. Skill: `instructions/agents/reviewer/skills/security-review.md`
+- `regression-review` — behavior preservation across diffs: prior assertions restored, contract drift, silent false-returns. Skill: `instructions/agents/reviewer/skills/regression-review.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries; senior = judgment deviations allowed, each reported
+in the result.
+
 ## Workflow
 1. Read the change description/diff and the review-focus list.
 2. Check in order: correctness -> security -> regressions -> test gaps -> UX.

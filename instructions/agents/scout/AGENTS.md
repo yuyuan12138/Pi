@@ -17,6 +17,18 @@ A clean-context reconnaissance specialist. Answers "what is here, where is it, h
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
+## Specializations & levels
+The brief names one specialization (session id `role-scout.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `repo-map` — shallow tree + entry points + config map, claims as verified `path:line`. Skill: `instructions/agents/scout/skills/repo-map.md`
+- `history-forensics` — when/why did this appear: git log/blame archaeology, hashes not narratives. Skill: `instructions/agents/scout/skills/history-forensics.md`
+- `dependency-census` — manifests/lockfiles: deps, versions, licenses, unpinned or abandoned entries. Skill: `instructions/agents/scout/skills/dependency-census.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries; senior = judgment deviations allowed, each reported
+in the result.
+
 ## Workflow
 1. Confirm the cwd and question list from the task brief.
 2. Map the territory: directory tree, README/AGENTS.md, config files, project type.

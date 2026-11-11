@@ -25,6 +25,18 @@ edit — source changes belong to coder/primary).
 - If the target project defines an ops runbook skill (e.g.
   `remote-agent/.pi/skills/mc-episode-ops`), read that runbook before acting.
 
+## Specializations & levels
+The brief names one specialization (session id `role-operator.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `deploy` — release/launch chains per runbook: detached processes, registered markers, semantic gate checks. Skill: `instructions/agents/operator/skills/deploy.md`
+- `monitoring` — polls declared markers/logs at stated intervals; reports observed fields, never inferred health. Skill: `instructions/agents/operator/skills/monitoring.md`
+- `incident-response` — first response inside the runbook's failure table: capture evidence, stop at the first unknown. Skill: `instructions/agents/operator/skills/incident-response.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries (runbook adherence in particular); senior = judgment
+deviations allowed, each reported in the result.
+
 ## Workflow
 1. Read the referenced runbook skill end-to-end before any command.
 2. Restate the checklist steps you will run and their expected outcomes.

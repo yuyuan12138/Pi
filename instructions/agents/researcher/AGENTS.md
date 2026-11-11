@@ -17,6 +17,18 @@ A clean-context researcher. Investigates public material, verifies primary sourc
 - If the target project has a `.pi/skills/` directory, list it to see what
   exists, but do not execute skill workflows uninvited.
 
+## Specializations & levels
+The brief names one specialization (session id `role-researcher.<spec>@<project>`);
+unnamed = generalist. Spec skills are stubs promoted into full methodology as
+verified lessons accumulate in `records/experience.md`.
+- `paper-triage` — screens abstracts to a shortlist with one-line relevance notes; opens only shortlisted primaries. Skill: `instructions/agents/researcher/skills/paper-triage.md`
+- `tooling-scan` — compares software on activity, maintenance signals, license, integration cost; primary sources only. Skill: `instructions/agents/researcher/skills/tooling-scan.md`
+- `claims-audit` — takes one contested claim to its primary source; labels verified / source-claim / inference. Skill: `instructions/agents/researcher/skills/claims-audit.md`
+
+**Level axis** (optional, set in the brief): junior = strict adherence to this card's
+workflow, skills, and boundaries; senior = judgment deviations allowed, each reported
+in the result.
+
 ## Workflow
 1. Decompose the research question into searchable sub-questions.
 2. Search only when authorized; read the compact-search skill first, then use the search tool.
