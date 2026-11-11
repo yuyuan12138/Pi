@@ -138,20 +138,20 @@ dispatch rights, budget, or acceptance authority.
 ## 5. Node conventions — sessions, dispatch, reporting
 
 ### 5.1 Session and lifecycle
-- **Session id = `role-<name>[.<spec>]@<project>`** (e.g. `role-coder.frontend@medical`)
-  — a profile×spec×project resume key, not a tier membership; the spec segment is dropped
-  when the brief names no specialization; plain `role-<name>` when no concurrent same-role
-  task exists. Created on first instruction via `subagent_spawn` (always background),
-  resumed via the `session` arg.
-- **Standing brief = the role's `AGENTS.md` + its `records/experience.md`** (§6). The
-  instance reads both and its own skills first, then the task brief. Continuity is the
-  point: budgets spent, candidate rankings, child quality, and project quirks persist.
-- **Memory is layered (§6)**: this session = tier-1(a) ephemeral; durable lessons →
-  tier-1(b) `records/experience.md` only after a verified result; project facts stay
-  tier-2; global reach only via the tier-3 KB scope gate.
-- **Instantiated on demand, never resident.** A resumed agent is a saved session, not a
-  running process: spawned when an instruction arrives, idle after reporting up. No
-  polling, keepalive, or scheduled wake-ups; resuming with no new instruction does nothing.
+- **Session id = `role-<name>[.<spec>]@<project>`** (e.g. `role-coder.frontend@medical`) — a profile×spec×project resume key,
+  not a tier membership; the spec segment is dropped when the brief names no specialization; plain `role-<name>` when no
+  concurrent same-role task exists. Created on first instruction via `subagent_spawn` (always background), resumed via the `session` arg.
+- **Standing brief = the role's `AGENTS.md` + its `records/experience.md`** (§6). The instance reads both and its own skills
+  first, then the task brief. Continuity is the point: budgets spent, candidate rankings, child quality, and project quirks persist.
+- **Memory is layered (§6)**: this session = tier-1(a) ephemeral; durable lessons → tier-1(b) `records/experience.md` only after
+  a verified result; project facts stay tier-2; global reach only via the tier-3 KB scope gate.
+- **Instantiated on demand, never resident.** A resumed agent is a saved session, not a running process: spawned when an
+  instruction arrives, idle after reporting up. No polling, keepalive, or scheduled wake-ups; resuming with no new instruction does nothing.
+- **Worker tier (2026-11-11 ruling):** any agent holding a profile may spawn FRESH workers shaped by that profile card; workers
+  are one-shot — never reused, never resumed (no session id). The value of a worker engagement is harvested: on verified
+  completion the parent extracts transferable lessons and appends them to the profile's `records/experience.md` (or the
+  individual's memory file when an individual was invoked). An engagement closed without harvest is an incomplete UP-CHECK
+  closure — memory harvest is mandatory, not optional.
 - Model discipline unchanged: agents inherit the session provider (worker default per
   `~/.pi/agent/AGENTS.md`) unless the user authorizes a change; the brief states the model for every spawn.
 
@@ -264,9 +264,8 @@ flowchart LR
    the §2 test — or decomposing without restating the goal and fixing criteria first. The
    coordinator is not exempt below the user. Narrow exception: one bounded, no-follow-up
    check, reason stated in the turn (`delegation_gate.py --exception`).
-2. **Resident daemons.** Agents drifting into standing idle processes — polling, heartbeat loops,
-   "watching" a project, or auto-resuming without an instruction. Resumed sessions exist between
-   an instruction and their report; between tasks they are files on disk, not cycles on CPU.
+2. **Resident daemons.** Agents drifting into standing idle processes — polling, heartbeat loops, "watching" a project, or auto-resuming
+   without an instruction. Resumed sessions exist between an instruction and their report; between tasks they are files on disk, not cycles on CPU.
 3. **Self-acceptance.** A node marking its own consolidated output (or a child's PASS) as
    user-facing done. Acceptance authority **always** returns up to the dispatching parent
    and, finally, the coordinator entry point, which re-verifies against real files/tests —
@@ -274,10 +273,11 @@ flowchart LR
 4. **Pass-through relay.** A node that forwards briefs verbatim or concatenates child reports
    without restating goals, owning budgets, ranking candidates, and attaching evidence adds
    latency, not value — give it closed-dispatch leaf briefs in future dispatches (§8).
-5. **Fixed-layer thinking.** Designing dispatch rights by tier instead of per-node
-   decomposition judgment. Layers are emergent properties of one requirement's recursion;
-   the right to decompose comes from the §2 test plus budget, never position. (v1.0/v1.1
-   of this document was exactly that error.)
+5. **Fixed-layer thinking.** Designing dispatch rights by tier instead of per-node decomposition judgment. Layers are emergent
+   properties of one requirement's recursion; the right to decompose comes from the §2 test plus budget, never position.
+   (v1.0/v1.1 of this document was exactly that error.)
+6. **Orphaned workers.** Spawning without a harvest plan — the profile's capability never compounds. Every worker engagement
+   closes only with the §5.1 memory harvest (mandatory, not optional).
 
 ## 8. Phased rollout
 
