@@ -48,19 +48,6 @@ reviewer-1 {spec: correctness, level: senior,
             source, receipt validation audits), trust-boundary enforcement,
             regression-assertion restoration;
             memory: agents/reviewer/records/reviewer-1.md}
-writer-1   {spec: docs/charter, level: senior,
-            notes: project-space scaffolder — 8 dispatches 2026-11-11 (7
-            PROJECT-SPACE-STANDARD builds + minecraft retrofit), one brief shape;
-            memory: agents/writer/records/writer-1.md}
-designer-1 {spec: org/systems design, level: senior,
-            notes: AGENT-ORG/graph design thread — 7 revisions 2026-11-11 (org model,
-            memory tiers, subprojects, GRAPH-SCHEMA, this roster); session agent-org-x1;
-            memory: agents/designer/records/designer-1.md}
-coder-2    {spec: frontend, level: senior,
-            notes: mission-control UI — bridge Projects panel + #/org graph page +
-            user feedback rounds (whole-tree visibility, vertical layout, project
-            views); session bridge-org-x1;
-            memory: agents/coder/records/coder-2.md}
 ```
 
 Evidence pointers (verified 2026-11-11):
@@ -77,15 +64,6 @@ Evidence pointers (verified 2026-11-11):
   fabricated-field / trust-boundary / regression-assertion entries);
   `knowledge-base/daily/2026-11-03.md`, `2026-11-04.md`, `2026-11-06.md`,
   `2026-11-08.md` (fabrication/receipt incident threads).
-- **writer-1**: `instructions/CREW-MANIFEST-2026-11-11.md` (scaffolding-wave rows,
-  sa2 + sa4–sa10) ← `.pi/subagents/sa{2,4..10}/events.jsonl` briefs; deliverables:
-  project README/docs/work trees in six project spaces + the minecraft ops dir.
-- **designer-1**: same manifest (org-wave rows, sa12/14b/15b/17/18/20/21);
-  deliverables: `instructions/AGENT-ORG.md`, `instructions/GRAPH-SCHEMA.md`,
-  this roster v1.
-- **coder-2**: same manifest (bridge rows, sa16 ×2 + sa1/sa2 UI feedback rounds);
-  deliverables: `packages/pi-web-bridge` commits 3386629, 3aa55b2, e482784
-  (projects panel, org graph views, project hierarchy).
 
 ## Hiring rule
 
