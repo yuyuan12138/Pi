@@ -607,6 +607,42 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
   });
 });
 
+describe("live session-name attribution (<topic>-x<N> convention)", () => {
+  const REG = [
+    { id: "medical", displayName: "Medical platform", root: "", aliases: ["medical", "医疗"], childProjects: [] },
+    { id: "minecraft", displayName: "MC", root: "", aliases: ["minecraft", "mc"], childProjects: [] },
+    { id: "notion-ops", displayName: "Notion Ops", root: "", aliases: ["notion", "notion-ops", "笔记"], childProjects: [] },
+    { id: "blog", displayName: "Blog", root: "", aliases: ["blog"], childProjects: [] },
+  ];
+  test("medical-upstream-x1 -> medical (longest topic prefix)", () => {
+    assert.equal(org.orgProjectOf({ id: "medical-upstream-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sa3", label: null, session: "medical-upstream-x1" }, REG, null), "medical");
+  });
+  test("rsi-live-c12-mon-2 -> minecraft (domain vocabulary prefix)", () => {
+    assert.equal(org.orgProjectOf({ id: "rsi-live-c12-mon-2", label: null }, REG, null), "minecraft");
+  });
+  test("bridge-org-x1 -> PiAgents-bridge (internal bucket)", () => {
+    assert.equal(org.orgProjectOf({ id: "bridge-org-x1", label: null }, REG, null), "PiAgents.bridge");
+    assert.equal(org.orgProjectOf({ id: "sa9", label: null, session: "bridge-org-x1" }, REG, null), "PiAgents.bridge");
+  });
+  test("notion-rsi-x1 -> notion-ops (notion beats the rsi token, longest prefix)", () => {
+    assert.equal(org.orgProjectOf({ id: "notion-rsi-x1", label: null }, REG, null), "notion-ops");
+  });
+  test("unknown topic prefixes never guess", () => {
+    assert.equal(org.orgProjectOf({ id: "quantum-flux-x9", label: null }, REG, null), null);
+    assert.equal(org.orgProjectOf({ id: "mc-thing-x1", label: null }, REG, null), null); // "mc" too weak as a bare prefix
+  });
+  test("[project:<name>] task-text markers are strong evidence", () => {
+    assert.equal(org.orgProjectOf({ id: "sa42", label: "check the deployment [project:minecraft] and report" }, REG, null), "minecraft");
+    assert.equal(org.orgProjectOf({ id: "sa43", label: "sync notes [project:blog]" }, REG, null), "blog");
+    assert.equal(org.orgProjectOf({ id: "sa44", label: "work on [project:unknown-thing] today" }, REG, null), null); // unknown tag ignored
+  });
+  test("static snapshot rows still resolve as the last resort (era-normalized ids)", () => {
+    assert.equal(org.orgProjectOf({ id: "sa13-a#2", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }, REG, null), "PiAgents.harness");
+    assert.equal(org.orgProjectOf({ id: "sa80", label: "Draft a blog post about the Pi-agent architecture; MC RSI is background" }, REG, null), "blog");
+  });
+});
+
 describe("new-era dir naming (dd08db5 suffix) in ancestry parsing", () => {
   test("trailing -[0-9a-z]{4} tokens strip for lineage: sa9-b-sa1-k3f9 -> parent sa9-b-k3f9", () => {
     const ids = new Set(["sa9-b-k3f9", "sa9-k3f9", "sa1-k3f9"]);

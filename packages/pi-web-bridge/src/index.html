@@ -1192,7 +1192,7 @@
   // row (SNAPSHOT 2026-11-11, instructions/CREW-MANIFEST-2026-11-11.md).
   const ORG_PSEUDO_PROJECTS = {
     "PiAgents-org": { displayName: "PiAgents org system", aliases: ["agent-org", "roster", "project space", "project-space", "role card", "knowledge base", "docs-site"] },
-    "PiAgents.bridge": { displayName: "PiAgents web bridge", aliases: ["pi-web", "org graph", "org-graph", "mission control", "mission-control", "projects panel", "#/org"] },
+    "PiAgents.bridge": { displayName: "PiAgents web bridge", aliases: ["pi-web", "org graph", "org-graph", "mission control", "mission-control", "projects panel", "#/org", "bridge-org", "bridge"] },
     "PiAgents.harness": { displayName: "PiAgents harness", aliases: ["pi-superagent", "depth cap", "recursive-spawn", "ponytail"] },
     // rendering-level bucket for genuinely personal work that fits no
     // registered project; muted capsule, tooltip "unregistered personal
@@ -1272,18 +1272,53 @@
   }
   // "role-tech-lead.minecraft" -> "tech-lead" (display form for activity lines).
   function orgRoleShort(w) { return String(w ?? "").replace(/^role-/, "").split(".")[0] || null; }
+  // (a2) session-name convention: "<topic>-x<N>" ids/dirs ("medical-upstream-x1",
+  // "rsi-live-c12-mon-2", "bridge-org-x1") — the topic prefix is matched against
+  // the known project vocabulary (registry aliases + the extra/domain vocabulary
+  // + internal buckets); the LONGEST matching prefix wins. Aliases shorter than
+  // 3 chars are too weak as bare prefixes ("mc", "ir") and never match. No
+  // vocabulary hit -> null (never guess on weak evidence).
+  function orgSessionTopicProject(name, registry) {
+    const s = String(name ?? "").trim();
+    // the counter tail is "-x<N>" or "-<N>" ("rsi-live-c12-mon-2" ends "-2")
+    const m = /^(.+?)-(?:x)?\d+$/.exec(s);
+    if (!m) return null;
+    const topic = m[1].toLowerCase();
+    if (topic.length < 3) return null;
+    const vocab = [];
+    for (const p of Array.isArray(registry) ? registry : []) {
+      for (const a of (Array.isArray(p?.aliases) ? p.aliases : [])) vocab.push([String(a).toLowerCase(), String(p.id)]);
+      for (const a of ORG_PROJECT_EXTRA_ALIASES[p?.id] ?? []) vocab.push([String(a).toLowerCase(), String(p.id)]);
+    }
+    for (const [pid, p] of Object.entries(ORG_PSEUDO_PROJECTS)) {
+      for (const a of p.aliases) vocab.push([a.toLowerCase(), pid]);
+      for (const a of ORG_PROJECT_EXTRA_ALIASES[pid] ?? []) vocab.push([a.toLowerCase(), pid]);
+    }
+    let best = null;
+    for (const [alias, pid] of vocab) {
+      if (alias.length < 3 || !topic.startsWith(alias)) continue;
+      if (!best || alias.length > best[0].length) best = [alias, pid];
+    }
+    return best ? best[1] : null;
+  }
   function orgProjectOf(s, registry, sessionById) {
+    const rawId = String(s?.id ?? "");
+    // era + new-era-suffix normalization for id-gated evidence: "sa13-a#2" and
+    // "sa13-a-k3f9" both resolve to the manifest's dir id "sa13-a"
+    const baseId = orgDirBase(rawId.replace(/#\d+$/, ""));
+    // (c1) explicit spawn-arg project — per-dispatch truth, resolved through the
+    // nested-project tree to its root project
     const explicit = typeof s?.project === "string" && s.project.trim() ? s.project.trim() : null;
     if (explicit) {
-      // an explicit name may be a SUBPROJECT id — attribute to its root project
       for (const p of Array.isArray(registry) ? registry : []) {
         const walk = (list) => (Array.isArray(list) ? list : []).some((sp) => sp?.id === explicit || walk(sp?.childProjects));
         if (walk(p?.childProjects)) return String(p.id);
       }
       return explicit;
     }
+    // (a) session-name conventions
     const sess = (typeof s?.session === "string" && s.session.trim() ? s.session.trim() : null)
-      ?? (typeof sessionById?.get === "function" ? sessionById.get(String(s?.id)) ?? null : null);
+      ?? (typeof sessionById?.get === "function" ? sessionById.get(baseId) ?? sessionById.get(rawId) ?? null : null);
     if (sess && sess.includes("@")) {
       const right = sess.split("@")[1] ?? "";
       const regIds = new Set((Array.isArray(registry) ? registry : []).map((p) => p.id));
@@ -1291,12 +1326,23 @@
         if (cand && (regIds.has(cand) || ORG_PSEUDO_PROJECTS[cand])) return cand;
       }
     }
-    const id = String(s?.id ?? "");
-    for (const e of ORG_CREW_DISPATCH_PROJECTS) {
-      if (e.ids.includes(id) && new RegExp(e.tok, "i").test(String(s?.label ?? ""))) return e.project;
-    }
+    // (a2) "<topic>-x<N>" session ids AND session-named new-era dirs
+    const topic = orgSessionTopicProject(sess ?? "", registry) ?? orgSessionTopicProject(rawId, registry);
+    if (topic) return topic;
     const label = orgNormText(s?.label);
     if (label) {
+      // (b) task-text markers: an explicit [project:<name>] tag is strong
+      // evidence — resolved against registry ids/aliases + internal buckets;
+      // an unknown tag is ignored (never guessed)
+      const tag = /\[project:([^\]]+)\]/i.exec(String(s?.label ?? ""));
+      if (tag) {
+        const name = tag[1].trim().toLowerCase();
+        for (const p of Array.isArray(registry) ? registry : []) {
+          if (String(p.id).toLowerCase() === name) return String(p.id);
+          if ((Array.isArray(p?.aliases) ? p.aliases : []).some((a) => String(a).toLowerCase() === name)) return String(p.id);
+        }
+        for (const pid of Object.keys(ORG_PSEUDO_PROJECTS)) if (pid.toLowerCase() === name) return pid;
+      }
       // PSEUDO FIRST: a work-type signal (org-graph, pi-superagent, ...) beats
       // incidental registry-name mentions — a mockup brief that EMBEDS a data
       // snapshot listing "minecraft, medical, ..." is still bridge work.
@@ -1306,11 +1352,12 @@
         if (al.some((a) => orgTextMatches(label, a))) pseudoHits.push(pid);
       }
       if (pseudoHits.length === 1) return pseudoHits[0];
-      if (pseudoHits.length > 1) return null;
+      // pseudoHits > 1: ambiguous — fall through to the snapshot, which is
+      // token-gated and may still resolve confidently
       // collect EVERY registry project the label names; a dispatch that
       // mentions two or more (e.g. a cross-project 组会汇报 citing
       // "MC 和医疗平台") is not attributable to one — honest unattributed
-      // beats a guess
+      // beats a guess, UNLESS a primary-deliverable snapshot row resolves it
       const hits = new Set();
       for (const p of Array.isArray(registry) ? registry : []) {
         const aliased = (Array.isArray(p?.aliases) ? p.aliases : []).some((a) => orgTextMatches(label, a))
@@ -1318,10 +1365,17 @@
         if ((p?.root && label.includes(String(p.root).toLowerCase())) || aliased) hits.add(String(p.id));
       }
       if (hits.size === 1) return [...hits][0];
-      if (hits.size > 1) return null;
-      return null; // pseudo ambiguous or nothing matched -> explicit unattributed bucket
+      // hits.size > 1 or 0: fall through to the token-gated snapshot
     }
-    return null; // truly unknown -> explicit unattributed bucket
+    // (c2) static snapshot last resort: manifest rows keyed by dir id + task
+    // token (ids are REUSED across eras, so the label must still carry the
+    // task's tokens; era/dir suffixes normalized above). This also carries the
+    // PRIMARY-DELIVERABLE rows (blog drafts / weekly-report docx / personal
+    // ops), which supersede an ambiguous label stage by design.
+    for (const e of ORG_CREW_DISPATCH_PROJECTS) {
+      if (e.ids.includes(baseId) && new RegExp(e.tok, "i").test(String(s?.label ?? ""))) return e.project;
+    }
+    return null; // truly unknown -> explicit unattributed bucket (expected small)
   }
   function orgAttribution(s, registry, sessionById) {
     return orgProjectOf(s, registry, sessionById);
