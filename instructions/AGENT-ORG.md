@@ -103,7 +103,7 @@ skills, standards, and the tool allowlist — never dispatch rights: any node ma
 children (budget-bounded) and carry any profile (a coder node spawns scout children for
 repo facts; a reviewer node, focused reviewers). "Typical children" = the usual spawn set;
 deviation is a judgment. No separate "worker" row: a spawned agent is the same node type —
-profile sets skills, its brief sets boundaries (§5.2); the normative structure is the project graph (`GRAPH-SCHEMA.md`) — prose sections are explanatory views.
+profile sets skills, its brief sets boundaries (§5.2); profiles are held by numbered individuals with personal memory (`ROSTER.md`); the normative structure is the project graph (`GRAPH-SCHEMA.md`) — prose sections are explanatory views.
 
 Escalation is uniform: a `blocked` report with one concrete question to the parent; never
 self-authorize, never retry unknown outcomes. "BoN" = best-of-N (a fanout of N counts N
