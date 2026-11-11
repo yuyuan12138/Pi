@@ -1,27 +1,27 @@
 # AGENT ORG — One Agent Type, Dynamic Decomposition
 
-> Proposal v1.2 · 2026-11-11 · implements the user directives of 2026-11-11. v1.2
-> corrects v1.0/v1.1's fixed pyramid: **layers are NOT predefined**. There is one
-> agent type; every agent at every node applies the same first-principles rule (§2):
-> restate the goal, then decompose-or-execute. Below the coordinator the org is a
-> **dynamic recursion tree** — depth decided per node, unbounded, bounded only by
-> `PI_SPAWN_BUDGET`; the nine roles are **expertise profiles** attachable at any node
+> Proposal v1.3 · 2026-11-11 · implements the user directives of 2026-11-11. v1.2
+> corrected v1.0/v1.1's fixed pyramid (**layers are NOT predefined**); v1.3 grows the
+> roster to **thirteen expertise profiles** (adds tester, security, analyst, tech-lead —
+> Google-engineering-org inspired) and adds within-profile axes (§4). One agent type;
+> every node applies the same first-principles rule (§2): restate the goal, then
+> decompose-or-execute. Below the coordinator the org is a **dynamic recursion tree** —
+> depth decided per node, bounded only by `PI_SPAWN_BUDGET`; profiles attach at any node
 > (§4). Mechanisms kept: UP-CHECK rework loop (§3), node conventions (§5), three-tier
-> memory (§6), anti-patterns (§7). Proposal only — no other file changed. On
-> acceptance it supersedes the "children must not delegate" line in
-> `DELEGATION-ROUTING.md`; §5.2 joins all nine role cards.
+> memory (§6), anti-patterns (§7). Proposal only — no other file changed. On acceptance
+> it supersedes the "children must not delegate" line in `DELEGATION-ROUTING.md`; §5.2
+> joins all thirteen role cards.
 
 ## 1. Org chart — a recursion tree, not a pyramid
 
 Two entry pipelines are unchanged: the **subagent pipeline** (direct, in the
 coordinator's own project) and the **project pipeline** (coordinator →
 `pi-project-coordinator` → project primary; deliverables land in the project space per
-`PROJECT-SPACE-STANDARD.md`). What changed: below the entry coordinator there are no
-fixed layers. The tree is grown per requirement by nodes applying the §2 test — the
-diagram below is ONE requirement's shape, not the org chart. Only two things are
-fixed: the user on top (requirements, final acceptance) and the coordinator entry
-point (restatement, budgets, filesystem acceptance). Solid = dispatch / UP-CHECK
-report; dashed = rework (pushback down, diagnosis-bearing resubmission up).
+`PROJECT-SPACE-STANDARD.md`). Below the entry coordinator there are no fixed layers:
+the tree is grown per requirement by nodes applying the §2 test — the diagram below is
+ONE requirement's shape, not the org chart. Only two things are fixed: the user on top
+(requirements, final acceptance) and the coordinator entry point (restatement, budgets,
+filesystem acceptance). Solid = dispatch / UP-CHECK report; dashed = rework.
 
 ```mermaid
 flowchart TB
@@ -46,6 +46,9 @@ flowchart TB
     L2 -. "rework: diagnosis attached" .-> B
 
     L2 -.-> PS["PROJECT SPACE<br/>code commits · docs/ · work/ records"]
+
+    R0["13 expertise profiles · attachable at any node (§4)<br/>Intelligence: researcher · planner · analyst<br/>Build/run: coder · operator · tester · tech-lead<br/>Assurance: reviewer · security<br/>Comms/support: writer · designer · visualizer · scout"]
+    C -. "every node wears one profile" .-> R0
 ```
 
 Depth is decided per node by the decomposition test (§2), never by position: another
@@ -110,7 +113,7 @@ coordinator (filesystem-verified), then user (final).
 
 ## 4. Expertise profiles — attachable at any node
 
-The nine roles are **expertise profiles, not layers or positions**. A profile changes
+The thirteen roles are **expertise profiles, not layers or positions**. A profile changes
 skills, standards, and the tool allowlist — never dispatch rights: any node may spawn
 children (budget-bounded) and any node may carry any profile. A coder node spawns
 scout children for repo facts; a reviewer node spawns focused reviewers per concern.
@@ -129,9 +132,13 @@ coordinator entry point.
 | scout | none typical (reads itself) | parent | gaps found | proposal-only (facts) | 0 |
 | researcher | ≤2 scout (repo-side facts) | parent | claims unverifiable | proposal-only | ≤2 |
 | planner | ≤2 scout (verify load-bearing assumptions) | parent | plan needs a decision | proposal-only (plan ≠ authorization) | ≤2 |
+| analyst | ≤1 scout (locate datasets, metric definitions) | parent | data provenance unverifiable | proposal-only (analysis + verdicts) | ≤1 |
 | coder | coder ×3 BoN (≤5 hard) + 1 scout recon | parent | scope/auth overflow; blocked verification | bounded execution in file scope; *recommends* a candidate | ≤5 |
 | operator | operator per runbook segment | parent | unknown outcomes; runbook vs reality mismatch | runbook execution + **stop authority** on gate failure | ≤3 |
+| tech-lead | workers per §5.2 default (subtree decomposition) | parent | acceptance/scope beyond its subtree | subtree direction; *recommends*, never self-accepts | budget-bounded (brief wins) |
+| tester | ≤2 scout (repo + test-suite facts) | parent | asked to weaken tests | bounded execution in test scope; never weakens tests | ≤2 |
 | reviewer | reviewer focused passes (correctness/security/regression) | parent | blocking finding | proposal-only (graded findings) | ≤3 |
+| security | ≤1 scout (dependency/attack-surface facts) | parent | exploitable finding needs a decision | proposal-only (graded findings) | ≤1 |
 | writer | writer per doc/section | parent | audience/destination ambiguity | bounded execution in doc scope | ≤2 |
 | designer | designer per artifact | parent | ugliness is structural | presentation-only execution | ≤2 |
 | visualizer | visualizer per artifact | parent | data missing/ambiguous | new-artifact-only execution | ≤2 |
@@ -279,9 +286,12 @@ flowchart LR
 
 - **Phase 1 — pilot (coder, operator, reviewer).** Highest dispatch volume (coder),
   clearest chain semantics (operator), and the purest consolidation case (reviewer).
-- **Phase 2 — researcher, planner, writer.** Support and communication roles, after
-  the conventions have survived contact with real dispatches.
-- **Phase 3 — designer, visualizer, then retire tier-shaped defaults.** Update
+- **Phase 2 — researcher, planner, writer, analyst, security.** Support, communication,
+  and proposal-graded analysis profiles, after the conventions have survived contact
+  with real dispatches.
+- **Phase 3 — tester, tech-lead, designer, visualizer, then retire tier-shaped defaults.**
+  Tester rides the coder pilot's proven pattern; tech-lead exercises the full §5.2
+  subtree machinery. Update
   `DELEGATION-ROUTING.md` (ownership = per-node §2 test + budget, not tiers), the
   role cards (§5.2 default-ON dispatch), and the work-record `Dispatched-by` field
   (node session id + depth).
