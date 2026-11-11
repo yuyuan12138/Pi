@@ -513,29 +513,49 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
     assert.equal(sa8a.row, 4);
     assert.ok(String(sa8a.sub).startsWith("d2 · "), `sub=${sa8a.sub}`);
   });
-  test("cross-project children share ONE hop; same-project children attach directly", () => {
+  test("same-role siblings COLLAPSE into one node with a count (writer ·×N spec)", () => {
     const m = org.orgBuildInvocationTree(
-      [sub("sa8", { label: "Run the minecraft rsi episode loop" }),
-       sub("sa8-a", { spawned_by: "sa8", label: "Remove the recursive-spawn depth cap in pi-superagent" }),
-       sub("sa8-b", { spawned_by: "sa8", label: "BoN: also remove the depth cap" }),
-       sub("sa8-c", { spawned_by: "sa8", label: "pi-superagent cap removal, third candidate" }),
-       sub("sa8-x", { spawned_by: "sa8", label: "minecraft rsi continuation work" })],
+      [sub("sa13", { label: "minecraft rsi driver fixes" }),
+       sub("sa13-a", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension", lastActivity: NOW - 6 * 3600e3 }),
+       sub("sa13-b", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension (copy B)", lastActivity: NOW - 5 * 3600e3 }),
+       sub("sa13-c", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap (candidate C)", lastActivity: NOW - 4 * 3600e3 }),
+       sub("sa8-x", { spawned_by: "sa13", label: "minecraft rsi continuation work" })],
       REG, null, NOW,
     );
-    const hop = m.nodes.get("__hop:sa8:PiAgents.harness")!;
-    const kids = (hop.children as Array<{ id: string }>).map((c) => c.id).sort();
-    assert.deepEqual(kids, ["sa8-a", "sa8-b", "sa8-c"]); // fanout shares the hop + parent
-    const sa8x = m.nodes.get("sa8-x")!;
-    assert.equal(sa8x.parent, "sa8"); // same-project child attaches DIRECTLY
+    const hop = m.nodes.get("__hop:sa13:PiAgents.harness")!;
+    const kids = hop.children as Array<{ id: string; kind: string; display?: string; isGroup?: boolean }>;
+    const group = kids.find((c) => c.isGroup)!;
+    assert.ok(group, "same-role siblings collapse into one group node");
+    assert.match(String(group.display), /·×3$/);
+    assert.equal(group.id, "sa13-a"); // group id = first member (stable)
+    // same-project child attaches directly under its parent AGENT node
+    const sa13node = m.nodes.get("sa13")!;
+    const direct = (sa13node.children as Array<{ id: string; kind: string }>).filter((c) => c.kind === "agent").map((c) => c.id);
+    assert.deepEqual(direct, ["sa8-x"]);
   });
-  test("unknown-parent dispatch hangs under its project hop (no invented lineage)", () => {
+  test("member lines carry per-dispatch task text + era date (one interaction away)", () => {
+    const m = org.orgBuildInvocationTree(
+      [sub("sa13", { label: "minecraft rsi driver fixes" }),
+       sub("sa13-a", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }),
+       sub("sa13-b", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap (candidate B)" })],
+      REG, null, NOW,
+    );
+    const group = m.nodes.get("sa13-a")!;
+    assert.equal(group.isGroup, true);
+    const lines = (group.children as Array<{ id: string; display?: string }>).filter((c) => String(c.id).includes("\u0000line"));
+    assert.equal(lines.length, 2, "two expandable member lines");
+    assert.match(lines[0].display!, / · /); // task text (or role) + era date
+  });
+  test("unknown-parent dispatches collapse under their project hop (no invented lineage)", () => {
     const m = org.orgBuildInvocationTree(
       [sub("sa22", { label: "minecraft rsi regen world" }), sub("sa23", { label: "minecraft rsi monitor episode" })],
       REG, null, NOW,
     );
     const hop = m.nodes.get("__hop:__coord__:minecraft")!;
-    const kids = (hop.children as Array<{ id: string }>).map((c) => c.id).sort();
-    assert.deepEqual(kids, ["sa22", "sa23"]); // both roots under one hop
+    const kids = hop.children as Array<{ id: string; kind: string; isGroup?: boolean; memberIds?: string[] }>;
+    const group = kids.find((c) => c.isGroup);
+    assert.ok(group, "both roots are role-collapsed under the hop");
+    assert.deepEqual(group!.memberIds!.sort(), ["sa22", "sa23"]);
   });
   test("view filter keeps the viewed project's dispatches + ancestor chains", () => {
     const m = org.orgBuildInvocationTree(
@@ -549,8 +569,6 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
     assert.ok(mcHop && (mcHop.children as Array<{ id: string }>).length === 1, "minecraft hop keeps only the ancestor chain (sa8)");
   });
   test("nested-project chain renders as a child hop inside its parent hop (tree position = child_of)", () => {
-    // medical's three-tier-screening snapshot routes those labels into a
-    // nested hop INSIDE the medical hop — same project kind, nesting by position
     const reg = [{ id: "medical", displayName: "Medical platform", aliases: ["medical", "医疗"], root: "", childProjects: [] }];
     const m = org.orgBuildInvocationTree(
       [sub("sa4", { label: "任务：按甲方规范改医疗管理系统的三层筛查判别逻辑" }),
@@ -564,10 +582,11 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
     assert.equal(childHops.length, 1, "one nested hop for the three-tier-screening path");
     assert.ok(childHops[0].id.startsWith("__hop:__coord__:medical/"), `nested hop id: ${childHops[0].id}`);
     assert.equal(childHops[0].id.includes("three-tier-screening"), true);
-    const nestedKids = (m.nodes.get(childHops[0].id)!).children as Array<{ id: string }>;
-    assert.deepEqual(nestedKids.map((k) => k.id).sort(), ["sa4", "sa6"]);
-    const direct = (medHop.children as Array<{ id: string; kind: string }>).filter((c) => c.kind === "agent").map((c) => c.id);
-    assert.deepEqual(direct, ["sa8"]); // path-less dispatch stays a direct agent
+    const nestedKids = (m.nodes.get(childHops[0].id)!).children as Array<{ id: string; isGroup?: boolean; memberIds?: string[] }>;
+    const grp = nestedKids.find((c) => c.isGroup);
+    assert.ok(grp && grp.memberIds!.sort().join(",") === "sa4,sa6", "three-tier dispatches inside the nested hop");
+    const direct = (m.nodes.get("sa8")!).children as Array<{ id: string }>;
+    assert.deepEqual(direct.map((c) => c.id), []); // sa8 has no same-project spawned children here
   });
   test("layout: arbitrary depth wraps and bounds; edges are invocations", () => {
     const m = org.orgBuildInvocationTree(
@@ -588,13 +607,29 @@ describe("invocation tree (project/agent alternate by real spawn lineage)", () =
   });
 });
 
+describe("new-era dir naming (dd08db5 suffix) in ancestry parsing", () => {
+  test("trailing -[0-9a-z]{4} tokens strip for lineage: sa9-b-sa1-k3f9 -> parent sa9-b-k3f9", () => {
+    const ids = new Set(["sa9-b-k3f9", "sa9-k3f9", "sa1-k3f9"]);
+    assert.deepEqual(org.orgDeriveParent("sa9-b-sa1-k3f9", ids), { parent: "sa9-b-k3f9", known: true });
+    assert.deepEqual(org.orgDeriveParent("sa1-a-k3f9", ids), { parent: "sa1-k3f9", known: true });
+    // no parent dir in the scan -> honest hint, not a fabricated link
+    assert.deepEqual(org.orgDeriveParent("sa5-c-k3f9", ids), { parent: "sa5", known: false }); // fanout cut after the suffix strip
+  });
+  test("old fanout names parse exactly as before (suffix rule is a no-op)", () => {
+    assert.deepEqual(org.orgDeriveParent("sa13-a", new Set(["sa13"])), { parent: "sa13", known: true });
+    assert.deepEqual(org.orgDeriveParent("sa9-x", new Set(["sa2"])), { parent: "sa9", known: false });
+    // a root with a suffix: base has no dash -> no parent
+    assert.deepEqual(org.orgDeriveParent("sa27-k3f9", new Set(["sa27-k3f9"])), { parent: null, known: false });
+  });
+});
+
 describe("era split + duplicate merge (reused dirs, re-dispatched work)", () => {
   const T0 = NOW - 72 * 3600e3;
   const REG = [
     { id: "minecraft", displayName: "Minecraft", aliases: ["minecraft", "mc"], root: "", childProjects: [] },
     { id: "PiAgents-org", displayName: "Org system", aliases: [], root: "", childProjects: [] },
   ];
-  test("same-id eras split into separate nodes with their own labels/roles", () => {
+  test("same-id eras split into role-labeled nodes; the sa id stays off the face", () => {
     const m = org.orgBuildInvocationTree(
       [sub("sa27", {
         eras: [
@@ -607,11 +642,13 @@ describe("era split + duplicate merge (reused dirs, re-dispatched work)", () => 
     const e1 = m.nodes.get("sa27#1")!;
     const e2 = m.nodes.get("sa27#2")!;
     assert.ok(e1 && e2, "two era nodes");
-    assert.match(String(e1.display), /sa27 · era 1\/2/);
-    assert.match(String(e2.display), /sa27 · era 2\/2/);
+    // ROLE-FIRST labels (simplified ruling): era1 = operator, era2 has no role
+    // evidence and no session -> the neutral kind word; the sa id is NOT on
+    // the face (it lives in the tooltip via the node id)
+    assert.equal(e1.display, "operator");
+    assert.equal(e2.display, "dispatch");
     assert.equal(e1.status, "done"); // past eras are done by construction
     assert.equal(e2.status, "running");
-    // per-era attribution from the ERA's own label: ponytail -> harness, bridge page -> bridge
     assert.equal(e1.projectKey, "PiAgents.harness");
     assert.equal(e2.projectKey, "PiAgents.bridge");
   });
@@ -632,20 +669,32 @@ describe("era split + duplicate merge (reused dirs, re-dispatched work)", () => 
     assert.equal(saP1.parent, "__hop:__coord__:minecraft"); // which hangs under the minecraft hop
     assert.ok(!m.nodes.has("saC#2"), "single-era child stays one node");
   });
-  test("true re-dispatches merge into one node with a count; eras never merge across eras", () => {
+  test("same-role re-dispatches collapse into one counted node; era dates live in member lines", () => {
     const m = org.orgBuildInvocationTree(
       [sub("sa13", { label: "minecraft rsi driver fixes" }),
-       sub("sa13-a", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension" }),
-       sub("sa13-b", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension (copy B)" }),
-       sub("sa13-c", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap (candidate C)" })],
+       sub("sa13-a", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension", lastActivity: NOW - 6 * 3600e3 }),
+       sub("sa13-b", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap in the pi-superagent extension (copy B)", lastActivity: NOW - 5 * 3600e3 }),
+       sub("sa13-c", { spawned_by: "sa13", label: "Remove the recursive-spawn depth cap (candidate C)", lastActivity: NOW - 4 * 3600e3 })],
       REG, null, NOW,
     );
     const merged = m.nodes.get("sa13-a")!;
-    assert.match(String(merged.display), /·×3$/);
+    assert.equal(merged.isGroup, true);
+    assert.match(String(merged.display), /^coder ·×3$/);
     assert.ok(!m.nodes.has("sa13-b") && !m.nodes.has("sa13-c"), "duplicates folded into one node");
-    assert.ok(String(merged.label).length > 50, "keeps the most informative label");
+    const lines = (merged.children as Array<{ id: string; display?: string }>).filter((c) => String(c.id).includes("\u0000line"));
+    assert.equal(lines.length, 3, "three expandable member lines");
+    for (const l of lines) {
+      assert.match(l.display!, / · /); // task text (or role) + era date
+      assert.doesNotMatch(l.display!, /1970/); // no-timestamp evidence renders "undated", never epoch 0
+    }
   });
-  test("unrelated eras with different labels never merge", () => {
+  test("no-task node: session id falls back, then the kind word — never the numeric id", () => {
+    const m = org.orgBuildInvocationTree([sub("sa99", { label: null })], REG, null, NOW);
+    assert.equal(m.nodes.get("sa99")!.display, "dispatch");
+    const m2 = org.orgBuildInvocationTree([sub("sa98", { label: "任务：读这套环境配置写迁移文档", session: "arch-zh-x1" })], REG, null, NOW);
+    assert.equal(m2.nodes.get("sa98")!.display, "arch-zh-x1"); // session id fallback (spec rule 4)
+  });
+  test("unrelated eras with different roles stay separate nodes", () => {
     const m = org.orgBuildInvocationTree(
       [sub("sa27", {
         eras: [

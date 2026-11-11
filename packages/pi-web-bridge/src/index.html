@@ -661,6 +661,8 @@
   .onode .odot.running { fill: #3fb950; filter: drop-shadow(0 0 5px rgba(63, 185, 80, .9)); }
   .onode .odot.done { fill: #6e7681; }
   .onode .odot.blocked { fill: #d29922; filter: drop-shadow(0 0 5px rgba(210, 153, 34, .85)); }
+  .onode .obadge-chip { fill: rgba(240, 246, 252, 0.045); stroke: rgba(240, 246, 252, 0.09); stroke-width: 1; }
+  .onode .obadge { font-size: 8px; font-family: var(--mono, monospace); fill: var(--t3, #8b949e); opacity: 0.62; letter-spacing: 0.03em; }
   .onode .oping { fill: none; stroke: #3fb950; stroke-width: 1.4; transform-box: fill-box; transform-origin: center; animation: oping 2.4s cubic-bezier(.2, .6, .3, 1) infinite; }
   .onode .oping.off { display: none; }
   @keyframes oping { 0% { transform: scale(.5); opacity: .9; } 75%, 100% { transform: scale(2.6); opacity: 0; } }
@@ -1127,10 +1129,19 @@
   // resolve to their role-instance parent by the same prefix rule).
   function orgDeriveParent(id, ids) {
     if (id.startsWith("role-") && !id.slice(5).includes("-")) return { parent: null, known: false };
-    const cut = id.lastIndexOf("-");
+    // new-era dirs carry a 4-char base36 uniqueness suffix ("sa1-a-k3f9") —
+    // strip it before cutting the fanout segment; old names never end in a
+    // 4-char [0-9a-z] segment (verified against .pi/subagents 2026-11-11)
+    const base = orgDirBase(String(id ?? ""));
+    const cut = base.lastIndexOf("-");
     if (cut <= 0) return { parent: null, known: false };
-    const parent = id.slice(0, cut);
-    return { parent, known: ids.has(parent) };
+    const candidate = base.slice(0, cut);
+    if (ids.has(candidate)) return { parent: candidate, known: true };
+    // the parent dir itself may be suffixed: match by stripped base name
+    for (const dir of ids) {
+      if (dir !== id && orgDirBase(dir) === candidate) return { parent: dir, known: true };
+    }
+    return { parent: candidate, known: false };
   }
   // Role badge for a node: explicit naming wins ("role-coder" id/session),
   // then one conservative word-boundary keyword match on the task label.
@@ -1461,6 +1472,22 @@
     while (clauses.length && ORG_PREAMBLE_RE.test(clauses[0])) clauses.shift();
     text = clauses.join(" ").trim();
     return text.length >= 8 ? text : null;
+  }
+  // TASK-FIRST label for dispatch nodes (numeric ids are badges, not names):
+  // the task text (era/merged label) glossed to English and preamble-stripped,
+  // falling back to the session id, then the neutral kind word "dispatch".
+  // Null means NO task evidence at all — the caller keeps the numeric id
+  // (no fabrication). Width-aware truncation applies to the final label.
+  function orgTaskIdentity(s) {
+    const raw = String(s?.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim();
+    if (raw) {
+      const en = orgEnPhrase(raw);
+      const stripped = en ? orgActivityText(en) : null;
+      if (stripped && stripped.trim().length >= 8) return orgTruncW(stripped, 16);
+    }
+    const sess = typeof s?.session === "string" && s.session.trim() ? s.session.trim() : null;
+    if (sess) return orgTrunc(sess, 16);
+    return raw ? "dispatch" : null; // task exists but renders no English -> kind word; no task -> null
   }
   // Crew name resolution: (b) snapshot id-set, else (c) dominant label phrase.
   function orgCrewNameOf(members) {
@@ -1926,6 +1953,7 @@
       project: n.project ?? n.projectKey ?? (n.kind === "coordinator" ? "__coordinator" : ORG_UNATTRIBUTED),
       childProject: n.childProject ?? null,
       display: n.display ?? null, sub: n.sub ?? null, registry: n.registry ?? null,
+      idBadge: n.idBadge ?? null,
       role: n.role ?? null, status: n.status ?? null, model: n.model ?? null,
       label: n.label ?? null, usage: n.usage ?? null, lastActivity: n.lastActivity ?? null,
       childIds: n.childIds,
@@ -1955,18 +1983,27 @@
     return null;
   }
   const ORG_ERA_GAP_MS = 6 * 3600e3; // mirrors state.ts extractEras
+  // NEW-ERA dir naming (pi-superagent dd08db5): session-verbatim or suffixed
+  // dirs ("sa27-k3f9", "sa9-b-sa1-k3f9"). The trailing 4-char base36 token is
+  // a uniqueness suffix, not lineage — strip it when parsing dir names for
+  // ancestry/depth. Verified 2026-11-11 against .pi/subagents (104 dirs): NO
+  // pre-existing name ends in a 4-char [0-9a-z] segment (old fanout suffixes
+  // are "sa<N>"/short tags), so old names are unchanged by this rule.
+  const ORG_DIR_SUFFIX_RE = /-([0-9a-z]{4})$/;
+  function orgDirBase(name) {
+    return String(name ?? "").replace(ORG_DIR_SUFFIX_RE, "");
+  }
   function orgEraExpand(list) {
     // Dirs are REUSED across conversations: /state `eras` (user-message
     // clusters split at >6h gaps, state.ts extractEras) turn one dir into one
-    // dispatch node PER TASK ERA — "sa27 · era 1/2" — each with its own
-    // label/role/attribution. The dir's live status belongs to the last era;
-    // earlier eras are done by construction.
+    // dispatch PER TASK ERA, each with its own label/role/attribution. The
+    // dir's live status belongs to the last era; earlier eras are done.
     const out = [];
     for (const s of list) {
       const eras = Array.isArray(s.eras) ? s.eras : [];
       const dirId = String(s.id);
       if (eras.length <= 1) {
-        out.push({ ...s, id: dirId, dirId, eraIndex: 0, eraCount: 1, firstActivity: s.lastActivity ?? 0 });
+        out.push({ ...s, id: dirId, dirId, eraIndex: 1, eraCount: 1, firstActivity: s.lastActivity ?? 0 });
         continue;
       }
       eras.forEach((e, i) => {
@@ -1985,34 +2022,13 @@
     }
     return out;
   }
-  // Duplicate signature: same persistent session id, else the label's first
-  // three meaningful tokens. Null signature never merges (no evidence).
-  function orgDupSignature(s) {
-    const sess = typeof s.session === "string" && s.session.trim() ? s.session.trim() : null;
-    if (sess) return "sess:" + sess;
-    const toks = orgCrewTokens(s.label).slice(0, 3);
-    return toks.length ? "tok:" + toks.join("|") : null;
-  }
-  // TRUE re-dispatches among siblings merge into one node: same signature AND
-  // spawns within ±6h of the cluster's start. Returns member arrays.
-  function orgMergeSiblings(entries) {
-    const byTime = entries.slice().sort((a, b) => (a.firstActivity ?? a.lastActivity ?? 0) - (b.firstActivity ?? b.lastActivity ?? 0));
-    const clusters = [];
-    for (const e of byTime) {
-      const sig = orgDupSignature(e);
-      const at = e.firstActivity ?? e.lastActivity ?? 0;
-      const last = clusters[clusters.length - 1];
-      if (sig && last && last.sig === sig && at - last.firstAt <= ORG_ERA_GAP_MS) last.members.push(e);
-      else clusters.push({ sig, firstAt: at, members: [e] });
-    }
-    return clusters.map((c) => c.members);
-  }
   function orgBuildInvocationTree(subs, registry, view, nowMs, sessionById) {
     const dirList = (Array.isArray(subs) ? subs : []).filter((s) => s && typeof s.id === "string");
     const reg = (Array.isArray(registry) ? registry : []).filter((p) => p && typeof p.id === "string");
     const regById = new Map(reg.map((p) => [p.id, p]));
     const dirIds = new Set(dirList.map((s) => String(s.id)));
-    // dir-level lineage (spawned_by, then fanout/label derivation), cycle-guarded
+    // dir-level lineage (spawned_by, then fanout/label derivation on the
+    // suffix-stripped name), cycle-guarded
     const dirParentOf = new Map();
     const dirHintOf = new Map();
     for (const s of dirList) {
@@ -2034,7 +2050,7 @@
         p = dirParentOf.get(p);
       }
     }
-    // era expansion: one dispatch node per task era
+    // era expansion: one dispatch per task era
     const expanded = orgEraExpand(dirList);
     const eraByDir = new Map();
     for (const e of expanded) {
@@ -2043,9 +2059,12 @@
     }
     const projectOf = new Map();
     const pathOf = new Map();
+    const roleOf = new Map();
     const spTrees = new Map();
     for (const s of expanded) {
-      projectOf.set(s.id, orgProjectOf(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
+      const id = String(s.id);
+      projectOf.set(id, orgProjectOf(s, reg, sessionById) ?? ORG_UNATTRIBUTED);
+      roleOf.set(id, orgNodeRole(id, s.label, s.session, sessionById));
     }
     for (const s of expanded) {
       const p = projectOf.get(s.id);
@@ -2079,49 +2098,91 @@
     }
     const nodes = new Map();
     const rootIds = [];
-    const mkDispatch = (s, parentKey, agentDepth, row, mergeCount) => {
-      const role = orgNodeRole(s.id, s.label, s.session, sessionById);
-      const dirId = s.dirId ?? String(s.id);
-      const base = s.eraCount > 1 ? `${dirId} \u00b7 era ${s.eraIndex}/${s.eraCount}` : orgTrunc(dirId, 16);
+    // LABEL RULING (simplified): the primary label is the ROLE name — it says
+    // what the node does; the numeric sa id is REMOVED from the node face
+    // (tooltip only). Same-role siblings under the same project COLLAPSE into
+    // one node with a ×N counter; expanding it shows per-dispatch task lines
+    // (each with its era date). No role evidence -> the session id; last
+    // resort the neutral kind word "dispatch".
+    const dispatchLabel = (s) => {
+      const role = roleOf.get(String(s.id)) ?? null;
+      if (role) return role;
+      const sess = typeof s.session === "string" && s.session.trim() ? s.session.trim() : null;
+      return sess ? orgTrunc(sess, 16) : "dispatch";
+    };
+    const memberLine = (s) => {
+      // expanded task line for one dispatch inside a collapsed group: the
+      // era's own task text (English gloss) or the role, + the era date
+      const raw = String(s.label ?? "").split("\n")[0].replace(/^\u4efb\u52a1[\uff1a:]\s*/, "").trim();
+      const en = raw ? orgEnPhrase(raw) : null;
+      const stripped = en ? orgActivityText(en) : null;
+      const task = stripped && stripped.trim().length >= 8 ? orgTruncW(stripped, 14) : (roleOf.get(String(s.id)) ?? "dispatch");
+      const at = (s.firstActivity ?? s.lastActivity) || null; // 0/undefined = no evidence
+      const day = at ? orgHumanDay(at, nowMs) ?? "undated" : "undated";
+      return `${task} \u00b7 ${day}`;
+    };
+    const mkDispatch = (s, parentKey, agentDepth, row) => {
+      const id = String(s.id);
       const node = {
-        id: s.id, kind: "agent", projectKey: projectOf.get(s.id),
-        display: mergeCount > 1 ? `${base} \u00b7\u00d7${mergeCount}` : base,
-        sub: `d${agentDepth} \u00b7 ${role || "dispatch"}`,
-        role, depth: agentDepth, row,
+        id, kind: "agent", projectKey: projectOf.get(id),
+        display: dispatchLabel(s),
+        sub: `d${agentDepth} \u00b7 ${roleOf.get(id) || "dispatch"}`,
+        role: roleOf.get(id) ?? null, depth: agentDepth, row,
         status: s.status ?? "running", model: s.model ?? null, label: s.label ?? null,
         session: s.session ?? null, usage: s.usage ?? null, lastActivity: s.lastActivity ?? null,
         spawnedBy: s.spawned_by ?? null, parentHint: dirHintOf.get(s.dirId) ?? null,
-        parent: parentKey, hostId: null, children: [],
+        parent: parentKey, hostId: null, children: [], eraIndex: s.eraIndex, eraCount: s.eraCount, dirId: s.dirId,
       };
-      nodes.set(node.id, node);
+      nodes.set(id, node);
       return node;
     };
-    const mkMerged = (members, parentKey, agentDepth, row) => {
+    // same-role siblings collapse into ONE node ("writer ·×2"); expanding it
+    // reveals the per-dispatch task lines (each with its era date)
+    const mkGroup = (members, parentKey, agentDepth, row) => {
       const first = members[0];
-      const roles = members.map((m) => orgNodeRole(m.id, m.label, m.session, sessionById));
-      const role = roles.every((r) => r === roles[0]) ? roles[0] : null;
-      const bestLabel = members.map((m) => String(m.label ?? "")).reduce((a, b) => (b.length > a.length ? b : a), "");
+      const role = roleOf.get(String(first.id)) ?? null;
+      const name = role ?? (typeof first.session === "string" && first.session.trim() ? orgTrunc(first.session.trim(), 16) : "dispatch");
       const node = {
-        id: first.id, kind: "agent", projectKey: projectOf.get(first.id),
-        display: `${first.eraCount > 1 ? `${first.dirId} \u00b7 era ${first.eraIndex}/${first.eraCount}` : orgTrunc(first.dirId, 16)} \u00b7\u00d7${members.length}`,
+        id: String(first.id), kind: "agent", projectKey: projectOf.get(String(first.id)),
+        display: members.length > 1 ? `${name} \u00b7\u00d7${members.length}` : name,
+        isGroup: members.length > 1,
         sub: `d${agentDepth} \u00b7 ${role || "dispatch"}`,
         role, depth: agentDepth, row,
         status: members.some((m) => m.status === "running") ? "running" : members.some((m) => m.status === "blocked") ? "blocked" : "done",
-        model: first.model ?? null, label: bestLabel,
+        model: first.model ?? null, label: first.label ?? null,
         session: first.session ?? null, usage: first.usage ?? null,
         lastActivity: Math.max(...members.map((m) => m.lastActivity ?? 0)),
         spawnedBy: first.spawned_by ?? null, parentHint: dirHintOf.get(first.dirId) ?? null,
         parent: parentKey, hostId: null, children: [],
-        memberIds: members.map((m) => m.id),
+        memberIds: members.map((m) => String(m.id)), memberDirs: [...new Set(members.map((m) => m.dirId))],
+        eraIndex: first.eraIndex, eraCount: first.eraCount, dirId: first.dirId,
       };
       nodes.set(node.id, node);
       return node;
     };
+    // expanded member lines under a collapsed group: task text + era date each
+    const memberLines = (members, parentKey, row) => {
+      const sorted = members.slice().sort((a, b) => (a.firstActivity ?? 0) - (b.firstActivity ?? 0));
+      for (const m of sorted) {
+        const line = {
+          id: `${m.id}\u0000line`, kind: "agent", projectKey: projectOf.get(String(m.id)),
+          display: memberLine(m),
+          sub: roleOf.get(String(m.id)) || "dispatch",
+          role: roleOf.get(String(m.id)) ?? null, depth: null, row,
+          status: m.status ?? "done", model: m.model ?? null, label: m.label ?? null,
+          session: m.session ?? null, usage: null, lastActivity: m.lastActivity ?? null,
+          spawnedBy: m.spawned_by ?? null, parentHint: null,
+          parent: parentKey, hostId: parentKey, children: [], isMemberLine: true,
+          eraIndex: m.eraIndex, eraCount: m.eraCount, dirId: m.dirId,
+        };
+        nodes.set(line.id, line);
+        parentKey.children.push(line);
+      }
+    };
+    const statusOf = (dispatches) => dispatches.some((d) => d.status === "running") ? "running"
+      : dispatches.some((d) => d.status === "blocked") ? "blocked" : "done";
     // nested hops: display name from the child_of path, data under the root project
     const mkHop = (parentKey, project, dispatches, row, path) => {
-      // path = the child_of chain INSIDE the parent hop (nested project); a
-      // nested hop nests under its parent hop by tree position (ruling: same
-      // project kind at any depth)
       const hopId = path && path.length ? `${parentKey}/${path.join(".")}` : `__hop:${parentKey}:${project}`;
       const entry = regById.get(project) ?? null;
       let activity = null;
@@ -2129,14 +2190,23 @@
       if (wh && wh.title) {
         const short = orgRoleShort(wh.worker);
         const title = orgEnPhrase(String(wh.title).replace(/^work record\s*[\u2014-]\s*/i, "")) ?? String(wh.dir ?? "");
-        activity = orgTruncW((short ? short + " \u00b7 " : "") + title, 21); // truncate the COMBINED line
+        activity = orgTruncW((short ? short + " \u00b7 " : "") + title, 21);
       }
       if (!activity) activity = orgActivityFromDispatches(dispatches);
       if (!activity && entry?.lastActivity) {
         const day = orgHumanDay(Date.parse(entry.lastActivity), nowMs);
         activity = `journal ${entry.lastJournalStatus ? entry.lastJournalStatus + " \u00b7 " : ""}${day ?? "earlier"}`.trim();
       }
-      const nestedName = spDisplay(project, path);
+      const nestedName = (() => {
+        if (!path || !path.length) return null;
+        let tree = spTrees.get(project) ?? [];
+        let node = null;
+        for (const seg of path) {
+          node = (node ? node.children : tree).find((sp) => sp.id === seg);
+          if (!node) return null;
+        }
+        return node?.displayName ?? null;
+      })();
       const node = {
         id: hopId, kind: "project", projectKey: project,
         childProject: path && path.length ? path[path.length - 1] : null,
@@ -2150,21 +2220,32 @@
       nodes.set(hopId, node);
       return node;
     };
-    const statusOf = (dispatches) => dispatches.some((d) => d.status === "running") ? "running"
-      : dispatches.some((d) => d.status === "blocked") ? "blocked" : "done";
-    const spDisplay = (project, path) => {
-      if (!path || !path.length) return null;
-      let tree = spTrees.get(project) ?? [];
-      let node = null;
-      for (const seg of path) {
-        node = (node ? node.children : tree).find((sp) => sp.id === seg);
-        if (!node) return null;
+    // collapse same-role siblings (under the same project context) into
+    // role-group nodes; singletons stay plain dispatch nodes
+    const collapseByRole = (dispatches, agentDepth, row, host) => {
+      const byRole = new Map();
+      for (const d of dispatches) {
+        const r = roleOf.get(String(d.id)) ?? null;
+        const gk = r ?? "\u0000none";
+        if (!byRole.has(gk)) byRole.set(gk, []);
+        byRole.get(gk).push(d);
       }
-      return node?.displayName ?? null;
+      for (const [gk, group] of [...byRole.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
+        if (group.length > 1) {
+          const g = mkGroup(group, host.id, agentDepth, row);
+          host.children.push(g);
+          memberLines(group, g, row + 1);
+          buildChildrenInto(g, group, host.projectKey, agentDepth + 1, row + 1);
+        } else {
+          const node = mkDispatch(group[0], host.id, agentDepth, row);
+          host.children.push(node);
+          buildChildrenInto(node, group, host.projectKey, agentDepth + 1, row + 1);
+        }
+      }
     };
-    // fill a project hop: path-less dispatches become direct agents (merged
-    // when they are true re-dispatches); each nested-project path becomes a
-    // child hop (project kind, tree position expresses the child_of nesting)
+    // fill a project hop: path-less dispatches collapse by role; each
+    // nested-project path becomes a child hop (project kind, tree position
+    // expresses the child_of nesting)
     const populateHop = (hop, project, dispatches, agentDepth, row) => {
       const byPath = new Map();
       for (const d of dispatches) {
@@ -2175,19 +2256,11 @@
       }
       for (const [, { path, group }] of [...byPath.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
         if (!path) {
-          for (const members of orgMergeSiblings(group)) {
-            const node = members.length > 1 ? mkMerged(members, hop.id, agentDepth, row) : mkDispatch(members[0], hop.id, agentDepth, row, 1);
-            hop.children.push(node);
-            buildChildrenInto(node, members, project, agentDepth, row + 1);
-          }
+          collapseByRole(group, agentDepth, row, hop);
         } else {
           const childHop = mkHop(hop.id, project, group, row, path);
           hop.children.push(childHop);
-          for (const members of orgMergeSiblings(group)) {
-            const node = members.length > 1 ? mkMerged(members, childHop.id, agentDepth, row + 1) : mkDispatch(members[0], childHop.id, agentDepth, row + 1, 1);
-            childHop.children.push(node);
-            buildChildrenInto(node, members, project, agentDepth, row + 2);
-          }
+          collapseByRole(group, agentDepth, row + 1, childHop);
         }
       }
     };
@@ -2196,28 +2269,24 @@
       const direct = [];
       const byProject = new Map();
       for (const d of entries) {
-        const p = projectOf.get(d.id);
-        const path = pathOf.get(d.id) ?? null;
+        const p = projectOf.get(String(d.id));
+        const path = pathOf.get(String(d.id)) ?? null;
         if (p === parentProject && !path) direct.push(d);
         else {
           if (!byProject.has(p)) byProject.set(p, []);
           byProject.get(p).push(d);
         }
       }
-      for (const members2 of orgMergeSiblings(direct)) {
-        const node = members2.length > 1 ? mkMerged(members2, hostNode.id, agentDepth + 1, row) : mkDispatch(members2[0], hostNode.id, agentDepth + 1, row, 1);
-        hostNode.children.push(node);
-        buildChildrenInto(node, members2, parentProject, agentDepth + 1, row + 1);
-      }
+      collapseByRole(direct, agentDepth, row, hostNode);
       for (const [p, group] of [...byProject.entries()].sort((a, b) => orgNaturalCompare(a[0], b[0]))) {
         const hop = mkHop(hostNode.id, p, group, row, null);
         hostNode.children.push(hop);
-        populateHop(hop, p, group, agentDepth + 1, row + 1);
+        populateHop(hop, p, group, agentDepth, row + 1);
       }
     };
     const coordGroups = new Map();
     for (const d of roots) {
-      const p = projectOf.get(d.id);
+      const p = projectOf.get(String(d.id));
       if (!coordGroups.has(p)) coordGroups.set(p, []);
       coordGroups.get(p).push(d);
     }
@@ -3690,7 +3759,7 @@
       instance:    { av: [23, 29, 12, .7], name: [41, 26], sub: [41, 43], dot: [164, 13], mono: false },
       agent:       { av: [20, 24, 8.5, .52], name: [33, 21], sub: [33, 38], dot: [156, 12], mono: true },
     };
-    const cardNode = (n, kind, hue, sub, status) => {
+    const cardNode = (n, kind, hue, sub, status, badge) => {
       const M = METRICS[kind];
       const g = orgTpl("ocard").cloneNode(true);
       g.setAttribute("data-node", n.id);
@@ -3751,6 +3820,25 @@
         dot.remove();
         g.querySelector(".oping").remove();
       }
+      if (badge) {
+        // numeric-id badge: small, muted, fixed-width chip at the bottom-right
+        const NS = "http://www.w3.org/2000/svg";
+        const chip = document.createElementNS(NS, "rect");
+        chip.setAttribute("class", "obadge-chip");
+        chip.setAttribute("x", String(n.w - 46));
+        chip.setAttribute("y", String(n.h - 16));
+        chip.setAttribute("width", "40");
+        chip.setAttribute("height", "12");
+        chip.setAttribute("rx", "4");
+        g.append(chip);
+        const bt = document.createElementNS(NS, "text");
+        bt.setAttribute("class", "obadge");
+        bt.setAttribute("x", String(n.w - 26));
+        bt.setAttribute("y", String(n.h - 6.5));
+        bt.setAttribute("text-anchor", "middle");
+        bt.textContent = orgTrunc(String(badge), 8);
+        g.append(bt);
+      }
       return g;
     };
     // entry node: the coordinator — violet accent, elevated dark card, green pulse
@@ -3774,7 +3862,7 @@
         nodesG.append(g);
         continue;
       }
-      const g = cardNode(n, "agent", HUES.agent, n.sub, n.status);
+      const g = cardNode(n, "agent", HUES.agent, n.sub, n.status, n.idBadge);
       // tooltip: sanitized task text only — raw labels carry ISO dates and
       // Chinese sections and would leak into rendered SVG title text
       const tipTask = orgActivityText(orgEnPhrase(String(n.label ?? "")) ?? "") ?? "(task text not renderable)";
@@ -3953,6 +4041,7 @@
       row("Key", n.project);
       row("Dispatches", String(n.count));
       row("Status", [n.status, n.session ? `session ${n.session}` : null].filter(Boolean).join(" \u00b7 "));
+      if (n.idBadge && /#\d+$/.test(n.id)) row("Era", `${n.id.split("#")[1]}/${n.eraCount ?? "?"} of dir ${n.idBadge}`);
       row("Activity", n.lastActivity ? relTime(n.lastActivity) : "\u2014");
       row("Members", members || "\u2014");
       const p = document.createElement("div");
