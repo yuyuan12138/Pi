@@ -1184,6 +1184,10 @@
     "PiAgents-org": { displayName: "PiAgents org system", aliases: ["agent-org", "roster", "project space", "project-space", "role card", "knowledge base", "docs-site"] },
     "PiAgents.bridge": { displayName: "PiAgents web bridge", aliases: ["pi-web", "org graph", "org-graph", "mission control", "mission-control", "projects panel", "#/org"] },
     "PiAgents.harness": { displayName: "PiAgents harness", aliases: ["pi-superagent", "depth cap", "recursive-spawn", "ponytail"] },
+    // rendering-level bucket for genuinely personal work that fits no
+    // registered project; muted capsule, tooltip "unregistered personal
+    // operations". Empty buckets never render.
+    "personal-ops": { displayName: "Personal ops", aliases: [], muted: true },
   };
   // Domain vocabulary the registry aliases lack (the labels speak of
   // "wave-33", "RSI", "木剑"...) — same manifest/date basis as above. The
@@ -1227,6 +1231,12 @@
     { ids: ["sa10"], tok: "security-audit-skill|安装 cloudflare", project: "PiAgents.harness" }, // "安装 cloudflare/security-audit-skill 到 Pi，验证能加载"
     { ids: ["sa20"], tok: "固化进它的 skill|写文档.*角色", project: "PiAgents-org" }, // "建一个专门写文档的 subagent 角色，偏好固化进 skill"（role-card wave）
     { ids: ["sa84"], tok: "readme.md", project: "PiAgents-org" }, // "Rewrite /Users/yuyuan/PiAgents/README.md"（same docs wave as sa88）
+    // 2026-11-11 PRIMARY-DELIVERABLE rule (supersedes the >=2-mention
+    // cross-project rule for these): attribute by what the work PRODUCED.
+    { ids: ["sa80", "sa82"], tok: "blog", project: "blog" }, // deliverable = the Pi-agent blog drafts (minecraft is only mentioned content)
+    { ids: ["sa16", "sa19", "sa21"], tok: "组会汇报|飞书 docx", project: "PiAgents-org" }, // deliverable = the weekly-meeting report docx (document-production for the user's org)
+    { ids: ["sa56"], tok: "lol|highlights|集锦", project: "personal-ops" }, // deliverable = a personal LoL highlights video; fits no registered project
+    { ids: ["sa90"], tok: "wechat|wps|账单|ledger|reconcile", project: "personal-ops" }, // deliverable = personal WeChat-bill -> WPS ledger reconcile
   ];
 
   // NAME RULE (b): crews whose members share no session still get a real name
@@ -1239,6 +1249,7 @@
     { ids: ["sa23", "sa24"], name: "rsi episode monitor" }, // both labels: read-only monitoring of the MC RSI episode
     { ids: ["sa16", "sa19", "sa21"], name: "weekly report docx" }, // the weekly-report docx tasks (cross-project content, unattributed on purpose)
     { ids: ["sa40-sa1"], name: "emo bgm fetch" }, // BGM fetch for the 11-07 emo cut (sa40)
+    { ids: ["sa22", "sa78"], name: "minecraft ops" }, // primary deliverables: MC world regen (sa22) + closed-loop RSI engine (sa78)
   ];
   function orgNormText(t) { return String(t ?? "").toLowerCase().replace(/\s+/g, " "); }
   // ASCII aliases match on word boundaries ("mc" must not hit "mockup");
@@ -3460,7 +3471,7 @@
     };
     mk("__all__", "Overview", null, false);
     for (const key of keys) {
-      mk(key, key === ORG_UNATTRIBUTED ? "unattributed" : (orgProjectDisplay(key) ?? key), orgProjectHue(key), false);
+      mk(key, key === ORG_UNATTRIBUTED ? "unattributed" : key === "personal-ops" ? "personal-ops" : (orgProjectDisplay(key) ?? key), orgProjectHue(key), false);
     }
     // registry projects with fresh journal activity but no subagents visible to
     // this bridge: quiet chip whose view explains itself (honest empty state)
@@ -3633,9 +3644,11 @@
         continue;
       }
       if (n.kind !== "agent") {
-        const hue = n.project === ORG_UNATTRIBUTED ? HUES.muted : `hsl(${orgProjectHue(n.project)} 65% 62%)`;
+        const mutedBucket = n.project === ORG_UNATTRIBUTED || n.project === "personal-ops";
+        const hue = mutedBucket ? HUES.muted : `hsl(${orgProjectHue(n.project)} 65% 62%)`;
         const g = cardNode(n, n.kind, hue, n.sub, n.kind === "project" ? n.status : null);
-        g.querySelector("title").textContent = `${n.display ?? n.project}\n${n.kind === "project" ? "project" : "subproject"} \u2014 click to highlight its subtree`;
+        if (n.project === "personal-ops") g.classList.add("dim"); // dimmer variant of a project capsule
+        g.querySelector("title").textContent = `${n.display ?? n.project}${n.project === "personal-ops" ? "\nunregistered personal operations" : ""}\n${n.kind === "project" ? "project" : "subproject"} \u2014 click to highlight its subtree`;
         nodesG.append(g);
         continue;
       }

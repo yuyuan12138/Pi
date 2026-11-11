@@ -14,7 +14,7 @@ const html = readFileSync(join(here, "..", "src", "index.html"), "utf8");
 const match = /\/\* ORG-GRAPH-PURE:BEGIN \*\/([\s\S]*?)\/\* ORG-GRAPH-PURE:END \*\//.exec(html);
 if (!match) throw new Error("ORG-GRAPH-PURE block not found in src/index.html");
 const org = new Function(
-  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgBuildInvocationTree, orgLayoutTree, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
+  `${match[1]}; return { ORG_ROLES, ORG_ROLE_GROUPS, ORG_UNATTRIBUTED, ORG_WORKING_MS, ORG_DIM_MS, ORG_DEFAULT_EXPAND_ROW, ORG_CREW_SESSION_ROLES, ORG_CREW_DISPATCH_ROLES, ORG_CREW_DISPATCH_PROJECTS, ORG_SUBPROJECT_SNAPSHOT, ORG_CREW_NAME_SNAPSHOT, ORG_PSEUDO_PROJECTS, orgSubprojectTree, orgSubprojectPathOf, orgCrewNameOf, orgCrewNameFromLabels, orgFitCrewLabel, orgEnPhrase, orgActivityText, orgBuildInvocationTree, orgLayoutTree, orgRoleGroupOf, orgDeriveParent, orgProjectOf, orgRoleShort, orgTruncW, orgClassifyRole, orgNaturalCompare, orgTrunc, orgNodeRole, orgAttribution, orgGroupByProject, orgProjectHue, orgLabelPrefix, orgDayOf, orgInstanceKeyOf, orgRegistryWorking, orgSubprojectTarget, orgHumanDay, orgRealSession, orgBuildModel, orgLayoutModel, orgLayoutVertical, ORG_LAYOUT, ORG_FIT_FLOOR, ORG_ZOOM_MAX, orgFitScale, orgFocusClosure };`,
 )() as {
   ORG_ROLES: string[];
   ORG_ROLE_GROUPS: Array<{ id: string; name: string; roles: string[] }>;
@@ -38,6 +38,7 @@ const org = new Function(
   orgSubprojectTree: (entry: Record<string, unknown> | null, key: string) => Array<Record<string, unknown>>;
   orgSubprojectPathOf: (s: Record<string, unknown> | null, tree: Array<Record<string, unknown>>) => string[] | null;
   ORG_CREW_NAME_SNAPSHOT: Array<{ ids: string[]; name: string }>;
+  ORG_PSEUDO_PROJECTS: Record<string, { displayName: string; aliases: string[]; muted?: boolean }>;
   orgCrewNameOf: (members: Array<{ sub: { id: unknown; label?: unknown } }> | null) => string | null;
   orgCrewNameFromLabels: (labels: Array<unknown>) => string | null;
   orgFitCrewLabel: (base: unknown, count: number) => string;
@@ -198,14 +199,35 @@ describe("project attribution and grouping", () => {
     // same id, unrelated label -> no attribution (never yesterday's project)
     assert.equal(org.orgProjectOf({ id: "sa14", label: "任务：在飞书里给 bot 发一条测试消息" }, [], null), null);
   });
-  test("a label naming TWO projects is cross-project -> honest unattributed", () => {
+  test("PRIMARY-DELIVERABLE rule supersedes cross-project for documented rows", () => {
     const registry = [
       { id: "medical", displayName: "Medical platform", root: "", aliases: ["medical", "医疗"] },
       { id: "minecraft", displayName: "MC", root: "", aliases: ["minecraft", "mc"] },
+      { id: "blog", displayName: "Blog", root: "", aliases: ["blog"] },
     ];
-    // the feishu meeting-report mentions both MC and 医疗平台 — not medical work
-    assert.equal(org.orgProjectOf({ id: "sa16", label: "任务：在飞书新建一个 docx 文档《组会汇报》，整理 MC 和医疗平台的工作" }, registry, null), null);
+    // the weekly-report docx PRODUCES an org document -> PiAgents-org, even
+    // though its text mentions MC and 医疗平台
+    assert.equal(org.orgProjectOf({ id: "sa16", label: "任务：在飞书新建一个 docx 文档《组会汇报》，整理 MC 和医疗平台的工作" }, registry, null), "PiAgents-org");
+    // blog drafts name minecraft content, but the DELIVERABLE is the post -> blog
+    assert.equal(org.orgProjectOf({ id: "sa80", label: "You are the writer role. Draft a blog post about the user's personal Pi-agent architecture; the MC RSI story is background" }, registry, null), "blog");
+    assert.equal(org.orgProjectOf({ id: "sa82", label: "The user rejected the first draft of the Pi-agent blog post. Rewrite both versions." }, registry, null), "blog");
+    // personal ops: fits no registered project
+    assert.equal(org.orgProjectOf({ id: "sa56", label: "Render the final LoL highlights compilation" }, registry, null), "personal-ops");
+    assert.equal(org.orgProjectOf({ id: "sa90", label: "Reconcile a WeChat bill export into the user's WPS cloud ledger" }, registry, null), "personal-ops");
+    // the cross-project rule still applies where no deliverable row exists
     assert.equal(org.orgProjectOf({ id: "w9", label: "任务：按甲方规范改医疗管理系统的筛查判别逻辑" }, registry, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "wx", label: "任务：整理 MC 和医疗平台的工作纪要" }, registry, null), null); // undocumented two-mention label
+  });
+  test("personal-ops bucket: muted pseudo-project, absent when empty", () => {
+    assert.equal(org.ORG_PSEUDO_PROJECTS["personal-ops"].muted, true);
+    const registry = [{ id: "alpha", displayName: "Alpha Colony", lastActivity: iso(60_000) }];
+    const withPersonal = org.orgBuildModel([sub("sa56", { label: "Render the final LoL highlights compilation" })], "bridge", registry, null, NOW);
+    assert.ok(withPersonal.projKeys.includes("personal-ops"));
+    assert.ok(!withPersonal.projKeys.includes(org.ORG_UNATTRIBUTED), "unattributed bucket dissolved");
+    // a build with NO personal/unattributed dispatches renders neither bucket
+    const clean = org.orgBuildModel([sub("s1", { project: "alpha" })], "bridge", registry, null, NOW);
+    assert.ok(!clean.projKeys.includes("personal-ops"));
+    assert.ok(!clean.projKeys.includes(org.ORG_UNATTRIBUTED));
   });
   test("label evidence: registry root paths and aliases (word-boundary for ASCII)", () => {
     const registry = [
