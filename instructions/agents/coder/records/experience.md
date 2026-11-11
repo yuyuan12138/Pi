@@ -16,3 +16,4 @@ name the source project. Never record project-private data.
 - 3+ concurrent subagents on one shared vLLM starve siblings: events.jsonl freezes mid-reasoning and no files land. Remedy: serial dispatch for heavy creative work; an events.jsonl mtime frozen >2min during a GLM reasoning phase is normal, frozen during bash work is death.
 - A subagent's empty/missing final report is NOT evidence of failure: check events.jsonl tail + on-disk artifacts before re-dispatching (sa10/sa11 "done (no text)" had delivered files; sa8-b had not).
 - Concurrent edits to one file by in-flight workers = merge hazard; steer the in-flight worker (subagent_message) instead of dispatching a second writer.
+- 2026-11-11 distilled: procedural items moved to skills/dispatch-hygiene.md (this ledger keeps the episodic record + evidence).
