@@ -58,8 +58,8 @@ ledgers, so the next engagement inherits them.
 | Layer | Id convention | What it is | Reusability semantics |
 |---|---|---|---|
 | Profile | 13 names (`coder`, `scout`, `reviewer`, …) | job description: role card + `skills/<spec>.md` stubs + dispatch-authority section | defines skills/standards, never authority; invoked on every dispatch |
-| Individual | speciation path `<profile>[.<spec>…]` (seeded: `coder.infra`, `operator.episodes`, `reviewer.correctness`) | a differentiation lineage: spec chain + level + personal memory file (`records/<path>.md`) | persists; deepening = speciating into a niche (parent memory stays intact); created only via the hiring gate |
-| Instance | `role-<ind-path>@<project>[.<sub>…]` | one engagement on one project — a resumable session (`subagent_spawn`, `session` arg) | spawned on demand, idle after reporting, never resident; one active task per id; same role + different projects = separate instances; concurrent same-project = `-2`, `-3` suffixes |
+| Individual | `<profile>-<n>` (seeded: `coder-1`, `operator-1`, `reviewer-1`) | a person: spec mix + level + personal memory file (`records/<id>.md`) | persists; memory compounds; created only via the hiring gate |
+| Instance | `role-<ind>[.<spec>]@<project>[.<sub>…]` | one engagement on one project — a resumable session (`subagent_spawn`, `session` arg) | spawned on demand, idle after reporting, never resident; one active task per id; same role + different projects = separate instances; concurrent same-project = `-2`, `-3` suffixes |
 | Worker | fresh, no session id | one-shot child spawned by any node; never resumed or reused | its value is harvested into the ledger on verified completion (§6) |
 
 The router derives every id mechanically (profile × individual roster × project ×

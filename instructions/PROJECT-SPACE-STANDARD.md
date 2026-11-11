@@ -277,9 +277,8 @@ Rules:
   (updated when the owned instance set changes; parent projects keep theirs in the
   project README, §1) + per-dispatch **provenance** in each RECORD (instance ids,
   brief pointer, outcome); the coordinator journal's projectId attribution is the
-  automatic ephemeral layer (no code work in v1). Crew entries may name
-  individuals (speciation paths with personal memory, `ROSTER.md`), not just
-  generic profiles.
+  automatic ephemeral layer (no code work in v1). Crew entries may name numbered
+  individuals with personal memory (`ROSTER.md`), not just generic profiles.
 - **Archive on completion**: write the closing postmortem/summary in the subproject,
   merge lessons UP into the parent's memory tier (parent ADR or KB daily entry), set
   `Status: done`; the directory stays as history — nothing is deleted.
