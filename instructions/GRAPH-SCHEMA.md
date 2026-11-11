@@ -17,7 +17,7 @@ evidence (charter, records, transcripts):
 |---|---|---|
 | project | id (dotted paths like `minecraft.furnace-campaign.fuel` are plain project ids), root?, charter_path, parent (project \| null), graduation_reason?, status (active \| archived) | `charter_path` → project README (any depth under `subprojects/`) |
 | profile | name, group, specializations[] | `instructions/agents/<name>/` |
-| individual | id (`<profile>-<n>`), profile_ref, specializations[], level, memory_path | `memory_path` → `instructions/agents/<profile>/records/<id>.md` (ROSTER.md) |
+| individual | id (speciation path `<profile>[.<spec>…]`), profile_ref, specializations[], level, memory_path | `memory_path` → `instructions/agents/<profile>/records/<path>.md` (ROSTER.md) |
 | instance | id (`role-<individual>[.<spec>]@<project>[.<sub>…]`), session_ref, status (idle \| running \| retired) | `.pi/subagents/<id>/` |
 | work | id, title, record_path, outcome | `record_path` → `work/.../RECORD.md` |
 
@@ -29,7 +29,7 @@ Edges:
 | crew_of | instance \| individual → project | membership in the innermost containing project (the durable Crew section) |
 | dispatch | instance \| individual → work | this agent executed this task |
 | graduated_from | work → project | the record whose growth triggered graduation |
-| individual_of | individual → profile | this numbered individual holds this profile (ROSTER.md) |
+| individual_of | individual → profile | this individual (speciation path) holds this profile (ROSTER.md) |
 | reports_to | instance → instance | the live UP-CHECK edge (parent of the moment) |
 
 > Containment rule: `child_of` forms a tree rooted at the top-level project —
@@ -52,9 +52,9 @@ Edges:
       "parent": "minecraft.furnace-campaign", "graduation_reason": "own ADRs for fuel-mixing rules",
       "status": "active", "charter_path": "subprojects/furnace-campaign/subprojects/fuel/README.md" },
     { "type": "profile", "id": "coder", "group": "build/run", "specializations": ["engine", "frontend"] },
-    { "type": "individual", "id": "coder-1", "profile_ref": "coder",
+    { "type": "individual", "id": "coder.infra", "profile_ref": "coder",
       "specializations": ["infra"], "level": "senior",
-      "memory_path": "instructions/agents/coder/records/coder-1.md" },
+      "memory_path": "instructions/agents/coder/records/coder.infra.md" },
     { "type": "instance", "id": "role-coder.engine@minecraft.furnace-campaign",
       "session_ref": "role-coder.engine@minecraft.furnace-campaign", "status": "running" },
     { "type": "instance", "id": "role-coder@minecraft.furnace-campaign.fuel",
@@ -69,8 +69,8 @@ Edges:
     { "rel": "child_of", "from": "minecraft.furnace-campaign.fuel", "to": "minecraft.furnace-campaign" },
     { "rel": "crew_of", "from": "role-coder.engine@minecraft.furnace-campaign", "to": "minecraft.furnace-campaign" },
     { "rel": "crew_of", "from": "role-coder@minecraft.furnace-campaign.fuel", "to": "minecraft.furnace-campaign.fuel" },
-    { "rel": "individual_of", "from": "coder-1", "to": "coder" },
-    { "rel": "dispatch", "from": "coder-1", "to": "furnace-run-17" },
+    { "rel": "individual_of", "from": "coder.infra", "to": "coder" },
+    { "rel": "dispatch", "from": "coder.infra", "to": "furnace-run-17" },
     { "rel": "crew_of", "from": "role-scout@minecraft.furnace-campaign", "to": "minecraft.furnace-campaign" },
     { "rel": "reports_to", "from": "role-coder.engine@minecraft.furnace-campaign", "to": "role-scout@minecraft.furnace-campaign" },
     { "rel": "dispatch", "from": "role-coder.engine@minecraft.furnace-campaign", "to": "furnace-run-17" },
