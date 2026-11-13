@@ -238,3 +238,104 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JournalReconcileHintTests(unittest.TestCase):
+    """A4 wiring: resume suggests journal reconciliation when the coordinator
+    journal holds non-terminal task rows (env-overridable db for tests)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        subs = self.root / ".pi" / "subagents"
+        running = subs / "running-x"
+        running.mkdir(parents=True)
+        (running / "events.jsonl").write_text(_events({"type": "turn_start"}))
+        rh.make_snapshot(self.root, patterns=["x"])
+
+    def run_cli(self, *args, env_extra=None):
+        env = dict(os.environ)
+        env.update(env_extra or {})
+        return subprocess.run([sys.executable, str(Path(__file__).with_name("restart_handoff.py")), *args],
+                              capture_output=True, text=True, check=False, env=env)
+
+    def make_journal_with_candidate(self, db_path):
+        import sqlite3
+        con = sqlite3.connect(db_path)
+        con.executescript(
+            "CREATE TABLE journal(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL,"
+            " task_id TEXT NOT NULL, phase TEXT NOT NULL, detail TEXT, stage TEXT, dedupe_sha TEXT);"
+            "CREATE TABLE registry(id INTEGER PRIMARY KEY CHECK(id = 1), json TEXT NOT NULL);"
+        )
+        con.execute("INSERT INTO registry(id, json) VALUES(1, ?)", (json.dumps({"projects": []}),))
+        con.execute("INSERT INTO journal(at, task_id, phase, detail) VALUES(?,?,?,?)",
+                    ("2026-11-13T10:00:00.000Z", "task-hint", "received",
+                     json.dumps({"taskId": "task-hint", "dedupeKey": "dk", "goal": "g",
+                                 "mutating": True, "createdAt": "2026-11-13T10:00:00.000Z"})))
+        con.execute("INSERT INTO journal(at, task_id, phase) VALUES(?,?,?)",
+                    ("2026-11-13T10:00:01.000Z", "task-hint", "queued"))
+        con.commit()
+        con.close()
+
+    def test_hint_function_silent_without_rows(self):
+        import journal_reconcile as jr
+        orig = jr.count_nonterminal
+        jr.count_nonterminal = lambda db_path=None: 0
+        try:
+            self.assertIsNone(rh._journal_hint())
+        finally:
+            jr.count_nonterminal = orig
+
+    def test_hint_function_mentions_command(self):
+        import journal_reconcile as jr
+        orig = jr.count_nonterminal
+        jr.count_nonterminal = lambda db_path=None: 3
+        try:
+            hint = rh._journal_hint()
+        finally:
+            jr.count_nonterminal = orig
+        self.assertIn("3 non-terminal", hint)
+        self.assertIn("tools/journal_reconcile.py", hint)
+
+    def test_hint_function_survives_import_failure(self):
+        import sys as _sys
+        saved = _sys.path.pop(0) if _sys.path and _sys.path[0] == "" else None
+        import journal_reconcile as jr  # already imported; force failure via sys.modules
+        saved_modules = _sys.modules.pop("journal_reconcile", None)
+        # simulate the import failing inside _journal_hint only
+        real_import = __import__
+
+        def fake_import(name, *a, **k):
+            if name == "journal_reconcile":
+                raise ImportError("blocked for test")
+            return real_import(name, *a, **k)
+
+        import builtins
+        orig_import = builtins.__import__
+        builtins.__import__ = fake_import
+        try:
+            self.assertIsNone(rh._journal_hint())
+        finally:
+            builtins.__import__ = orig_import
+            if saved_modules is not None:
+                _sys.modules["journal_reconcile"] = saved_modules
+            if saved is not None:
+                _sys.path.insert(0, saved)
+
+    def test_resume_cli_suggests_reconcile_when_nonterminal_rows_exist(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, tmp, ignore_errors=True)
+        db_path = os.path.join(tmp, "coordinator.db")
+        self.make_journal_with_candidate(db_path)
+        result = self.run_cli("resume", "--root", str(self.root),
+                              env_extra={"JOURNAL_RECONCILE_DB": db_path})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("1 non-terminal coordinator task row(s)", result.stdout)
+        self.assertIn("tools/journal_reconcile.py", result.stdout)
+
+    def test_resume_cli_no_hint_when_journal_clean_or_missing(self):
+        result = self.run_cli("resume", "--root", str(self.root),
+                              env_extra={"JOURNAL_RECONCILE_DB": "/nonexistent/journal.db"})
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("journal_reconcile", result.stdout)

@@ -50,6 +50,40 @@ the Telegram bridge. **Authorization basis**: coordinator-owned local operation
    → PASS: every not-done snapshot id is either RESOLVED (finished before the
    kill) or NEEDS-RELAUNCH; re-launch each listed id with its recorded brief.
    Never auto-replay a mutating task — reconcile first (completed-unverified).
+   If the resume output reports non-terminal journal rows, also run step 7b.
+7b. **Journal reconcile (A4)**: `python3 tools/journal_reconcile.py`
+   → PASS: exit 0 (nothing to reconcile) or every candidate either closed with
+   evidence or left flagged for a person; exit codes are machine-readable
+   (0 clean, 1 attention needed, 2 error). See the section below.
+
+## After restart: journal reconcile (Theme A4)
+
+A restart can leave coordinator journal rows in non-terminal states
+(received/queued/started, or settled unknown-outcome): the process that would
+have appended the settled row is gone. The dispatch's true outcome lives on
+disk (`.pi/subagents/<dir>/events.jsonl` + `result.md`). `restart_handoff.py
+resume` prints a suggestion line when such rows exist; reconcile with:
+
+    python3 tools/journal_reconcile.py            # dry-run (default): prints the plan, writes nothing
+    python3 tools/journal_reconcile.py --apply    # writes append-only reconcile rows
+
+Rules (full table in the tool docstring):
+- Terminal subagent dir (result.md or terminal event) → row settles
+  `completed-unverified` with `budget_spent` from the usage sidecar
+  (`usage.json`, else summed `events.jsonl` message usage) — never `verified`;
+  a prior unknown-outcome settlement additionally gets a `reconciled` row.
+- Mutating task, no positive evidence (stale/missing dir) → settles
+  `unknown-outcome` and STAYS flagged for a person; never auto-replayed.
+- Read-only task, no positive evidence → settles `failed`.
+- Worker possibly alive (fresh events) / ambiguous linkage (≥2 matching dirs) /
+  never-dispatched queued row → no write, flagged for a human decision.
+- Original row fields ride along in the new row's `audit={...}` JSON blob;
+  the journal stays append-only (no UPDATE/DELETE ever).
+
+Exit codes: 0 = clean or all candidates closed with evidence; 1 = candidates
+found (dry-run) or left open needing a human (unknown-outcome/flagged/stranded);
+2 = error. Runbook order: step 7 (`restart_handoff resume`) → step 7b
+(journal reconcile) → verify, then re-launch what needs re-launching.
 
 ## Verification (what success looks like + evidence kept)
 - New run's step records appended to `/tmp/auto-restart-state.json`

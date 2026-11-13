@@ -211,6 +211,24 @@ def cmd_snapshot(args) -> int:
     return 0
 
 
+def _journal_hint() -> str | None:
+    """A4 wiring: suggest journal reconciliation when the coordinator journal
+    holds non-terminal task rows (interrupted dispatches). Silent (None) when
+    the db is missing, empty of candidates, or unreadable — never fails the
+    resume command. The db path can be overridden via JOURNAL_RECONCILE_DB.
+    """
+    try:
+        import journal_reconcile as jr
+    except Exception:
+        return None
+    count = jr.count_nonterminal()
+    if not count:
+        return None
+    return (f"Journal: {count} non-terminal coordinator task row(s) — "
+            f"reconcile with: python3 tools/journal_reconcile.py "
+            f"(dry-run default; --apply to write)")
+
+
 def cmd_resume(args) -> int:
     root = Path(args.root).resolve()
     path = Path(args.file).resolve() if args.file else newest_handoff(root)
@@ -238,6 +256,9 @@ def cmd_resume(args) -> int:
                      if e.get("status") == "done")
     print(f"Done at snapshot: {done_count}; "
           f"re-launch now: {sum(1 for r in results if r['action'] == 'needs-relaunch')}")
+    hint = _journal_hint()
+    if hint:
+        print(hint)
     print("Note: pre-restart PIDs in the handoff are stale after a restart; "
           "do not kill or reuse them.")
     return 0
