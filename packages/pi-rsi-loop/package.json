@@ -1,0 +1,17 @@
+{
+  "name": "pi-rsi-loop",
+  "version": "0.1.0",
+  "description": "Generic closed-loop RSI engine: SENSE->PROPOSE->FILTER->EXPERIMENT->GATE->APPLY->CURRICULUM->LOOP over six pluggable ports (LedgerSource, Proposer, ExperimentRunner, Gate, Applier, Curriculum); framework owns budget caps, two-strikes infra breaker, crash-resume (terminal results only), observe/live gating, rejection memory. Copy-adapted from the MC-proven closed_loop.py.",
+  "license": "MIT",
+  "private": true,
+  "files": [
+    "src/rsi_loop/",
+    "tests/",
+    "README.md",
+    "ADAPTER.md"
+  ],
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests -p 'test_*.py'",
+    "dry-run": "python3 tests/dry_run/run_dry_run.py"
+  }
+}

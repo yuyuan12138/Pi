@@ -1,0 +1,16 @@
+{
+  "project": "toy-second-consumer (C2 acceptance fixture; not a real project)",
+  "note": "Fixture evidence for one dry-run loop iteration. Zero side effects: everything the consumer touches lives in its workspace.",
+  "ledger": {
+    "newest_run": "fixture-run-001",
+    "error_code_counts": {"program_error": 2, "action_timeout": 1},
+    "baseline_requests": 100,
+    "generated_at": "2026-11-13T00:00:00+00:00"
+  },
+  "frontier": {
+    "name": "toy-frontier",
+    "done_nodes": [],
+    "pending_nodes": ["toy-node-1", "toy-node-2"]
+  },
+  "next_before": "toy-node-1"
+}
