@@ -12,6 +12,7 @@ data row of 流水-钧 (sheet index 4). Saves after writing.
 import json, sys, datetime
 sys.path.insert(0, "/Users/yuyuan/PiAgents/tools/wps-reader")
 from wps_read import CDP, http_json
+from dispatch_guard import guard_write
 
 SHEET_INDEX = 4  # 流水-钧
 
@@ -42,6 +43,7 @@ JS = r'''(async function(entry){
 })('''
 
 def main():
+    guard_write("add_entry.py")  # user-data write: refuse unless dispatched
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--amount", required=True, type=float)

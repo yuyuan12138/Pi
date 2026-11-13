@@ -24,18 +24,34 @@ function createFakePi() {
 const wordCount = (text) => text.trim().split(/\s+/).filter(Boolean).length;
 
 describe("REMINDER constant", () => {
-  test("is non-empty, <= 60 words, and names the rule's key parts", () => {
+  test("is non-empty, <= 100 words, and names the rule's key parts", () => {
     assert.ok(REMINDER.length > 0);
-    assert.ok(wordCount(REMINDER) <= 60, `reminder is ${wordCount(REMINDER)} words`);
+    assert.ok(wordCount(REMINDER) <= 100, `reminder is ${wordCount(REMINDER)} words`);
     assert.match(REMINDER, /ROUTER CHECK/);
     assert.match(REMINDER, /subagent_spawn/);
     assert.match(REMINDER, /GLM-5\.3-Flash/);
     assert.match(REMINDER, /edit\/write/);
   });
 
-  test("carries both injected rules: decompose-first and the dispatch gate", () => {
+  test("carries all three injected rules: decompose-first, dispatch gate, user-data gate", () => {
     assert.match(REMINDER, /DECOMPOSE FIRST/);
     assert.match(REMINDER, /subagent_spawn/);
+    assert.match(REMINDER, /USER DATA/);
+  });
+
+  test("user-data clause forbids every inline write, however small", () => {
+    // The recurring failure mode: a "trivial" bookkeeping write done inline
+    // after read-only exploration. The reminder must name the data stores, the
+    // NEVER-inline rule, the small-entry loophole, and the exploration exemption.
+    assert.match(REMINDER, /ledgers/);
+    assert.match(REMINDER, /sheets/);
+    assert.match(REMINDER, /cloud docs/);
+    assert.match(REMINDER, /Notion/);
+    assert.match(REMINDER, /shared external state/);
+    assert.match(REMINDER, /NEVER inline/);
+    assert.match(REMINDER, /not even small ones/);
+    assert.match(REMINDER, /read-only exploration/);
+    assert.match(REMINDER, /dispatch first, then write/);
   });
 });
 

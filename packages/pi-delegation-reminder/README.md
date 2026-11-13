@@ -8,8 +8,11 @@ The standing rule (`~/.pi/agent/AGENTS.md`): the main session is a
 router/coordinator — every delegatable task must be dispatched via
 `subagent_spawn` (model `GLM-5.3-Flash`); main-session edit/write is allowed
 only for cross-module integration glue, unavailable delegation tools, or an
-explicit user instruction in the current turn. Prose in `AGENTS.md` is
-necessary but not sufficient; this extension re-injects the rule mechanically.
+explicit user instruction in the current turn. Writes into user data (ledgers,
+sheets, cloud docs, Notion, any shared external state) are never inline, not
+even a single small bookkeeping row found while merely exploring. Prose in
+`AGENTS.md` is necessary but not sufficient; this extension re-injects the
+rules mechanically.
 
 ## Reminder text
 
@@ -20,10 +23,13 @@ Single constant (`REMINDER`) at the top of `index.js` — edit it there, then
 > nontrivial request apply decompose-or-execute (independently verifiable?
 > disjointly owned? context/budget favor delegation?), state the split before
 > acting. (2) Before any edit/write, state the routing decision or dispatch via
-> subagent_spawn (model GLM-5.3-Flash). Main-session edits only for cross-module
-> glue, unavailable delegation tools, or explicit user instruction this turn.
+> subagent_spawn (model GLM-5.3-Flash); inline edits only for cross-module
+> glue, unavailable tools, or explicit user instruction this turn. (3) Writes
+> to USER DATA — ledgers, sheets, cloud docs, Notion, any shared external
+> state — are NEVER inline, not even small ones or after read-only
+> exploration: dispatch first, then write.
 
-(~57 words; the tests assert it stays ≤ 60.)
+(~87 words; the tests assert it stays ≤ 100.)
 
 ## How it works
 

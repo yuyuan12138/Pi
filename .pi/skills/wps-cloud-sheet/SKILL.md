@@ -26,6 +26,12 @@ The tools live in `tools/wps-reader/`.
   `http_json` from it for custom reads.
 
 ## Writing (bookkeeping)
+Both writers call `dispatch_guard.guard_write()` as their first action and exit
+nonzero ("write blocked: DISPATCHED_BY unset") unless the process runs inside a
+dispatched subagent. A dispatch, or an approved human-run write, sets the marker:
+`DISPATCHED_BY=<subagent id> PI_SESSION_ID=... python3 tools/wps-reader/add_entry.py ...`.
+Reading (`wps_read.py`) is never gated.
+
 - `python3 tools/wps-reader/add_entry.py --amount 25 --category 餐饮 (dining) --note 午饭 (lunch) [--date 2026-11-03]`
   — append one row to the `流水-钧` ledger sheet (sheet index 4; Chinese sheet
   names/categories are literal data vocabulary of the user's workbook — keep

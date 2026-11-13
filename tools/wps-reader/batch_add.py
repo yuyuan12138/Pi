@@ -7,6 +7,7 @@ entries.json: [{"date":"2026-11-01","category":"零食","amount":9.9,"note":"新
 import json, sys, datetime
 sys.path.insert(0, "/Users/yuyuan/PiAgents/tools/wps-reader")
 from wps_read import CDP, http_json
+from dispatch_guard import guard_write
 
 SHEET_INDEX = 4
 def excel_serial(s):
@@ -37,6 +38,7 @@ JS = r'''(async function(entries){
 })('''
 
 def main():
+    guard_write("batch_add.py")  # user-data write: refuse unless dispatched
     entries = json.load(open(sys.argv[1], encoding="utf-8"))
     for e in entries:
         e["date"] = excel_serial(e["date"])

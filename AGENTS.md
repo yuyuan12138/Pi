@@ -22,6 +22,8 @@ Use one primary conversation per actual project directory. The primary agent may
 
 Multi-project coordination is provided by `packages/pi-project-coordinator` (registry, deterministic routing, task journal, single-writer queues, Pi RPC runtime). The long-lived coordinator conversation routes user requests to per-project primaries through it; see the package README and the multi-project section of the global `~/.pi/agent/AGENTS.md`. Routing details and delegation defaults: `instructions/DELEGATION-ROUTING.md` (advisory validator: `tools/delegation_gate.py`).
 
+User-data mutation is not a "trivial" exception to that routing: exploring or locating data inline is fine, but bookkeeping entries, ledger/sheet writes, Notion page edits and any other shared external data store are written only by a dispatched subagent given the full context handoff. The writer tools make this mechanical — `tools/wps-reader/dispatch_guard.py` refuses an undispatched write (`DISPATCHED_BY` unset) before any CDP connection is opened.
+
 ## Internet search routing
 For public internet discovery and software/source comparisons, use `internet-search-agent/tools/search.py` after reading its compact-search skill, or delegate a bounded source-linked brief when the required tools and permission are actually available. Do not start a standing search-agent chat. Public queries leave the machine: do not send private material. Verify selected primary sources; snippets and metadata are not verified evidence. The legacy research repository retains its paper registry/PDF records. The search workspace is not included in shared RAG sources and no search session starts merely because its folder exists.
 
