@@ -10,26 +10,32 @@ router/coordinator — every delegatable task must be dispatched via
 only for cross-module integration glue, unavailable delegation tools, or an
 explicit user instruction in the current turn. Writes into user data (ledgers,
 sheets, cloud docs, Notion, any shared external state) are never inline, not
-even a single small bookkeeping row found while merely exploring. Prose in
-`AGENTS.md` is necessary but not sufficient; this extension re-injects the
-rules mechanically.
+even a single small bookkeeping row found while merely exploring. Dispatched
+work is pinned to project space: attribute the turn to a registered
+coordinator project, begin dispatch briefs with `[project:<name>]`, and
+include a work record in that project's `work/` directory
+(PROJECT-SPACE-STANDARD). Prose in `AGENTS.md` is necessary but not
+sufficient; this extension re-injects the rules mechanically.
 
 ## Reminder text
 
 Single constant (`REMINDER`) at the top of `index.js` — edit it there, then
 `/reload`:
 
-> ROUTER CHECK: You are the dispatcher. (1) DECOMPOSE FIRST — for every
-> nontrivial request apply decompose-or-execute (independently verifiable?
-> disjointly owned? context/budget favor delegation?), state the split before
-> acting. (2) Before any edit/write, state the routing decision or dispatch via
-> subagent_spawn (model GLM-5.3-Flash); inline edits only for cross-module
-> glue, unavailable tools, or explicit user instruction this turn. (3) Writes
-> to USER DATA — ledgers, sheets, cloud docs, Notion, any shared external
-> state — are NEVER inline, not even small ones or after read-only
-> exploration: dispatch first, then write.
+> ROUTER CHECK: You are the dispatcher. (1) DECOMPOSE FIRST — every nontrivial
+> request: decompose-or-execute (independently verifiable? disjointly owned?
+> context/budget favor delegation?), state the split first. (2) Before any
+> edit/write, state the routing decision or dispatch via subagent_spawn (model
+> GLM-5.3-Flash); inline edits only for cross-module glue, unavailable tools,
+> or user instruction this turn. (3) USER DATA writes — ledgers, sheets, cloud
+> docs, Notion, any shared external state — are NEVER inline, not even small
+> ones or after read-only exploration: dispatch first, then write. (4)
+> Attribute the turn to a registered project; dispatch briefs begin
+> [project:<name>]; deliverables include a work/ record
+> (PROJECT-SPACE-STANDARD).
 
-(~87 words; the tests assert it stays ≤ 100.)
+(100 words — right at the tests' ≤ 100 ceiling; trim wording before adding,
+don't grow the ceiling.)
 
 ## How it works
 

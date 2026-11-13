@@ -31,12 +31,26 @@ describe("REMINDER constant", () => {
     assert.match(REMINDER, /subagent_spawn/);
     assert.match(REMINDER, /GLM-5\.3-Flash/);
     assert.match(REMINDER, /edit\/write/);
+    for (const marker of ["(1)", "(2)", "(3)", "(4)"]) {
+      assert.ok(REMINDER.includes(marker), `missing numbered clause ${marker}`);
+    }
   });
 
-  test("carries all three injected rules: decompose-first, dispatch gate, user-data gate", () => {
+  test("carries all four injected rules: decompose-first, dispatch gate, user-data gate, project-space routing", () => {
     assert.match(REMINDER, /DECOMPOSE FIRST/);
     assert.match(REMINDER, /subagent_spawn/);
     assert.match(REMINDER, /USER DATA/);
+    assert.match(REMINDER, /registered project/);
+  });
+
+  test("project-space clause pins the turn, dispatch briefs, and deliverables to a registered project", () => {
+    // Clause 4 (PROJECT-SPACE-STANDARD): the turn belongs to a registered
+    // coordinator project, briefs carry the [project:<name>] tag, and the
+    // deliverable set includes a work record under that project's work/.
+    assert.match(REMINDER, /registered project/);
+    assert.match(REMINDER, /dispatch briefs begin \[project:<name>\]/);
+    assert.match(REMINDER, /work\/ record/);
+    assert.match(REMINDER, /PROJECT-SPACE-STANDARD/);
   });
 
   test("user-data clause forbids every inline write, however small", () => {
