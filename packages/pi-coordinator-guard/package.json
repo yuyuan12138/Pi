@@ -1,7 +1,7 @@
 {
   "name": "pi-coordinator-guard",
-  "version": "0.2.0",
-  "description": "Per-category enforcement guard for the Pi coordinator main session: classifies tool calls (mutating bash, out-of-allowlist edit/write, spawn without [project:<name>] tag); in enforce mode denies edit/write outside the allowlist and untagged dispatches, mutating bash stays log-only. Live config file ~/.pi/agent/coordinator-guard.json (stat+mtime cache), env > config > observe precedence.",
+  "version": "0.3.0",
+  "description": "Per-category enforcement guard for the Pi coordinator main session: classifies tool calls (mutating bash, out-of-allowlist edit/write, spawn tag format and registry membership); in enforce mode denies edit/write outside the allowlist, untagged dispatches and dispatches tagged with an unregistered project (coordinator-registry validated, 60s TTL cache, fail-open on registry read errors), mutating bash stays log-only. Live config file ~/.pi/agent/coordinator-guard.json (stat+mtime cache), env > config > observe precedence.",
   "type": "module",
   "private": true,
   "license": "MIT",

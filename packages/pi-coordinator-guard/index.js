@@ -13,6 +13,15 @@
 //                                  Observe mode logs only.
 //   dispatch_missing_project_tag — enforce mode DENIES subagent_spawn without the
 //                                  literal [project:<name>] token. Observe logs only.
+//   dispatch_unknown_project     — enforce mode DENIES a subagent_spawn whose
+//                                  [project:<name>] tag names a project that is NOT in
+//                                  the coordinator registry. Observe logs only. The
+//                                  registry is read (read-only) with a 60s TTL cache;
+//                                  a registry READ failure fails OPEN to the format-only
+//                                  check with one warning line in the JSONL sink — format
+//                                  stays the primary gate, a db hiccup must not brick
+//                                  dispatching. Membership mirrors the coordinator router
+//                                  (id / alias / canonical root, see registry.js).
 //   mutating_bash                — LOG-ONLY IN EVERY MODE. Deliberate, user-ratified
 //                                  scope: git push/reset, process cleanup (kill),
 //                                  and package installs are legitimate main-session
@@ -36,14 +45,27 @@
 // Scope: the MAIN coordinator session only. Worker sessions are spawned by
 // pi-superagent with `--mode rpc --no-extensions ... -e <extensionPath>`
 // (packages/pi-superagent/src/subagent/manager.ts), so this extension is never
-// loaded in workers and never sees their traffic.
+// loaded in workers and never sees their traffic. Division of labor with the
+// spawner (pi-superagent/src/subagent/manager.ts): because workers run
+// --no-extensions, the guard cannot see sub-spawns — the manager enforces the
+// tag FORMAT at the spawn chokepoint for every path (root and nested), while
+// REGISTRY truth (does <name> exist?) stays here, where the registry db and the
+// coordinator router live. The manager deliberately does not duplicate registry
+// validation.
 //
 // Failure posture: the handler wraps everything in try/catch and swallows all
 // errors — a broken guard must never break the session.
 
-import { classifyToolCall, DEFAULT_ALLOWLIST } from "./classify.js";
+import { classifyToolCall, extractProjectTags, DEFAULT_ALLOWLIST } from "./classify.js";
 import { appendGuardLog, DEFAULT_LOG_PATH } from "./log.js";
 import { createConfigLoader, DEFAULT_CONFIG_PATH } from "./config.js";
+import { readRegistryProjects, registryProjectId, DEFAULT_REGISTRY_DB } from "./registry.js";
+
+const EXCERPT_MAX = 200;
+
+function head(s) {
+  return String(s).slice(0, EXCERPT_MAX);
+}
 
 /** env var overriding the mode: "enforce" | anything else (forces observe). */
 export const MODE_ENV = "PI_COORDINATOR_GUARD";
@@ -101,6 +123,21 @@ export function spawnDenyReason(logPath) {
 }
 
 /**
+ * Actionable deny reason for a spawn tag naming an unregistered project: names the
+ * offending tag and lists the registered project ids so the dispatch is one edit away
+ * from valid. Registered ids are the canonical routing identifiers; aliases are also
+ * accepted at check time (router parity) but are not listed to keep the reason short.
+ */
+export function unknownProjectDenyReason(tagName, registeredIds, logPath) {
+  const ids = (registeredIds ?? []).map((id) => JSON.stringify(id)).join(", ");
+  return (
+    `pi-coordinator-guard (enforce): subagent_spawn tag [project:${tagName}] names a project that is NOT in the coordinator registry. ` +
+    `Registered project ids: ${ids || "(none)"}. Use one of these ids in the tag, or register the project with the coordinator first. ` +
+    `Decision logged to ${logPath}.`
+  );
+}
+
+/**
  * Build the tool_call handler. Options override live resolution (for tests /
  * hard pinning): mode pins the mode, allowlist pins the whole allowlist,
  * configPath redirects the config file, env swaps the env source.
@@ -113,6 +150,11 @@ export function createGuard(options = {}) {
   const envSource = options.env ?? process.env;
   const logPath = options.logPath ?? resolveLogPath(envSource);
   const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
+  const registryPath = options.registryPath ?? DEFAULT_REGISTRY_DB;
+  // Identity of the registry read whose failure was last warned about: readRegistryProjects
+  // returns the same cached object within the TTL window, so a new object means a fresh read
+  // (or a state change) and the warning fires once per read, not once per tool call.
+  let registryWarnedFor = null;
   const loadConfig = createConfigLoader({
     configPath,
     onError: (message) => {
@@ -138,14 +180,50 @@ export function createGuard(options = {}) {
       const mode = pinnedMode ?? resolveEnvMode(envSource) ?? cfg.mode;
       const allowlist = pinnedAllowlist ?? buildAllowlist(cfg.allow, envSource);
 
-      const { category, pattern, excerpt } = classifyToolCall(event?.toolName, event?.input, { allowlist });
+      let { category, pattern, excerpt } = classifyToolCall(event?.toolName, event?.input, { allowlist });
+      let unknownTag = null;
+      let registeredIds = null;
+      if (event?.toolName === "subagent_spawn" && category === "passthrough") {
+        // Tag format is fine — validate the name(s) against the coordinator registry
+        // (TTL-cached read; fail-open on read errors, see registry.js + header).
+        const reg = readRegistryProjects(registryPath);
+        if (reg.projects === null) {
+          if (reg !== registryWarnedFor) {
+            registryWarnedFor = reg;
+            appendGuardLog(
+              {
+                ts: new Date().toISOString(),
+                mode,
+                decision: "error",
+                tool: "_registry",
+                category: "registry_unavailable",
+                pattern: "registry_read_failed",
+                excerpt: registryPath,
+                error: reg.error,
+              },
+              logPath,
+            );
+          }
+        } else {
+          registeredIds = reg.projects.filter((p) => p.status === "registered").map((p) => p.id);
+          const tags = extractProjectTags(event?.input) ?? [];
+          unknownTag = tags.find((t) => registryProjectId(reg.projects, t) === null) ?? null;
+          if (unknownTag !== null) {
+            category = pattern = "dispatch_unknown_project";
+            const task = event?.input && typeof event.input.task === "string" ? event.input.task : JSON.stringify(event?.input ?? {});
+            excerpt = head(String(task));
+          }
+        }
+      }
       if (category === "passthrough") return undefined;
 
-      // Per-category enforcement (see header): edit_write and the spawn-tag rule
+      // Per-category enforcement (see header): edit_write and the two spawn-tag rules
       // deny in enforce mode; mutating_bash is log-only in EVERY mode.
       const deny =
         mode === "enforce" &&
-        (category === "edit_write" || category === "dispatch_missing_project_tag");
+        (category === "edit_write" ||
+          category === "dispatch_missing_project_tag" ||
+          category === "dispatch_unknown_project");
 
       appendGuardLog(
         {
@@ -164,6 +242,9 @@ export function createGuard(options = {}) {
       if (deny) {
         if (category === "edit_write") {
           return { block: true, reason: editWriteDenyReason(event?.toolName, excerpt, allowlist, logPath) };
+        }
+        if (category === "dispatch_unknown_project") {
+          return { block: true, reason: unknownProjectDenyReason(unknownTag, registeredIds, logPath) };
         }
         return { block: true, reason: spawnDenyReason(logPath) };
       }
