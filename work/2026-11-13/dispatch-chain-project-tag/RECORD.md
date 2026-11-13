@@ -1,5 +1,8 @@
 # Dispatch-chain guarantee: registry-validated spawn tags + spawner-side tag gate
 
+<!-- Compliance addendum 2026-11-13 (work-record compliance linter, tools/work_record_lint.py @ 2180051): §6 header fields backfilled on the next line; original header lines below are untouched — the machine parser reads the first occurrence of each field, so the backfilled bare Status supersedes the prose status line only for linting. -->
+Task: Enforce the `[project:<name>]` dispatch chain end-to-end — registry-validated spawn tags (pi-coordinator-guard v0.3.0) + spawner-side tag gate (pi-superagent) · Dispatched-by: PiAgents coordinator primary (user directive 2026-11-13) · Worker: dispatched coder subagent sa8-a (best-of-3 winner, worktree .pi/subagents/worktrees/sa8-a) · Status: delivered · Brief header: [project:PiAgents]
+
 Date 2026-11-13 · Worker: dispatched coder (subagent sa8-a, worktree
 `.pi/subagents/worktrees/sa8-a`, branch `subagent/sa8-a-mwewzi06`) · Status: delivered, all suites green.
 Brief: user directive 2026-11-13 — "图逻辑链一定能成，定了规则的地方要受控": close the two structural
@@ -76,3 +79,15 @@ gaps so the `[project:<name>]` routing chain is enforced end-to-end.
   pre-existing format rule treats it.
 - Guard package has no dependencies (node:sqlite is a Node ≥22.13 built-in; on
   older runtimes the registry check fails open to format-only with a warning).
+
+## Compliance addendum (2026-11-13) — remediation pass against the work-record compliance linter (tools/work_record_lint.py, commit 2180051); original lines untouched; facts per merge commit e94c4a5 (best-of-3 winner sa8-a)
+
+## Task brief (compliance addendum 2026-11-13)
+User directive 2026-11-13: enforce the `[project:<name>]` dispatch chain end-to-end ("图逻辑链一定能成，定了规则的地方要受控") — registry-validated spawn tags (guard) + spawner-side tag gate (superagent).
+Scope: packages/pi-coordinator-guard + packages/pi-superagent only; format-only at the spawner, registry truth in the guard; no live-episode files.
+
+## Delivered (compliance addendum 2026-11-13, per e94c4a5) — pi-coordinator-guard v0.3.0 (registry.js, classify.js extractProjectTags, dispatch_unknown_project, 26 new tests) + pi-superagent spawn-tag gate (manager.ts, kill switch PI_SPAWN_REQUIRE_PROJECT_TAG, 7 new tests, 51 task literals tagged)
+
+## Verification evidence (compliance addendum 2026-11-13, per e94c4a5) — guard node --test 134/134 at delivery (re-run 2026-11-13: 171/171 after later commits); superagent tsc clean + vitest 67/67 at delivery (re-run 2026-11-13: 87/87); read-only smoke vs the real registry db (minecraft/mc allowed, PiAgents denied with ids listed, untagged denied)
+
+## Open items (compliance addendum 2026-11-13) — "PiAgents" was not a registered project id/alias/root (enforce-mode denial risk for coordinator dispatches); resolved 2026-11-13 by user-approved registry entry piagents, root /Users/yuyuan/PiAgents (commit e19bb22)
