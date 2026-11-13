@@ -1,5 +1,8 @@
 # Theme D P0: per-project cost surface (D1) + journal budget fields (D2)
 
+<!-- Compliance addendum 2026-11-13 (work-record compliance linter, tools/work_record_lint.py @ 2180051): §6 header fields backfilled on the next line; original header lines below are untouched — the machine parser reads the first occurrence of each field, so the backfilled bare Status supersedes the prose status line only for linting. -->
+Task: Theme D P0 — per-project cost surface (D1: usage attribution + rollup + /projects panel) and journal budget fields (D2: envelope budget_planned/budget_spent, additive) · Dispatched-by: PiAgents coordinator primary (PLAN.md Theme D brief, 2026-11-13) · Worker: dispatched coder (clean-context subagent, Theme D brief) · Status: delivered · Brief header: [project:PiAgents]
+
 Date 2026-11-13 · Worker: dispatched coder (clean-context subagent, Theme D brief) · Status: delivered, all suites green.
 Brief: PLAN.md Theme D — D1 (per-project cost rollup; the budget owner sees no number) and D2
 (journal budget fields per task envelope, additive schema).
@@ -129,3 +132,18 @@ Brief: PLAN.md Theme D — D1 (per-project cost rollup; the budget owner sees no
 - Reconciliation covers buckets-vs-raw sums; per-project splits are pinned by
   fixture tests, not by the JSONL itself (no ground-truth project labels exist
   in historic records).
+
+## Compliance addendum (2026-11-13) — remediation pass against the work-record compliance linter (tools/work_record_lint.py, commit 2180051); §6 fields backfilled in the header above, original lines untouched; facts per this record and delivering commit 7fcf140
+
+## Task brief (compliance addendum 2026-11-13)
+PLAN.md Theme D P0: give the budget owner a per-project cost surface (D1) and put budget fields on task envelopes (D2), additive-only.
+Scope: packages/pi-usage-log, packages/pi-project-coordinator, packages/pi-web-bridge; historic usage stays unattributed (no guessing, no backfill); panel markup additive-only.
+
+## Delivered (compliance addendum 2026-11-13, per commit 7fcf140)
+pi-usage-log: project-usage.ts (attribution chain, unattributed/personal-ops buckets, reconcile()) + cli.ts + /usage project + ctx.cwd fix + sessionName/task record fields (40 tests); pi-project-coordinator: journal budget_planned/budget_spent columns + envelope round-trip/replay support (+4 tests); pi-web-bridge: budget parsing/sums, usage7d wiring, additive panel markup (+8 tests).
+
+## Verification evidence (compliance addendum 2026-11-13 — record §Evidence + commit 7fcf140)
+npm test: pi-usage-log 40/40 (re-run 2026-11-13: 40/40); pi-project-coordinator 21 pass + 1 opt-in skip (re-run 2026-11-13: same); pi-web-bridge 257/257. Reconciliation on the real usage JSONL: 8 day files, 2713 records, 375,295,012 tokens, reconciliation OK (historic turns honestly unattributed). Live smoke of /projects: HTTP 200, 10 registry projects, usage7d present.
+
+## Open items (compliance addendum 2026-11-13)
+Extension /reload or restart needed before new usage records carry cwd/sessionName/task (historic records stay unattributed by design); coordinator restart for the journal migration; budget units are envelope-owner-owned (USD or tokens — unpolicied); bridge lazy-imports pi-usage-log by relative path — if moved alone, usage7d degrades to omission with one log line.
