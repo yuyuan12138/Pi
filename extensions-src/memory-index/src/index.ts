@@ -32,6 +32,7 @@ import { openIndex, derivedId, insertObservation, searchMemory, type DatabaseSyn
 import type { Tokenizer } from "./tokenize.js";
 import { backfillSessions, extractObservations, normalizeTimestamp } from "./parse-sessions.js";
 import { refreshKnowledgeBase } from "./parse-kb.js";
+import { refreshAtoms } from "./parse-atoms.js";
 import { matchCredentialPattern } from "./credentials.js";
 import type { CompactionEntry } from "@earendil-works/pi-coding-agent";
 
@@ -110,7 +111,16 @@ export default function memoryIndexExtension(pi: ExtensionAPI): void {
 			const sessionDir = ctx.sessionManager.getSessionDir();
 			await backfillSessions(opened.db, opened.tokenizer, sessionDir, project);
 			const kbRoot = kbRootForProject(project);
-			if (kbRoot) await refreshKnowledgeBase(opened.db, opened.tokenizer, kbRoot, project);
+			if (kbRoot) {
+				await refreshKnowledgeBase(opened.db, opened.tokenizer, kbRoot, project);
+				// P1/B2: distiller atoms (kind "atom") — a failure here must not kill
+				// the KB refresh above.
+				try {
+					await refreshAtoms(opened.db, opened.tokenizer, kbRoot, project);
+				} catch (err) {
+					console.error("[memory-index] atoms refresh failed:", err);
+				}
+			}
 		} catch (err) {
 			console.error("[memory-index] session_start backfill failed:", err);
 		} finally {
@@ -178,7 +188,11 @@ export default function memoryIndexExtension(pi: ExtensionAPI): void {
 						Type.Literal("daily"),
 						Type.Literal("atom"),
 					],
-					{ description: "Filter by entry kind. 'atom' is reserved for P1 distillation (currently empty)." },
+					{
+						description:
+							"Filter by entry kind. 'atom' rows come from the memory-distiller extension " +
+							"(knowledge-base/atoms/**/*.jsonl); their source_entries are pi session entry ids.",
+					},
 				),
 			),
 			limit: Type.Optional(Type.Number({ description: "Max hits, 1-50 (default 10)." })),
@@ -239,6 +253,6 @@ export function formatHits(
 		lines.push(`  ${h.snippet.replaceAll(/\s+/g, " ")}`);
 	}
 	lines.push("", "Drill-back: recall(<obs_id>) for exact source context of observations (pi-observational-memory);");
-	lines.push("for concept/daily hits, read the listed source file.");
+	lines.push("for concept/daily/atom hits, read the listed source file (atom hits also list resolvable source_entries).");
 	return lines.join("\n");
 }

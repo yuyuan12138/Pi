@@ -13,6 +13,7 @@ existing `recall(obs_id)` tool.
 | Compaction entries (`details.observations[]`, e.g. `om.folded`) | `observation` | one row per observation (its own 12-hex obs id + `sourceEntryIds`) |
 | `knowledge-base/daily/YYYY-MM-DD.md` | `daily` | one row per `## ` section |
 | `knowledge-base/knowledge/concepts/*.md` | `concept` | one row per file (frontmatter stripped) |
+| `knowledge-base/atoms/<project>/<date>.jsonl` (written by `extensions-src/memory-distiller`) | `atom` | one row per atom line; append-only, watermarked incremental reads; `source_entry_ids` carried verbatim |
 
 Never indexed: raw tool output, compaction summaries, `details.reflections[]`,
 anything outside the two triggers below. Every row passes a credential-regex
@@ -26,7 +27,9 @@ Event names verified against pi 1.3.0 `dist/core/extensions/types.d.ts`:
 - `session_start` — incremental backfill of the current project's session
   directory (per-file **byte-offset watermarks**, so re-runs are no-ops) plus
   a KB refresh (delete-by-source + reinsert per file, so in-place edits are
-  reflected and re-runs are idempotent).
+  reflected and re-runs are idempotent) and an atoms refresh
+  (`knowledge-base/atoms/**/*.jsonl`, watermarked like sessions since atoms
+  are append-only).
 - `session_compact` — the fresh compaction entry's observations are indexed
   immediately; `obs_id` uniqueness makes this idempotent with backfill.
 - `session_shutdown` — DB close (idempotent).
@@ -42,8 +45,9 @@ impossible.
 - `project` defaults to the current session cwd; no cross-project global
   search exists by design.
 - `from`/`to` accept `YYYY-MM-DD` or full ISO-8601 (inclusive bounds).
-- `kind` ∈ `observation | concept | daily | atom` (`atom` is reserved for P1
-  distillation and currently matches nothing).
+- `kind` ∈ `observation | concept | daily | atom` (`atom` rows are the
+  memory-distiller's atoms; their `source_entries` are pi session entry ids,
+  so provenance stays recall-compatible).
 - `limit` 1–50, default 10. Results ranked by `bm25()` with a recency
   tiebreak; a multi-term AND query that misses retries with OR.
 - Returns `obs_id, entry_id, session_id, ts, snippet` plus
@@ -93,7 +97,7 @@ functionality.
 
 ## Tests
 
-`npm install && npx vitest run` (29 tests across 6 files):
+`npm install && npx vitest run` (35 tests across 7 files):
 
 1. **Search fixtures** — 3 synthetic session JSONLs with compaction entries;
    `memory_search` returns the right observation with id + ts in <50 ms
@@ -108,7 +112,13 @@ functionality.
    re-tokenization.
 5. **KB** — daily section splitting, frontmatter timestamps, refresh
    idempotency, in-place edits.
-6. **Loader (acceptance 5)** — loads via the real pi 1.3.0 extension loader
+6. **Atoms (Theme B2)** — fixture `kind: "atom"` rows from a distiller-style
+   append-only JSONL are indexed and found via `memory_search` semantics with
+   resolvable `source_entry_ids`; project scoping holds; credential-shaped
+   fixture line (slack token shape — git-guard-clean) skipped; torn line
+   tolerated; watermarked incremental indexing of appended atoms;
+   idempotent re-runs.
+7. **Loader (acceptance 5)** — loads via the real pi 1.3.0 extension loader
    (`loadExtensions` from the same `dist/core/extensions/loader.js` the CLI
    runs, imported directly because the package's exports map hides dist
    subpaths) with **zero errors and zero warnings**, `memory_search`
@@ -125,9 +135,12 @@ without a model call.
 ## Limitations (P0)
 
 - Compaction summaries and `reflections[]` are not indexed (deliverable
-  scope: observations + KB only). Reflection ids are recallable today but
-  not searchable here.
-- `atom` kind is reserved; P1 distillation will populate it.
+  scope: observations + KB + atoms only). Reflection ids are recallable today
+  but not searchable here.
+- `atom` rows are populated by `extensions-src/memory-distiller` (Theme B1);
+  the index only reads them. Rows from lines removed by an out-of-band,
+  non-append rewrite of an atoms file would linger until the rescan-from-zero
+  path re-inserts the survivors (the distiller never rewrites atoms files).
 - Session backfill covers the current project's session directory only
   (design: no cross-project global index).
 - Observations whose compaction entry lacks `details.observations` (plain
