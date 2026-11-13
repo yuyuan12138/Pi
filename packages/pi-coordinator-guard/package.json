@@ -1,7 +1,7 @@
 {
   "name": "pi-coordinator-guard",
-  "version": "0.1.0",
-  "description": "P0 observe-mode guard for the Pi coordinator main session: classifies tool calls (mutating bash, out-of-allowlist edit/write, spawn without [project:<name>] tag) and logs would-deny decisions to a private JSONL log. Never blocks.",
+  "version": "0.2.0",
+  "description": "Per-category enforcement guard for the Pi coordinator main session: classifies tool calls (mutating bash, out-of-allowlist edit/write, spawn without [project:<name>] tag); in enforce mode denies edit/write outside the allowlist and untagged dispatches, mutating bash stays log-only. Live config file ~/.pi/agent/coordinator-guard.json (stat+mtime cache), env > config > observe precedence.",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -11,6 +11,7 @@
     "pi-extension",
     "guard",
     "observe",
+    "enforce",
     "delegation",
     "coordinator"
   ],

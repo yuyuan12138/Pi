@@ -1,25 +1,44 @@
-// classify.js — pure tool-call classifier for pi-coordinator-guard (P0 observe mode).
+// classify.js — pure tool-call classifier for pi-coordinator-guard.
 //
 // Input: a tool call (toolName + input). Output: { category, pattern, excerpt }:
 //   category "mutating_bash" — the bash command matches a mutating pattern (a):
 //     git commit/push/reset/clean, rm -rf, mv or `>` overwrite outside obvious
 //     temp, brew/npm/pip installs, kill/pkill/killall, curl|wget piped into a shell;
 //   category "edit_write"    — an edit/write tool call targeting a path OUTSIDE the
-//     configured allowlist (b). P0 default allowlist is EMPTY: the project space of
-//     the turn's attributed project is not yet derivable, so every main-session
-//     edit/write is flagged and its target path logged. Set
-//     PI_COORDINATOR_GUARD_ALLOW (colon-separated path prefixes) to quiet known-good
-//     prefixes once the review decides on them;
+//     effective allowlist (b): code-default roots (DEFAULT_ALLOWLIST below) extended
+//     by config-file "allow" entries and PI_COORDINATOR_GUARD_ALLOW. Prefix match on
+//     lexically normalized absolute paths (no symlink resolution — documented limit);
 //   category "dispatch_missing_project_tag" — a subagent_spawn call whose task/
 //     arguments do NOT contain the literal token [project:<name>] (d). This is the
 //     project-space routing rule: every dispatch must name its attributed project.
-//     Observe-only in P0 — logged as would_deny in every mode, never blocked.
 //   category "passthrough"   — everything else (c).
 //
-// Precision over recall: patterns are deliberately narrow. In observe mode a missed
-// mutation costs nothing; a false positive pollutes the 1-2 day review log.
+// Precision over recall: patterns are deliberately narrow. A false positive costs
+// one log line; a false negative in enforce mode is contained by the narrow scope
+// (mutating bash is log-only by design).
+
+import { resolve as pathResolve } from "node:path";
 
 const EXCERPT_MAX = 200;
+
+/**
+ * Code-default allowlist roots for edit/write targets (absolute POSIX paths).
+ * The config file "allow" array and PI_COORDINATOR_GUARD_ALLOW only EXTEND this
+ * list (union); there is no way to shrink it via config — that is deliberate:
+ * these are the roots the coordinator session is ever expected to touch.
+ * "My Knowledge Vault" is a read-only source vault; it is allowlisted for the
+ * rare sanctioned sync tasks, not for casual edits.
+ */
+export const DEFAULT_ALLOWLIST = [
+  "/Users/yuyuan/PiAgents",
+  "/Users/yuyuan/projects",
+  "/tmp",
+  "/private/tmp",
+  "/Users/yuyuan/.pi",
+  "/Users/yuyuan/.config",
+  "/Users/yuyuan/My Knowledge Vault", // read-only source vault; sanctioned sync only
+  "/Users/yuyuan/.feishu-user-plugin",
+];
 
 /** Obvious temp prefixes: overwrite/move targets under these are not flagged. */
 const TEMP_PREFIXES = [
@@ -117,27 +136,30 @@ export function classifyBash(command) {
   return null;
 }
 
-/** Is this edit/write target path covered by the allowlist (path prefixes)? */
+/**
+ * Is this edit/write target path covered by the allowlist (path prefixes)?
+ * Paths are LEXICALLY normalized (node:path resolve) so ".." traversal cannot
+ * escape a root, e.g. /root/allowed/../secret resolves to /secret and is then
+ * matched against the prefixes. Symlinks are NOT resolved (would need fs I/O and
+ * breaks for not-yet-existing write targets) — a symlink inside an allowlisted
+ * root pointing outside is a documented, accepted limitation.
+ */
 export function isAllowlisted(p, allowlist, cwd = process.cwd()) {
   if (!Array.isArray(allowlist) || allowlist.length === 0 || typeof p !== "string" || p === "") return false;
   let target;
-  try { target = resolve(cwd, p); } catch { return false; }
+  try { target = resolveTarget(cwd, p); } catch { return false; }
+  if (target === null) return false; // "~..." cannot be proven inside an absolute root
   return allowlist.some((prefix) => {
     let pre;
-    try { pre = resolve(cwd, String(prefix)); } catch { return false; }
+    try { pre = pathResolve(String(prefix)); } catch { return false; }
     return target === pre || target.startsWith(pre.endsWith("/") ? pre : pre + "/");
   });
 }
 
-// Local resolve shim: keeps classify.js dependency-light and lets tests pass a cwd.
-function resolve(cwd, p) {
-  if (p.startsWith("/")) return p;
-  if (p.startsWith("~")) return p; // allowlist users should pass absolute prefixes
-  return joinPosix(cwd, p);
-}
-
-function joinPosix(dir, p) {
-  return dir.endsWith("/") ? dir + p : dir + "/" + p;
+/** Normalize to an absolute path; "~..." has no provable absolute root → null. */
+function resolveTarget(cwd, p) {
+  if (p.startsWith("~")) return null;
+  return pathResolve(cwd, p); // normalizes "..", ".", duplicate slashes
 }
 
 function head(s) {
@@ -163,7 +185,7 @@ export function classifySpawn(input) {
  * Returns { category, pattern, excerpt }; excerpt is the command head (bash),
  * target path (edit/write), or task head (subagent_spawn), truncated to 200 chars.
  */
-export function classifyToolCall(toolName, input, { allowlist = [], cwd = process.cwd() } = {}) {
+export function classifyToolCall(toolName, input, { allowlist = DEFAULT_ALLOWLIST, cwd = process.cwd() } = {}) {
   if (toolName === "subagent_spawn") {
     const violation = classifySpawn(input);
     if (violation) {

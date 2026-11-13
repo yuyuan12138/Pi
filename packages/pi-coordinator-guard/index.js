@@ -1,29 +1,37 @@
-// pi-coordinator-guard — P0 OBSERVE MODE ONLY for the main coordinator session.
+// pi-coordinator-guard — per-category enforcement for the main coordinator session.
 //
 // Structural enforcement beats prompt reminders (research sa36: opencode's
 // {edit,write}→deny permission set, Aider's no-edit-path architect, CrewAI's
-// manager toolset hard-fail). P0 runs in observe mode: every main-session tool
-// call is classified and would-deny decisions are logged — the call itself is
-// NEVER blocked, modified, or delayed. After 1-2 days the user reviews the log
-// and decides whether to flip enforcement; that flip is a user decision.
+// manager toolset hard-fail). The P0 observe period (commits 699f8ea+) produced
+// the evidence; on 2026-11-13 the user decided: process rigor matters — make it
+// controllable-but-enforced. This is per-category enforcement, not blanket P0.
 //
-// What is classified (would_deny candidates):
-//   (a) mutating_bash             — git commit/push/reset/clean, rm -rf, mv or
-//                                   `>` overwrite outside obvious temp,
-//                                   brew/npm/pip installs, kill/pkill/killall,
-//                                   curl|wget piped into a shell;
-//   (b) edit_write                — edit/write targeting a path outside the
-//                                   PI_COORDINATOR_GUARD_ALLOW allowlist (P0
-//                                   default: empty — the turn's attributed
-//                                   project space is not yet derivable, so the
-//                                   target path is simply logged);
-//   (d) dispatch_missing_project_tag — subagent_spawn whose task/arguments lack
-//                                   the literal [project:<name>] token. Observe
-//                                   only, in every mode, per scope decision.
-//   (c) everything else passes through untouched, unlogged.
+// Per-category semantics:
+//   edit_write                   — enforce mode DENIES edit/write whose target
+//                                  resolves outside the effective allowlist
+//                                  (code defaults ∪ config "allow" ∪ env).
+//                                  Observe mode logs only.
+//   dispatch_missing_project_tag — enforce mode DENIES subagent_spawn without the
+//                                  literal [project:<name>] token. Observe logs only.
+//   mutating_bash                — LOG-ONLY IN EVERY MODE. Deliberate, user-ratified
+//                                  scope: git push/reset, process cleanup (kill),
+//                                  and package installs are legitimate main-session
+//                                  duties (release coordination, tunnel/worker
+//                                  hygiene) — blocking them mid-session costs more
+//                                  than it protects. Upgrade is evidence-gated:
+//                                  revisit only when the observe log shows a
+//                                  concrete false-negative class.
 //
-// Enforce stub: PI_COORDINATOR_GUARD=enforce would deny (b) only; default is
-// observe. Flipping is a user decision AFTER reviewing the log (see README).
+// Mode resolution (per tool call, precedence env > config file > default):
+//   1. PI_COORDINATOR_GUARD env, when set: "enforce" → enforce, anything else → observe.
+//   2. ~/.pi/agent/coordinator-guard.json, read live via a stat+mtime cache
+//      (edits apply without /reload): {"version":1,"mode":"observe|enforce","allow":[...]}.
+//   3. Safe default: observe.
+// Missing/corrupt config falls back to observe and logs the parse error once
+// per file change to the JSONL sink.
+//
+// Deny contract: pi 1.5.0 ToolCallEventResult { block?: boolean, reason?: string }
+// (dist/core/extensions/types.d.ts) — re-verified against the installed types.
 //
 // Scope: the MAIN coordinator session only. Worker sessions are spawned by
 // pi-superagent with `--mode rpc --no-extensions ... -e <extensionPath>`
@@ -33,20 +41,30 @@
 // Failure posture: the handler wraps everything in try/catch and swallows all
 // errors — a broken guard must never break the session.
 
-import { classifyToolCall } from "./classify.js";
+import { classifyToolCall, DEFAULT_ALLOWLIST } from "./classify.js";
 import { appendGuardLog, DEFAULT_LOG_PATH } from "./log.js";
+import { createConfigLoader, DEFAULT_CONFIG_PATH } from "./config.js";
 
-/** env var selecting the mode: "enforce" | anything else (default "observe"). */
+/** env var overriding the mode: "enforce" | anything else (forces observe). */
 export const MODE_ENV = "PI_COORDINATOR_GUARD";
-/** env var: colon-separated path prefixes exempt from the edit/write flag. */
+/** env var: colon-separated path prefixes ADDED to the edit/write allowlist. */
 export const ALLOW_ENV = "PI_COORDINATOR_GUARD_ALLOW";
 /** env var: log sink override (default ~/.pi/agent/logs/coordinator-guard.jsonl). */
 export const LOG_PATH_ENV = "PI_COORDINATOR_GUARD_LOG";
 
+/** Legacy env-only resolution (kept for compatibility): default observe. */
 export function resolveMode(env = process.env) {
   return env[MODE_ENV] === "enforce" ? "enforce" : "observe";
 }
 
+/** Tri-state env mode: undefined when unset (→ the config file decides). */
+export function resolveEnvMode(env = process.env) {
+  const v = env[MODE_ENV];
+  if (v === undefined) return undefined;
+  return v === "enforce" ? "enforce" : "observe";
+}
+
+/** Parse the env allowlist (colon-separated); additive to the code defaults. */
 export function resolveAllowlist(env = process.env) {
   const raw = env[ALLOW_ENV];
   if (!raw) return [];
@@ -57,29 +75,83 @@ export function resolveLogPath(env = process.env) {
   return env[LOG_PATH_ENV] || DEFAULT_LOG_PATH;
 }
 
+/** Effective allowlist = code defaults ∪ config "allow" ∪ env (all additive). */
+export function buildAllowlist(configAllow = [], env = process.env) {
+  return [...DEFAULT_ALLOWLIST, ...configAllow, ...resolveAllowlist(env)];
+}
+
+/** Actionable deny reason for an out-of-allowlist edit/write (names path + allowlist). */
+export function editWriteDenyReason(toolName, targetPath, allowlist, logPath) {
+  const roots = allowlist.map((r) => JSON.stringify(r)).join(", ");
+  return (
+    `pi-coordinator-guard (enforce): ${toolName} target ${JSON.stringify(targetPath)} is OUTSIDE the ` +
+    `guard allowlist. Allowed roots: ${roots}. To sanction another root, add it to "allow" in ` +
+    `~/.pi/agent/coordinator-guard.json. The coordinator session edits only via dispatched subagents — ` +
+    `hand this edit to a subagent. Decision logged to ${logPath}.`
+  );
+}
+
+/** Actionable deny reason for an untagged subagent_spawn dispatch. */
+export function spawnDenyReason(logPath) {
+  return (
+    `pi-coordinator-guard (enforce): subagent_spawn is missing the required [project:<name>] token. ` +
+    `Prefix the task with the attributed project, e.g. "[project:PiAgents] ...". ` +
+    `Decision logged to ${logPath}.`
+  );
+}
+
 /**
- * Build the tool_call handler. Options override env resolution (for tests).
- * The handler classifies, logs would-deny decisions, and (only in enforce mode,
- * only for edit_write) returns { block, reason }. It NEVER throws.
+ * Build the tool_call handler. Options override live resolution (for tests /
+ * hard pinning): mode pins the mode, allowlist pins the whole allowlist,
+ * configPath redirects the config file, env swaps the env source.
+ * The handler classifies, logs would-deny/denied decisions, and returns
+ * { block: true, reason } per the pi 1.5.0 ToolCallEventResult contract. It NEVER throws.
  */
 export function createGuard(options = {}) {
-  const mode = options.mode ?? resolveMode();
-  const allowlist = options.allowlist ?? resolveAllowlist();
-  const logPath = options.logPath ?? resolveLogPath();
+  const pinnedMode = options.mode;
+  const pinnedAllowlist = options.allowlist;
+  const envSource = options.env ?? process.env;
+  const logPath = options.logPath ?? resolveLogPath(envSource);
+  const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
+  const loadConfig = createConfigLoader({
+    configPath,
+    onError: (message) => {
+      appendGuardLog(
+        {
+          ts: new Date().toISOString(),
+          mode: "unknown",
+          decision: "error",
+          tool: "_config",
+          category: "config_error",
+          pattern: "config_parse_error",
+          excerpt: configPath,
+          error: message,
+        },
+        logPath,
+      );
+    },
+  });
 
   return async function guardToolCall(event) {
     try {
+      const cfg = loadConfig(); // stat-cached; re-read live on mtime change
+      const mode = pinnedMode ?? resolveEnvMode(envSource) ?? cfg.mode;
+      const allowlist = pinnedAllowlist ?? buildAllowlist(cfg.allow, envSource);
+
       const { category, pattern, excerpt } = classifyToolCall(event?.toolName, event?.input, { allowlist });
       if (category === "passthrough") return undefined;
 
-      // Enforce mode denies (b) edit_write only; (a) mutating_bash and
-      // (d) dispatch_missing_project_tag stay observe-only in P0.
-      const blocked = mode === "enforce" && category === "edit_write";
+      // Per-category enforcement (see header): edit_write and the spawn-tag rule
+      // deny in enforce mode; mutating_bash is log-only in EVERY mode.
+      const deny =
+        mode === "enforce" &&
+        (category === "edit_write" || category === "dispatch_missing_project_tag");
+
       appendGuardLog(
         {
           ts: new Date().toISOString(),
           mode,
-          decision: blocked ? "denied" : "would_deny",
+          decision: deny ? "denied" : "would_deny",
           tool: event?.toolName,
           category,
           pattern,
@@ -88,14 +160,12 @@ export function createGuard(options = {}) {
         },
         logPath,
       );
-      if (blocked) {
-        return {
-          block: true,
-          reason:
-            `pi-coordinator-guard (enforce): ${event?.toolName} target is outside the ` +
-            `guard allowlist — dispatch this edit to a subagent (the coordinator session ` +
-            `does not edit inline). Decision logged to ${logPath}.`,
-        };
+
+      if (deny) {
+        if (category === "edit_write") {
+          return { block: true, reason: editWriteDenyReason(event?.toolName, excerpt, allowlist, logPath) };
+        }
+        return { block: true, reason: spawnDenyReason(logPath) };
       }
     } catch {
       // Swallowed silently: guard failures must never break the session.

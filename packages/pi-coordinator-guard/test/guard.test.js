@@ -1,17 +1,31 @@
-// Tests for pi-coordinator-guard (P0 observe mode).
+// Tests for pi-coordinator-guard (per-category enforcement).
 //
 // Style: node:test + node:assert/strict, no pi runtime — same capture-style
 // fake of the ExtensionAPI surface as the repo's other extension tests.
 // The classifier is exercised as a table; the log-writer against a temp dir;
-// the extension wiring via synthetic tool_call events.
+// the extension wiring via synthetic tool_call events; the config loader
+// against temp files with explicit utime bumps (deterministic mtime cache).
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import coordinatorGuard, { createGuard, resolveMode, resolveAllowlist, resolveLogPath, MODE_ENV, ALLOW_ENV, LOG_PATH_ENV } from "../index.js";
-import { classifyBash, classifyToolCall, classifySpawn, isAllowlisted } from "../classify.js";
+import coordinatorGuard, {
+  createGuard,
+  resolveMode,
+  resolveEnvMode,
+  resolveAllowlist,
+  resolveLogPath,
+  buildAllowlist,
+  editWriteDenyReason,
+  spawnDenyReason,
+  MODE_ENV,
+  ALLOW_ENV,
+  LOG_PATH_ENV,
+} from "../index.js";
+import { classifyBash, classifyToolCall, classifySpawn, isAllowlisted, DEFAULT_ALLOWLIST } from "../classify.js";
 import { appendGuardLog } from "../log.js";
+import { parseConfigText, createConfigLoader, DEFAULT_CONFIG_PATH, CONFIG_VERSION, safeDefaultConfig } from "../config.js";
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), "pi-guard-test-"));
@@ -20,6 +34,19 @@ function tempDir() {
 function tempLogPath() {
   return join(tempDir(), "logs", "coordinator-guard.jsonl");
 }
+
+/** A config path that never exists: keeps wiring tests hermetic (no live config). */
+function noConfigPath() {
+  return join(tempDir(), "no-such-config.json");
+}
+
+/** Write a config file, pinning mtimeMs when given (deterministic cache tests). */
+function writeConfig(p, doc, mtimeMs) {
+  writeFileSync(p, typeof doc === "string" ? doc : JSON.stringify(doc));
+  if (mtimeMs !== undefined) utimesSync(p, new Date(mtimeMs), new Date(mtimeMs));
+}
+
+const SPAWN_UNTAGGED = { toolName: "subagent_spawn", input: { task: "do something", label: "work" } };
 
 function readLines(p) {
   return readFileSync(p, "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -128,15 +155,20 @@ describe("classifyBash — mutating pattern table", () => {
 // (b) edit/write classifier + allowlist
 // ---------------------------------------------------------------------------
 describe("edit/write classifier", () => {
-  test("flags write to any path with the default (empty) allowlist", () => {
+  test("flags write outside all default allowlist roots", () => {
     const r = classifyToolCall("write", { path: "/Users/x/notes.md", content: "hi" });
     assert.equal(r.category, "edit_write");
     assert.equal(r.pattern, "edit_write");
     assert.equal(r.excerpt, "/Users/x/notes.md");
   });
 
-  test("flags edit with a relative path", () => {
-    const r = classifyToolCall("edit", { path: "README.md", edits: [] });
+  test("write inside a default root passes with the code-default allowlist", () => {
+    const r = classifyToolCall("write", { path: "/Users/yuyuan/PiAgents/packages/pi-coordinator-guard/index.js", content: "x" });
+    assert.equal(r.category, "passthrough");
+  });
+
+  test("flags edit with a relative path when cwd is outside the defaults", () => {
+    const r = classifyToolCall("edit", { path: "README.md", edits: [] }, { cwd: "/opt/elsewhere" });
     assert.equal(r.category, "edit_write");
     assert.equal(r.excerpt, "README.md");
   });
@@ -323,7 +355,7 @@ describe("extension wiring", () => {
 
   test("observe mode: edit/write is logged with the target path, never blocked", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
     const result = await handler({ toolCallId: "c2", toolName: "write", input: { path: "/Users/x/notes.md", content: "hi" } });
     assert.equal(result, undefined);
     const [line] = readLines(p);
@@ -334,7 +366,7 @@ describe("extension wiring", () => {
 
   test("observe mode: untagged subagent_spawn is logged as dispatch_missing_project_tag", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
     const result = await handler({ toolCallId: "c3", toolName: "subagent_spawn", input: { task: "do something", label: "work" } });
     assert.equal(result, undefined);
     const [line] = readLines(p);
@@ -345,14 +377,14 @@ describe("extension wiring", () => {
 
   test("tagged subagent_spawn is not logged", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
     await handler({ toolName: "subagent_spawn", input: { task: "[project:PiAgents] do it" } });
     assert.throws(() => statSync(p), Error); // no log file created at all
   });
 
   test("passthrough calls produce no log lines", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
     await handler({ toolName: "read", input: { path: "/x" } });
     await handler({ toolName: "bash", input: { command: "ls -la" } });
     await handler({ toolName: "grep", input: { pattern: "x" } });
@@ -362,7 +394,7 @@ describe("extension wiring", () => {
 
   test("enforce mode: edit_write is blocked with a reason and logged as denied", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "enforce", logPath: p });
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath() });
     const result = await handler({ toolCallId: "c4", toolName: "edit", input: { path: "/outside/x.js" } });
     assert.ok(result && result.block === true);
     assert.match(result.reason, /enforce/);
@@ -371,18 +403,19 @@ describe("extension wiring", () => {
 
   test("enforce mode: mutating bash stays observe-only (log, no block)", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "enforce", logPath: p });
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath() });
     const result = await handler({ toolName: "bash", input: { command: "git reset --hard" } });
     assert.equal(result, undefined);
     assert.equal(readLines(p)[0].decision, "would_deny");
   });
 
-  test("enforce mode: untagged spawn stays observe-only (log, no block)", async () => {
+  test("enforce mode: untagged spawn is now DENIED (per-category upgrade, was P0 observe-only)", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "enforce", logPath: p });
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath() });
     const result = await handler({ toolName: "subagent_spawn", input: { task: "no tag" } });
-    assert.equal(result, undefined);
-    assert.equal(readLines(p)[0].decision, "would_deny");
+    assert.equal(result?.block, true);
+    assert.match(result.reason, /\[project:<name>\]/);
+    assert.equal(readLines(p)[0].decision, "denied");
     assert.equal(readLines(p)[0].category, "dispatch_missing_project_tag");
   });
 
@@ -398,14 +431,14 @@ describe("extension wiring", () => {
     const dir = tempDir();
     const filePath = join(dir, "file");
     writeFileSync(filePath, "x");
-    const handler = createGuard({ mode: "observe", logPath: join(filePath, "nested", "guard.jsonl") });
+    const handler = createGuard({ mode: "observe", logPath: join(filePath, "nested", "guard.jsonl"), configPath: noConfigPath() });
     const result = await handler({ toolName: "bash", input: { command: "rm -rf /" } });
     assert.equal(result, undefined);
   });
 
   test("odd events never throw", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
     assert.equal(await handler(undefined), undefined);
     assert.equal(await handler({}), undefined);
     assert.equal(await handler({ toolName: "bash" }), undefined);
