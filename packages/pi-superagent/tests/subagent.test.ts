@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { SubagentManager, allocEventsDirName, dirToken } from "../src/subagent/manager.ts";
+import { SubagentManager, allocEventsDirName, dirToken, parseSpawnTagRequired, SPAWN_TAG_ENV } from "../src/subagent/manager.ts";
 import type { ChildLike, SpawnFn } from "../src/subagent/types.ts";
 
 /** Fake `pi --mode rpc`: scripted events per prompt. */
@@ -32,7 +32,7 @@ const happy = (final: string) => (fp: FakePi, c: any) => {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Spawn-tree env vars that would otherwise leak from the host session into test managers. */
-const HEREDITY = ["PI_SUBAGENT_ID", "PI_SPAWN_DEPTH", "PI_SPAWN_CHAIN", "PI_SPAWN_BUDGET"] as const;
+const HEREDITY = ["PI_SUBAGENT_ID", "PI_SPAWN_DEPTH", "PI_SPAWN_CHAIN", "PI_SPAWN_BUDGET", "PI_SPAWN_REQUIRE_PROJECT_TAG"] as const;
 
 async function setup(script: (fp: FakePi, c: any) => void, extra: Partial<ConstructorParameters<typeof SubagentManager>[0]> = {}, env: Partial<Record<(typeof HEREDITY)[number], string>> = {}) {
   const dir = await mkdtemp(join(tmpdir(), "sub-"));
@@ -55,13 +55,13 @@ async function setup(script: (fp: FakePi, c: any) => void, extra: Partial<Constr
 describe("subagent manager", () => {
   it("spawns headless pi in rpc mode with this extension and the guard env", async () => {
     const { m, spawned } = await setup(happy("done"));
-    await m.spawn({ task: "do x", model: "deepseek/deepseek-flash" });
+    await m.spawn({ task: "[project:PiAgents] do x", model: "deepseek/deepseek-flash" });
     expect(spawned[0]).toEqual(["pi", "--mode", "rpc", "--no-extensions", "--no-mcp", "--no-approve", "--offline", "-e", "/ext/index.ts", "--no-session", "--model", "deepseek/deepseek-flash"]);
   });
 
   it("passes tools and session through to the child CLI args", async () => {
     const { m, spawned, dir } = await setup(happy("done"));
-    await m.spawn({ task: "fix auth", tools: ["read", "bash"], session: "fix-auth" });
+    await m.spawn({ task: "[project:PiAgents] fix auth", tools: ["read", "bash"], session: "fix-auth" });
     const args = spawned[0];
     expect(args).not.toContain("--no-session");
     expect(args).toContain("--tools");
@@ -76,22 +76,22 @@ describe("subagent manager", () => {
 
   it("maps an empty tools list to --no-tools (report tool stays active via the extension)", async () => {
     const { m, spawned } = await setup(happy("done"));
-    await m.spawn({ task: "think only", tools: [] });
+    await m.spawn({ task: "[project:PiAgents] think only", tools: [] });
     expect(spawned[0]).toContain("--no-tools");
     expect(spawned[0]).not.toContain("--tools");
   });
 
   it("rejects tool names outside the built-in child tools and invalid session ids", async () => {
     const { m } = await setup(happy("done"));
-    await expect(m.spawn({ task: "x", tools: ["subagent"] })).rejects.toThrow("Only built-in child tools are enabled");
-    await expect(m.spawn({ task: "x", tools: ["+bash"] })).rejects.toThrow("Only built-in child tools are enabled");
-    await expect(m.spawn({ task: "x", session: "bad id!" })).rejects.toThrow("invalid subagent session id");
+    await expect(m.spawn({ task: "[project:PiAgents] x", tools: ["subagent"] })).rejects.toThrow("Only built-in child tools are enabled");
+    await expect(m.spawn({ task: "[project:PiAgents] x", tools: ["+bash"] })).rejects.toThrow("Only built-in child tools are enabled");
+    await expect(m.spawn({ task: "[project:PiAgents] x", session: "bad id!" })).rejects.toThrow("invalid subagent session id");
     expect(m.list()).toHaveLength(0);
   });
 
   it("waitFor resolves with the final result once the subagent finishes", async () => {
     const { m } = await setup(happy("FINAL ANSWER"));
-    const i = await m.spawn({ task: "compute" });
+    const i = await m.spawn({ task: "[project:PiAgents] compute" });
     const fin = await m.waitFor(i.id);
     expect(fin.state).toBe("done");
     expect(fin.result).toBe("FINAL ANSWER");
@@ -99,8 +99,8 @@ describe("subagent manager", () => {
 
   it("waitFor resolves immediately for an already-finished subagent and for queued ones", async () => {
     const { m } = await setup(happy("ok"), { maxConcurrent: 1 });
-    const a = await m.spawn({ task: "a" });
-    const b = await m.spawn({ task: "b" });
+    const a = await m.spawn({ task: "[project:PiAgents] a" });
+    const b = await m.spawn({ task: "[project:PiAgents] b" });
     expect(b.state).toBe("queued");
     const doneA = await m.waitFor(a.id);
     expect(doneA.result).toBe("ok");
@@ -111,7 +111,7 @@ describe("subagent manager", () => {
 
   it("waitFor surfaces failure", async () => {
     const { m, kids } = await setup(() => {});
-    const i = await m.spawn({ task: "x" });
+    const i = await m.spawn({ task: "[project:PiAgents] x" });
     kids[0].emit("exit", 1);
     const fin = await m.waitFor(i.id);
     expect(fin.state).toBe("failed");
@@ -121,7 +121,7 @@ describe("subagent manager", () => {
   it("keeps main context clean: only throttled reports + truncated final result, full log on disk", async () => {
     const big = "R".repeat(5000);
     const { m, msgs } = await setup(happy(big));
-    const i = await m.spawn({ task: "investigate", label: "inv" });
+    const i = await m.spawn({ task: "[project:PiAgents] investigate", label: "inv" });
     await wait(30);
     expect(i.state).toBe("done");
     const all = msgs.map((x) => x.t).join("\n");
@@ -143,7 +143,7 @@ describe("subagent manager", () => {
     const { m, msgs } = await setup((fp, c) => {
       if (c.type === "prompt") setImmediate(() => fp.emitEv({ type: "tool_execution_start", toolName: "report_to_parent", args: { status: "blocked", summary: "two options", question: "Postgres or SQLite?" } }));
     });
-    await m.spawn({ task: "db" });
+    await m.spawn({ task: "[project:PiAgents] db" });
     await wait(10);
     expect(msgs[0]).toMatchObject({ wake: true });
     expect(msgs[0].t).toContain("Postgres or SQLite?");
@@ -151,7 +151,7 @@ describe("subagent manager", () => {
 
   it("respects the concurrency cap and drains the queue", async () => {
     const { m, kids } = await setup(happy("ok"), { maxConcurrent: 2 });
-    const a = await m.spawn({ task: "a" }), b = await m.spawn({ task: "b" }), c = await m.spawn({ task: "c" });
+    const a = await m.spawn({ task: "[project:PiAgents] a" }), b = await m.spawn({ task: "[project:PiAgents] b" }), c = await m.spawn({ task: "[project:PiAgents] c" });
     expect([a.state, b.state, c.state]).toEqual(["running", "running", "queued"]);
     expect(kids).toHaveLength(2);
     await wait(50);
@@ -161,7 +161,7 @@ describe("subagent manager", () => {
 
   it("steers a running subagent and stops it", async () => {
     const { m, kids } = await setup(() => {});
-    const i = await m.spawn({ task: "long" });
+    const i = await m.spawn({ task: "[project:PiAgents] long" });
     void m.message(i.id, "focus on tests");
     expect(kids[0].sent.at(-1)).toMatchObject({ type: "steer", message: "focus on tests" });
     m.stop(i.id);
@@ -173,7 +173,7 @@ describe("subagent manager", () => {
 
   it("reports a crash as failed", async () => {
     const { m, kids, msgs } = await setup(() => {});
-    const i = await m.spawn({ task: "x" });
+    const i = await m.spawn({ task: "[project:PiAgents] x" });
     kids[0].emit("exit", 1);
     expect(i.state).toBe("failed");
     expect(msgs.at(-1)!.t).toContain("failed");
@@ -181,7 +181,7 @@ describe("subagent manager", () => {
 
   it("auto-cancels dialog UI requests from the child", async () => {
     const { m, kids } = await setup(() => {});
-    await m.spawn({ task: "x" });
+    await m.spawn({ task: "[project:PiAgents] x" });
     kids[0].emitEv({ type: "extension_ui_request", id: "u1", method: "confirm" });
     expect(kids[0].sent.at(-1)).toEqual({ type: "extension_ui_response", id: "u1", cancelled: true });
   });
@@ -190,7 +190,7 @@ describe("subagent manager", () => {
 describe("fanout / recursion / budget / lineage", () => {
   it("fanout=3 tracks three members and resolves a combined result with unique ids and lineage", async () => {
     const { m, spawned } = await setup(happy("CANDIDATE OK"));
-    const first = await m.spawn({ task: "try the fix", fanout: 3 });
+    const first = await m.spawn({ task: "[project:PiAgents] try the fix", fanout: 3 });
     expect(m.list().map((i) => i.id).sort()).toEqual(["sa1-a", "sa1-b", "sa1-c"]);
     expect(first.id).toBe("sa1-a");
     expect(first.fanout).toEqual({ groupId: "sa1", total: 3, index: 0, memberIds: ["sa1-a", "sa1-b", "sa1-c"] });
@@ -205,7 +205,7 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("no fanout keeps the exact single-spawn shape (no suffix, no fanout metadata)", async () => {
     const { m } = await setup(happy("ok"));
-    const i = await m.spawn({ task: "plain" });
+    const i = await m.spawn({ task: "[project:PiAgents] plain" });
     expect(i.id).toBe("sa1");
     expect(i.fanout).toBeUndefined();
     expect(i.spawnedBy).toEqual([]);
@@ -214,7 +214,7 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("background fanout: each member reports independently plus one combined report", async () => {
     const { m, msgs } = await setup(happy("member result"));
-    await m.spawn({ task: "try", fanout: 2 });
+    await m.spawn({ task: "[project:PiAgents] try", fanout: 2 });
     await wait(30);
     const combined = msgs.filter((x) => x.t.includes("[fanout sa1"));
     expect(combined).toHaveLength(1);
@@ -233,7 +233,7 @@ describe("fanout / recursion / budget / lineage", () => {
       return { code: 0, stdout: "", stderr: "" };
     };
     const { m } = await setup(happy("ok"), { exec });
-    const first = await m.spawn({ task: "t", fanout: 2, isolate: true });
+    const first = await m.spawn({ task: "[project:PiAgents] t", fanout: 2, isolate: true });
     expect(worktreeAdds).toBe(2);
     expect(first.worktree).toBeTruthy();
     const list = m.list();
@@ -243,7 +243,7 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("combined result surfaces a failed member instead of hiding it", async () => {
     const { m, kids } = await setup(happy("ok"));
-    await m.spawn({ task: "t", fanout: 2 });
+    await m.spawn({ task: "[project:PiAgents] t", fanout: 2 });
     kids[0].emit("exit", 1); // first member crashes before settling
     const combined = await m.waitForAll("sa1");
     expect(combined[0].status).toBe("failed");
@@ -253,16 +253,16 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("validates fanout and rejects session+fanout", async () => {
     const { m } = await setup(happy("ok"));
-    await expect(m.spawn({ task: "t", fanout: 4 })).rejects.toThrow("fanout must be an integer between 1 and 3");
-    await expect(m.spawn({ task: "t", fanout: 0 })).rejects.toThrow("fanout must be an integer between 1 and 3");
-    await expect(m.spawn({ task: "t", fanout: 1.5 })).rejects.toThrow("fanout must be an integer between 1 and 3");
-    await expect(m.spawn({ task: "t", fanout: 2, session: "s" })).rejects.toThrow("fanout cannot be combined with a named session");
+    await expect(m.spawn({ task: "[project:PiAgents] t", fanout: 4 })).rejects.toThrow("fanout must be an integer between 1 and 3");
+    await expect(m.spawn({ task: "[project:PiAgents] t", fanout: 0 })).rejects.toThrow("fanout must be an integer between 1 and 3");
+    await expect(m.spawn({ task: "[project:PiAgents] t", fanout: 1.5 })).rejects.toThrow("fanout must be an integer between 1 and 3");
+    await expect(m.spawn({ task: "[project:PiAgents] t", fanout: 2, session: "s" })).rejects.toThrow("fanout cannot be combined with a named session");
     expect(m.list()).toHaveLength(0);
   });
 
   it("waitForAll rejects unknown keys but resolves via a member id", async () => {
     const { m } = await setup(happy("ok"));
-    const i = await m.spawn({ task: "t", fanout: 2 });
+    const i = await m.spawn({ task: "[project:PiAgents] t", fanout: 2 });
     await expect(m.waitForAll("nope")).rejects.toThrow("no fanout group");
     const combined = await m.waitForAll(i.id); // member id resolves its group
     expect(combined).toHaveLength(2);
@@ -270,28 +270,28 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("spawns beyond the old depth cap: a depth-3 agent proceeds while budget remains", async () => {
     const { m, envs } = await setup(happy("ok"), { spawnDepth: 3 });
-    const i = await m.spawn({ task: "t" });
+    const i = await m.spawn({ task: "[project:PiAgents] t" });
     expect(i.depth).toBe(4); // nesting is uncapped; depth is observability only
     expect(envs[0].PI_SPAWN_DEPTH).toBe("4");
-    const fan = await m.spawn({ task: "t2", fanout: 2 }); // also proceeds; budget (3) now used up
+    const fan = await m.spawn({ task: "[project:PiAgents] t2", fanout: 2 }); // also proceeds; budget (3) now used up
     expect(fan.depth).toBe(4);
     expect(m.list()).toHaveLength(3);
   });
 
   it("PI_SPAWN_DEPTH env: unset = root, deep or corrupt values still spawn (depth is never a refusal)", async () => {
     const { m } = await setup(happy("ok"));
-    await expect(m.spawn({ task: "t" })).resolves.toMatchObject({ depth: 1 });
+    await expect(m.spawn({ task: "[project:PiAgents] t" })).resolves.toMatchObject({ depth: 1 });
     const { m: m3 } = await setup(happy("ok"), {}, { PI_SPAWN_DEPTH: "3" });
-    await expect(m3.spawn({ task: "t" })).resolves.toMatchObject({ depth: 4 });
+    await expect(m3.spawn({ task: "[project:PiAgents] t" })).resolves.toMatchObject({ depth: 4 });
     const { m: mg } = await setup(happy("ok"), {}, { PI_SPAWN_DEPTH: "garbage" });
-    const g = await mg.spawn({ task: "t" });
+    const g = await mg.spawn({ task: "[project:PiAgents] t" });
     expect(g.depth).toBeGreaterThan(1e15); // corrupt value stays visible in lineage, never gates spawning
   });
 
   it("a chain deeper than the old cap keeps spawning while budget lasts", async () => {
     const { m, envs } = await setup(happy("ok"), {}, { PI_SUBAGENT_ID: "sa5-c", PI_SPAWN_DEPTH: "5", PI_SPAWN_CHAIN: "sa5,sa5-b" });
     for (let i = 1; i <= 3; i++) {
-      const g = await m.spawn({ task: `level ${i}` }); // default budget 3: all three succeed
+      const g = await m.spawn({ task: `[project:PiAgents] level ${i}` }); // default budget 3: all three succeed
       expect(g.depth).toBe(6);
       expect(g.spawnedBy).toEqual(["sa5", "sa5-b", "sa5-c"]);
       expect(envs[i - 1].PI_SPAWN_DEPTH).toBe("6");
@@ -300,9 +300,9 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("budget exhaustion still refuses at deep depth (budget is the only bound, never depth)", async () => {
     const { m } = await setup(happy("ok"), { spawnBudget: 1 }, { PI_SPAWN_DEPTH: "7" });
-    await m.spawn({ task: "first" });
+    await m.spawn({ task: "[project:PiAgents] first" });
     let err: Error | undefined;
-    try { await m.spawn({ task: "second" }); } catch (e) { err = e as Error; }
+    try { await m.spawn({ task: "[project:PiAgents] second" }); } catch (e) { err = e as Error; }
     expect(err?.message).toContain("budget exhausted");
     expect(err?.message).not.toContain("depth"); // refusal names the budget, not a depth cap
     expect(m.list()).toHaveLength(1);
@@ -310,14 +310,14 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("a nested manager stamps lineage and passes depth+1 env to grandchildren", async () => {
     const { m, envs } = await setup(happy("ok"), {}, { PI_SUBAGENT_ID: "sa9-b", PI_SPAWN_DEPTH: "2", PI_SPAWN_CHAIN: "sa9" });
-    const g = await m.spawn({ task: "grandchild task" });
+    const g = await m.spawn({ task: "[project:PiAgents] grandchild task" });
     expect(g.id).toBe("sa9-b-sa1"); // ids stay unique across the spawn tree
     expect(g.spawnedBy).toEqual(["sa9", "sa9-b"]);
     expect(g.depth).toBe(3);
     expect(envs[0].PI_SPAWN_DEPTH).toBe("3");
     expect(envs[0].PI_SPAWN_CHAIN).toBe("sa9,sa9-b");
     expect(envs[0].PI_SUBAGENT_ID).toBe("sa9-b-sa1");
-    const fan = await m.spawn({ task: "fan", fanout: 2 });
+    const fan = await m.spawn({ task: "[project:PiAgents] fan", fanout: 2 });
     expect(fan.id).toBe("sa9-b-sa2-a");
     expect(fan.fanout!.groupId).toBe("sa9-b-sa2");
     expect(fan.spawnedBy).toEqual(["sa9", "sa9-b"]);
@@ -325,30 +325,30 @@ describe("fanout / recursion / budget / lineage", () => {
 
   it("enforces the spawn budget: fanout counts as N, exhaustion errors loudly", async () => {
     const { m } = await setup(happy("ok"));
-    await m.spawn({ task: "1" });
-    await m.spawn({ task: "2" });
-    await m.spawn({ task: "3" });
-    await expect(m.spawn({ task: "4" })).rejects.toThrow("budget exhausted");
+    await m.spawn({ task: "[project:PiAgents] 1" });
+    await m.spawn({ task: "[project:PiAgents] 2" });
+    await m.spawn({ task: "[project:PiAgents] 3" });
+    await expect(m.spawn({ task: "[project:PiAgents] 4" })).rejects.toThrow("budget exhausted");
     expect(m.list()).toHaveLength(3); // the refused spawn created nothing
     const { m: m2 } = await setup(happy("ok"), { spawnBudget: 3 });
-    await m2.spawn({ task: "fan", fanout: 3 }); // one fanout consumes the whole budget
-    await expect(m2.spawn({ task: "more" })).rejects.toThrow("budget exhausted");
+    await m2.spawn({ task: "[project:PiAgents] fan", fanout: 3 }); // one fanout consumes the whole budget
+    await expect(m2.spawn({ task: "[project:PiAgents] more" })).rejects.toThrow("budget exhausted");
     const { m: m3 } = await setup(happy("ok"), { spawnBudget: 2 });
-    await expect(m3.spawn({ task: "too big", fanout: 3 })).rejects.toThrow("budget exhausted");
+    await expect(m3.spawn({ task: "[project:PiAgents] too big", fanout: 3 })).rejects.toThrow("budget exhausted");
     expect(m3.list()).toHaveLength(0);
   });
 
   it("PI_SPAWN_BUDGET env overrides the default budget of 3", async () => {
     const { m } = await setup(happy("ok"), {}, { PI_SPAWN_BUDGET: "1" });
-    await m.spawn({ task: "a" });
-    await expect(m.spawn({ task: "b" })).rejects.toThrow("budget exhausted");
+    await m.spawn({ task: "[project:PiAgents] a" });
+    await expect(m.spawn({ task: "[project:PiAgents] b" })).rejects.toThrow("budget exhausted");
   });
 });
 
 describe("per-dispatch events directories (root fix for numeric id collisions)", () => {
   it("no-session dispatch gets a suffixed unique dir (sa1-k3f9 style) with the display id unchanged", async () => {
     const { m, dir } = await setup(happy("ok"));
-    const i = await m.spawn({ task: "t" });
+    const i = await m.spawn({ task: "[project:PiAgents] t" });
     expect(i.id).toBe("sa1"); // numeric id stays the display id reported to the coordinator
     expect(dirname(i.logDir)).toBe(dir);
     expect(basename(i.logDir)).toMatch(/^sa1-[a-z0-9]{4}$/); // 4-char filesystem-safe token
@@ -357,7 +357,7 @@ describe("per-dispatch events directories (root fix for numeric id collisions)",
 
   it("a named session id becomes the events directory verbatim, display id unchanged", async () => {
     const { m, dir } = await setup(happy("ok"));
-    const i = await m.spawn({ task: "t", session: "arch-zh-x1" });
+    const i = await m.spawn({ task: "[project:PiAgents] t", session: "arch-zh-x1" });
     expect(i.id).toBe("sa1");
     expect(i.logDir).toBe(join(dir, "arch-zh-x1"));
     expect(existsSync(i.logDir)).toBe(true);
@@ -368,7 +368,7 @@ describe("per-dispatch events directories (root fix for numeric id collisions)",
     const oldDir = join(dir, "sa1"); // historical era dir from another conversation
     mkdirSync(oldDir, { recursive: true });
     writeFileSync(join(oldDir, "events.jsonl"), "OLD ERA\n");
-    const i = await m.spawn({ task: "t" });
+    const i = await m.spawn({ task: "[project:PiAgents] t" });
     expect(i.id).toBe("sa1");
     expect(i.logDir).not.toBe(oldDir);
     expect(basename(i.logDir)).toMatch(/^sa1-[a-z0-9]{4}$/);
@@ -383,9 +383,9 @@ describe("per-dispatch events directories (root fix for numeric id collisions)",
       mkdirSync(join(dir, name), { recursive: true });
       writeFileSync(join(dir, name, "result.md"), `era ${name}\n`);
     }
-    const i = await m.spawn({ task: "t" });
+    const i = await m.spawn({ task: "[project:PiAgents] t" });
     const { m: m2 } = await setup(happy("ok"), { baseDir: dir }); // a second conversation-era manager over the same disk
-    const j = await m2.spawn({ task: "t2" });
+    const j = await m2.spawn({ task: "[project:PiAgents] t2" });
     for (const name of ["sa1", "sa2", "sa27"]) {
       expect(readFileSync(join(dir, name, "result.md"), "utf8")).toBe(`era ${name}\n`); // still readable, unmodified
     }
@@ -397,7 +397,7 @@ describe("per-dispatch events directories (root fix for numeric id collisions)",
 
   it("fanout members get unique suffixed dirs while keeping their display ids", async () => {
     const { m } = await setup(happy("ok"));
-    const first = await m.spawn({ task: "t", fanout: 3 });
+    const first = await m.spawn({ task: "[project:PiAgents] t", fanout: 3 });
     expect(first.id).toBe("sa1-a");
     const list = m.list();
     expect(list.map((i) => i.id).sort()).toEqual(["sa1-a", "sa1-b", "sa1-c"]); // display ids unchanged
@@ -409,7 +409,7 @@ describe("per-dispatch events directories (root fix for numeric id collisions)",
 
   it("spawns keep byte-identical worker args, env and lineage despite the dir rename", async () => {
     const { m, spawned, envs } = await setup(happy("ok"), {}, { PI_SUBAGENT_ID: "sa9-b", PI_SPAWN_DEPTH: "2", PI_SPAWN_CHAIN: "sa9" });
-    const g = await m.spawn({ task: "t" });
+    const g = await m.spawn({ task: "[project:PiAgents] t" });
     expect(g.id).toBe("sa9-b-sa1");
     expect(basename(g.logDir)).toMatch(/^sa9-b-sa1-[a-z0-9]{4}$/); // dir unique, id prefix intact
     expect(g.spawnedBy).toEqual(["sa9", "sa9-b"]);
@@ -441,5 +441,73 @@ describe("per-dispatch events directories (root fix for numeric id collisions)",
     expect(allocEventsDirName("sa27", undefined, (n) => n === "sa27-k3f9", (s) => (s === 0 ? "k3f9" : "q7w2"))).toBe("sa27-q7w2");
     const taken = new Set(["sa27-k3f9", "sa27-q7w2", "sa27-aaaa"]);
     expect(allocEventsDirName("sa27", undefined, (n) => taken.has(n), (s) => ["k3f9", "q7w2", "aaaa"][s] ?? "zzzz")).toBe("sa27-zzzz");
+  });
+});
+
+describe("spawn-tag gate (project-space routing, PI_SPAWN_REQUIRE_PROJECT_TAG)", () => {
+  it("default ON: a task without the [project:<name>] token throws the actionable reason before any spawn side effect", async () => {
+    const { m, spawned } = await setup(happy("ok"));
+    let err: Error | undefined;
+    try { await m.spawn({ task: "no tag here" }); } catch (e) { err = e as Error; }
+    expect(err?.message).toContain("missing the required [project:<name>] token");
+    expect(err?.message).toContain('[project:PiAgents]'); // the example fix
+    expect(err?.message).toContain("PI_SPAWN_REQUIRE_PROJECT_TAG=0"); // the kill switch
+    expect(err?.message).toContain("coordinator-side guard"); // division of labor is documented in the denial
+    expect(spawned).toHaveLength(0); // nothing was spawned
+    expect(m.list()).toHaveLength(0); // no subagent state was created
+  });
+
+  it("nested (depth-2) managers are gated identically: tagless grandchild task throws, tagged passes", async () => {
+    const { m, spawned, envs } = await setup(happy("ok"), {}, { PI_SUBAGENT_ID: "sa9-b", PI_SPAWN_DEPTH: "2", PI_SPAWN_CHAIN: "sa9" });
+    await expect(m.spawn({ task: "tagless grandchild task" })).rejects.toThrow("missing the required [project:<name>] token");
+    expect(spawned).toHaveLength(0);
+    const g = await m.spawn({ task: "[project:PiAgents] grandchild task" });
+    expect(g.id).toBe("sa9-b-sa1"); // the nested path itself is unchanged for tagged dispatches
+    expect(envs[0].PI_SPAWN_DEPTH).toBe("3");
+    expect(spawned).toHaveLength(1);
+  });
+
+  it("the token counts anywhere in the task text (prefix or inline)", async () => {
+    const { m, spawned } = await setup(happy("ok"));
+    await m.spawn({ task: "[project:PiAgents] prefix form" });
+    await m.spawn({ task: "please do it [project:PiAgents] inline form" });
+    expect(spawned).toHaveLength(2);
+  });
+
+  it("kill switch PI_SPAWN_REQUIRE_PROJECT_TAG=0|false restores untagged spawning; any other value stays ON", async () => {
+    const { m } = await setup(happy("ok"), {}, { [SPAWN_TAG_ENV]: "0" });
+    await expect(m.spawn({ task: "tagless legacy task" })).resolves.toMatchObject({ id: "sa1" });
+    const { m: mf } = await setup(happy("ok"), {}, { [SPAWN_TAG_ENV]: "false" });
+    await expect(mf.spawn({ task: "tagless legacy task" })).resolves.toMatchObject({ id: "sa1" });
+    const { m: m1 } = await setup(happy("ok"), {}, { [SPAWN_TAG_ENV]: "1" });
+    await expect(m1.spawn({ task: "tagless legacy task" })).rejects.toThrow("missing the required [project:<name>] token");
+    const { m: mg } = await setup(happy("ok"), {}, { [SPAWN_TAG_ENV]: "garbage" });
+    await expect(mg.spawn({ task: "tagless legacy task" })).rejects.toThrow("missing the required [project:<name>] token");
+  });
+
+  it("options.requireProjectTag overrides env (manager-level pin)", async () => {
+    const { m } = await setup(happy("ok"), { requireProjectTag: false }, { [SPAWN_TAG_ENV]: "1" });
+    await expect(m.spawn({ task: "tagless via option" })).resolves.toMatchObject({ id: "sa1" });
+    const { m: m2 } = await setup(happy("ok"), { requireProjectTag: true }, { [SPAWN_TAG_ENV]: "0" });
+    await expect(m2.spawn({ task: "tagless via option" })).rejects.toThrow("missing the required [project:<name>] token");
+  });
+
+  it("parseSpawnTagRequired: only '0'/'false' disable (case/space tolerant); unset/empty/garbage = ON", () => {
+    expect(parseSpawnTagRequired(undefined)).toBe(true);
+    expect(parseSpawnTagRequired("")).toBe(true);
+    expect(parseSpawnTagRequired("  ")).toBe(true);
+    expect(parseSpawnTagRequired("0")).toBe(false);
+    expect(parseSpawnTagRequired(" false ")).toBe(false);
+    expect(parseSpawnTagRequired("FALSE")).toBe(false);
+    expect(parseSpawnTagRequired("1")).toBe(true);
+    expect(parseSpawnTagRequired("true")).toBe(true);
+    expect(parseSpawnTagRequired("off")).toBe(true); // anything but 0/false is ON
+  });
+
+  it("the gate runs before the budget check: a tagless task names the tag, a tagged one names the budget", async () => {
+    const { m } = await setup(happy("ok"), { spawnBudget: 1 });
+    await m.spawn({ task: "[project:PiAgents] one" });
+    await expect(m.spawn({ task: "tagless second" })).rejects.toThrow("missing the required [project:<name>] token");
+    await expect(m.spawn({ task: "[project:PiAgents] second" })).rejects.toThrow("budget exhausted");
   });
 });

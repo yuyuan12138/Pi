@@ -20,16 +20,17 @@ describe("subagent recursion (real pi, depth-2 chain)", () => {
   it("root spawns child spawns grandchild; grandchild writes the marker file", { timeout: 420_000 }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "sa-chain-"));
     const marker = join(dir, "grandchild-marker.txt");
-    const grandchildTask = `Use the write tool to create the file ${marker} with exactly this content: GRANDCHILD_OK. Then reply with exactly: GRANDCHILD_OK`;
-    const childTask = `Call the subagent_spawn tool exactly once with wait=true and this exact task for the subagent: "${grandchildTask}". When the subagent has finished, your final message must include the subagent's final result text verbatim.`;
+    const grandchildTask = `[project:PiAgents] Use the write tool to create the file ${marker} with exactly this content: GRANDCHILD_OK. Then reply with exactly: GRANDCHILD_OK`;
+    const childTask = `[project:PiAgents] Call the subagent_spawn tool exactly once with wait=true and this exact task for the subagent: "${grandchildTask}". When the subagent has finished, your final message must include the subagent's final result text verbatim.`;
     const msgs: string[] = [];
     // Children inherit PI_SUBAGENT_MODEL so the grandchild (spawned by the child's own
     // manager, with no explicit model) resolves to the same working model.
     const prevModel = process.env.PI_SUBAGENT_MODEL;
     process.env.PI_SUBAGENT_MODEL = MODEL;
     // Hermetic: this host session runs inside a subagent itself; leaked spawn-tree env
-    // (PI_SUBAGENT_ID/PI_SPAWN_DEPTH/…) would re-root the whole chain. Restore afterwards.
-    const heredity = ["PI_SUBAGENT_ID", "PI_SPAWN_DEPTH", "PI_SPAWN_CHAIN", "PI_SPAWN_BUDGET"] as const;
+    // (PI_SUBAGENT_ID/PI_SPAWN_DEPTH/…, PI_SPAWN_REQUIRE_PROJECT_TAG) would re-root the whole
+    // chain or flip the spawn-tag gate. Restore afterwards.
+    const heredity = ["PI_SUBAGENT_ID", "PI_SPAWN_DEPTH", "PI_SPAWN_CHAIN", "PI_SPAWN_BUDGET", "PI_SPAWN_REQUIRE_PROJECT_TAG"] as const;
     const savedEnv = heredity.map((k) => [k, process.env[k]] as const);
     for (const k of heredity) delete process.env[k];
     const m = new SubagentManager({

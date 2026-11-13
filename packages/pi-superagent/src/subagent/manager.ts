@@ -6,6 +6,10 @@ import type { Exec } from "../types.ts";
 export const REPORT_TOOL = "report_to_parent";
 /** The extension's own delegation tool; appended to child --tools allowlists for recursion. */
 export const SPAWN_TOOL = "subagent_spawn";
+/** Kill switch for the spawn-tag gate (default ON; "0"/"false" disables — degraded-mode ops). */
+export const SPAWN_TAG_ENV = "PI_SPAWN_REQUIRE_PROJECT_TAG";
+/** Literal [project:<name>] token every spawned task must carry (format only; see the gate below). */
+const PROJECT_TAG_RE = /\[project:[^\]\s]+\]/;
 /** Max fanout per spawn call (best-of-N candidates). */
 export const MAX_FANOUT = 3;
 /** Per-agent spawn budget when PI_SPAWN_BUDGET is unset (fanout of N counts as N). */
@@ -24,6 +28,32 @@ export function parseSpawnBudget(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return DEFAULT_SPAWN_BUDGET;
   const n = Number.parseInt(raw, 10);
   return Number.isNaN(n) || n < 0 ? DEFAULT_SPAWN_BUDGET : n;
+}
+
+/**
+ * Spawn-tag gate state from PI_SPAWN_REQUIRE_PROJECT_TAG: ON unless the value is
+ * "0" or "false" (case/space tolerant) — an ops kill switch for degraded mode, same
+ * semantics as the coordinator guard's env switches. Unset/empty/garbage = ON.
+ */
+export function parseSpawnTagRequired(raw: string | undefined): boolean {
+  if (raw === undefined || raw.trim() === "") return true;
+  const v = raw.trim().toLowerCase();
+  return !(v === "0" || v === "false");
+}
+
+/**
+ * Deny error for a tagless spawn at the spawner chokepoint. Same actionable shape as
+ * the coordinator guard's spawnDenyReason (pi-coordinator-guard/index.js): what is
+ * missing, the fix, the division of labor, and the kill switch.
+ */
+export function missingProjectTagError(task: string): Error {
+  return new Error(
+    `pi-superagent spawn gate: subagent_spawn task is missing the required [project:<name>] token ` +
+    `(task head: ${JSON.stringify(truncate(task, 80))}). ` +
+    `Prefix the task with the attributed project, e.g. "[project:PiAgents] ...". ` +
+    `Format only — registry validation is owned by the coordinator-side guard (pi-coordinator-guard). ` +
+    `Set ${SPAWN_TAG_ENV}=0 to restore untagged spawning in degraded mode.`,
+  );
 }
 
 function parseSpawnChain(raw: string | undefined): string[] {
@@ -102,6 +132,8 @@ export interface ManagerOptions {
   selfId?: string;
   /** Total spawns this agent may make; a fanout of N counts as N (default: PI_SPAWN_BUDGET env, else DEFAULT_SPAWN_BUDGET). */
   spawnBudget?: number;
+  /** Require a [project:<name>] token in every spawned task (default: PI_SPAWN_REQUIRE_PROJECT_TAG env, unset = on). Format only — registry truth is the coordinator guard's. */
+  requireProjectTag?: boolean;
 }
 
 export function truncate(s: string, n: number): string {
@@ -130,6 +162,8 @@ export class SubagentManager {
   private childDepth: number;
   private budget: number;
   private used = 0;
+  /** Spawn-tag gate (project-space routing): every spawned task must carry [project:<name>]. Format only. */
+  private requireProjectTag: boolean;
 
   constructor(private o: ManagerOptions, private d: Delivery) {
     this.max = Math.max(1, o.maxConcurrent ?? 3);
@@ -143,6 +177,9 @@ export class SubagentManager {
     this.childSpawnedBy = selfId ? [...selfChain, selfId] : selfChain;
     this.childDepth = this.depth + 1;
     this.budget = Math.max(0, o.spawnBudget ?? parseSpawnBudget(process.env.PI_SPAWN_BUDGET));
+    // Env-pinned at construction (same precedent as depth/budget): the kill switch is an
+    // ops-level setting for the whole session, not a per-call toggle.
+    this.requireProjectTag = o.requireProjectTag ?? parseSpawnTagRequired(process.env[SPAWN_TAG_ENV]);
   }
 
   list(): SubagentInfo[] { return [...this.subs.values()].map((l) => l.info); }
@@ -174,6 +211,15 @@ export class SubagentManager {
   }
 
   async spawn(opts: SpawnOptions): Promise<SubagentInfo> {
+    // Project-space routing gate (user directive 2026-11-13): EVERY dispatch must carry the
+    // [project:<name>] token — root and nested (depth-2+) alike. This is the chokepoint for
+    // ALL spawn paths because workers run --no-extensions: the coordinator-side guard
+    // (pi-coordinator-guard) never sees sub-spawns, so the spawner enforces the tag FORMAT
+    // here. Division of labor (deliberate, do not duplicate): the coordinator guard owns
+    // REGISTRY truth (does <name> exist? — it sits next to the registry db and the router
+    // and validates the dispatches it sees); this gate is format-only by design.
+    // Kill switch: PI_SPAWN_REQUIRE_PROJECT_TAG=0|false restores untagged spawning.
+    if (this.requireProjectTag && !PROJECT_TAG_RE.test(opts.task ?? "")) throw missingProjectTagError(opts.task ?? "");
     if (opts.session !== undefined && !SESSION_ID_RE.test(opts.session)) throw new Error(`invalid subagent session id: ${opts.session}`);
     if (opts.tools) {
       const bad = opts.tools.find((t) => !CHILD_BUILTIN_TOOLS.includes(t));
