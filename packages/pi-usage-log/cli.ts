@@ -13,6 +13,7 @@
  * (buckets vs raw sums disagree — a rollup bug, never a data problem).
  */
 import { rollupLastDays, loadRegistryProjects, readUsageRecords, reconcile, formatBucketLine, DEFAULT_USAGE_DIR, DEFAULT_COORDINATOR_DB } from "./project-usage.ts";
+import { resolveAlertConfig, evaluateAlerts, alertInputs, USAGE_ALERTS_PATH } from "./usage-alerts.ts";
 
 function argValue(flag: string, argv: string[]): string | undefined {
   const i = argv.indexOf(flag);
@@ -46,4 +47,21 @@ if (rollup.note) console.log(`  note: ${rollup.note}`);
 console.log("");
 console.log(formatBucketLine("TOTAL", rollup.totals));
 console.log(`reconciliation: ${check.ok ? "OK" : "FAILED"} — ${check.detail}`);
+
+// Usage anomaly alerts (Theme D5): armed only via PI_USAGE_ALERTS=1|true or the
+// presence of ~/.pi/agent/usage-alerts.json — DISARMED (default) means this block
+// is skipped entirely and the output is exactly the pre-D5 rollup. When armed and
+// a threshold is exceeded: one JSON alert line per anomaly on STDOUT (the
+// machine-readable surface a caller acts on) plus a human `WARN:` line on STDERR.
+// The spend check always evaluates a true rolling 7-day window, regardless of --days.
+const alertCfg = resolveAlertConfig({ env: process.env, alertFile: USAGE_ALERTS_PATH });
+if (alertCfg.enabled) {
+  const alertRecords = days >= 7 ? records : readUsageRecords(dir, 7).records;
+  const alerts = evaluateAlerts(alertCfg, alertInputs(alertRecords));
+  if (alerts.length > 0) {
+    console.log("");
+    for (const a of alerts) console.log(JSON.stringify(a));
+    for (const a of alerts) console.error(`WARN: ${a.message}`);
+  }
+}
 process.exit(check.ok ? 0 : 2);

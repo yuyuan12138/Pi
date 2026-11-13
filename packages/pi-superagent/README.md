@@ -33,6 +33,29 @@ LLM tools: `subagent_spawn` (task, label, cwd, `isolate` = fresh git worktree + 
 
 **Spawn-tag gate (project-space routing, 2026-11-13):** every spawned task — root and nested alike — must carry the literal `[project:<name>]` token attributing the dispatch to a project; a tagless task is refused at the spawner chokepoint with an actionable error. This is deliberate **format-only** enforcement: workers run `--no-extensions`, so the coordinator-side guard (pi-coordinator-guard) never sees sub-spawns — the spawner keeps every dispatch labeled, while **registry validation (does `<name>` exist?) stays with the coordinator guard**, next to the registry db and the router. Kill switch: `PI_SPAWN_REQUIRE_PROJECT_TAG=0` (or `false`) restores untagged spawning for degraded-mode ops.
 
+**Declarative model routing (Theme D4):** an OPTIONAL routing table at `~/.pi/agent/model-routing.json` maps selectors to a model id for spawned subagents. **The file is absent by default and absent means exactly the previous behavior** — nothing activates until you create it. Shape:
+
+```json
+{
+  "projects": { "PiAgents": "training-coder/GLM-5.3-Flash", "medical": "deepseek/deepseek-chat" },
+  "roles":    { "coder": "training-coder/GLM-5.3-Flash", "reviewer": "anthropic/claude-sonnet-4" },
+  "default":  "training-coder/GLM-5.3-Flash"
+}
+```
+
+Resolution precedence (highest first; the winner is what the worker's `--model` arg gets):
+
+| # | Source | Notes |
+|---|---|---|
+| 1 | explicit `model` arg on `subagent_spawn` | **always wins — the table never overrides a user-specified model** |
+| 2 | table `projects[<tag>]` | exact match on the `[project:<name>]` token the task must carry |
+| 3 | table `roles[<role>]` | exact match on the optional spawn `role` argument |
+| 4 | table `default` | fills the default slot when no selector matched |
+| 5 | `PI_SUBAGENT_MODEL` env | unchanged semantics |
+| 6 | built-in fallback `training-coder/GLM-5.3-Flash` | unchanged |
+
+Posture: the table only fills the DEFAULT slot (rows 2–4 replace nothing an explicit arg set); any table hit beats the env slot. The table is **latched at SubagentManager construction** — a change requires a restart or a new session (see `docs/activation-contract.md`). A malformed file is ignored with a one-line stderr warning; spawning never breaks. Every dispatch records its decision: `subagent_list`/`subagent_status` show `model (via <source>)`, and the subagent's events dir gets a `routing.log` JSON line (`requested` / `project` / `role` / `resolved` / `source`). No silent provider switches: routing picks among models pi already supports, and the choice is auditable per dispatch.
+
 **Clean main context (modelled on dsh-superagent's Executor → main Session Reports):** the subagent's transcript, tool calls and intermediate output **never** enter the main session. The main agent only sees (1) the task it wrote, (2) short milestone reports the subagent sends with its own `report_to_parent` tool — `progress` (throttled: at most one per minute per subagent, newest wins), `blocked` + one concrete question (immediate, wakes the main agent), `ready` / `failed` / `dropped` — and (3) the concise final result (truncated to 2000 chars). Like dsh-superagent, the main session does not wait or poll: reports arrive as messages. Full logs stay on disk in `.pi/subagents/<id>/` (`transcript.log`, `events.jsonl`, `result.md`) and are read on demand with `subagent_result log=true` (truncated, max 20k chars). Subagents run with the same tool_call guard; dialog prompts in subagents are auto-cancelled since nobody watches them.
 
 Try: *"Spawn three subagents to review src/a.ts, src/b.ts and src/c.ts in parallel, then summarize."*
@@ -96,6 +119,8 @@ DeepSeek 刚开源了 [`dsh-superagent-prototype`](https://github.com/deepseek-a
 **Fanout（best-of-N）与递归：** `fanout: N`（1-3）并行运行 N 份相同任务；配合 `isolate` 时每个成员拥有独立 worktree。全部 N 个成员都被跟踪到终态，各自独立汇报，并在全部结束时汇总为一条组合结果——每个成员一项的 `{id, status, resultText, worktree, spawned_by, depth}` 数组（`wait=true` 时直接作为工具结果返回）。挑选最优成员是父 Agent 的职责，绝不自动代劳。子代理还可以继续派生自己的子子代理：管理器启动 worker 时加载本扩展并传入 `PI_SPAWN_DEPTH`（根派生 = 深度 1）和谱系链。嵌套深度不设上限——`PI_SPAWN_DEPTH` 仅用于观测与谱系；每代理派生预算（`PI_SPAWN_BUDGET`，默认 3——fanout N 计为 N）是唯一的失控防护，超出时以明确错误拒绝。
 
 **派生项目标签门（project-space routing，2026-11-13）：** 每个被派发的任务——根派生与嵌套派生一视同仁——都必须携带字面量 `[project:<name>]` 标记以归属项目；缺标签的任务在派生器咽喉点被拒绝，并给出可操作的错误说明。这是刻意的**仅格式**校验：worker 以 `--no-extensions` 运行，协调器侧守卫（pi-coordinator-guard）看不到子派生——派生器负责让每次派发都带上项目标签，而**注册表校验（`<name>` 是否存在？）仍归协调器守卫所有**（它紧邻注册表数据库与路由器）。降级开关：`PI_SPAWN_REQUIRE_PROJECT_TAG=0`（或 `false`）可恢复无标签派生。
+
+**声明式模型路由（Theme D4）：** 可选的路由表 `~/.pi/agent/model-routing.json` 把选择器映射为子代理的模型 id。**默认没有这个文件，没有就等于一切照旧**——创建之前没有任何行为变化。表结构：`projects`（任务中 `[project:<name>]` 标记的精确匹配）、`roles`（派生时可选 `role` 参数的精确匹配）、`default`（无匹配时填充默认槽位）。解析优先级：① 显式 `model` 参数（**永远最高，路由表绝不覆盖用户指定的模型**）→ ② 表 `projects` → ③ 表 `roles` → ④ 表 `default` → ⑤ `PI_SUBAGENT_MODEL` 环境变量 → ⑥ 内置回退 `training-coder/GLM-5.3-Flash`。路由表在 SubagentManager 构造时**一次性读入**（改动需重启或新会话，见 `docs/activation-contract.md`）；文件缺失 = 静默跳过；文件损坏则忽略并告警一行，派生永不中断。每次派发都记录决策：`subagent_list`/`subagent_status` 显示 `model (via <来源>)`，子代理事件目录里写入 `routing.log` JSON 行（`requested` / `project` / `role` / `resolved` / `source`）——绝不静默切换供应商。
 
 **主上下文保持干净（参照 dsh-superagent 中 Executor 向主 Session 汇报 Report 的做法）：** 子代理的对话记录、工具调用和中间输出**一律不进主会话**。主 Agent 只看到：① 它自己写的任务；② 子代理用 `report_to_parent` 工具主动发出的简短里程碑汇报——`progress`（节流：每个子代理每分钟最多一条，只保留最新）、`blocked` + 一个具体问题（立即送达并唤醒主 Agent）、`ready` / `failed` / `dropped`；③ 精简的最终结果（截断到 2000 字符）。和 dsh-superagent 一样，主会话不等待、不轮询，汇报以消息形式自动到达。完整日志保存在 `.pi/subagents/<id>/`（`transcript.log`、`events.jsonl`、`result.md`），需要时用 `subagent_result log=true` 按需读取（截断，最多 2 万字符）。子代理同样受 tool_call 守卫保护；子代理里的弹窗确认会被自动取消，因为没人看着。
 

@@ -2,7 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { rollupLastDays, loadRegistryProjects, formatBucketLine, DEFAULT_COORDINATOR_DB } from "./project-usage.ts";
+import { rollupLastDays, loadRegistryProjects, readUsageRecords, formatBucketLine, DEFAULT_COORDINATOR_DB } from "./project-usage.ts";
+import { resolveAlertConfig, evaluateAlerts, alertInputs, USAGE_ALERTS_PATH } from "./usage-alerts.ts";
 
 const USAGE_DIR = join(homedir(), ".pi", "agent", "usage");
 
@@ -21,6 +22,22 @@ interface UsageRecord {
 	cost: number;
 	tools: string[];
 	contextPercent: number | null;
+}
+
+/**
+ * Theme D5: additive `alerts:` lines in the /usage output — present only when the
+ * alert monitor is armed (PI_USAGE_ALERTS=1|true or ~/.pi/agent/usage-alerts.json);
+ * disarmed (the default) leaves /usage output byte-for-byte unchanged. Both the
+ * today view and the per-project view evaluate the same armed checks over a true
+ * rolling 7-day window (daily tokens + 7-day spend), offline, no side effects.
+ */
+function alertLines(): string[] {
+	const cfg = resolveAlertConfig({ env: process.env, alertFile: USAGE_ALERTS_PATH });
+	if (!cfg.enabled) return [];
+	const { records } = readUsageRecords(USAGE_DIR, 7);
+	const alerts = evaluateAlerts(cfg, alertInputs(records));
+	if (alerts.length === 0) return ["alerts: 0 (monitoring armed, no anomalies)"];
+	return [`alerts: ${alerts.length} fired`, ...alerts.map((a) => `  WARN ${a.check}: ${a.message}`)];
 }
 
 function dayFile(): string {
@@ -73,6 +90,7 @@ export default function usageLog(pi: ExtensionAPI): void {
 				lines.push(formatBucketLine("  unattributed (no evidence)", rollup.unattributed));
 				if (rollup.note) lines.push(`  note: ${rollup.note}`);
 				lines.push(formatBucketLine("TOTAL", rollup.totals));
+				lines.push(...alertLines());
 				ctx.ui.sendMessage(lines.join("\n"));
 				return;
 			}
@@ -106,7 +124,7 @@ export default function usageLog(pi: ExtensionAPI): void {
 				.sort((a, b) => b[1].total - a[1].total)
 				.map(([key, s]) => `${key}: ${s.turns} turns, ${s.total.toLocaleString()} tokens, ${s.tools} tool calls, $${s.cost.toFixed(4)}`);
 			ctx.ui.sendMessage(
-				[`Usage today (${file}):`, ...rows, `TOTAL: ${grandTotal.toLocaleString()} tokens, $${grandCost.toFixed(4)}`].join("\n"),
+				[`Usage today (${file}):`, ...rows, `TOTAL: ${grandTotal.toLocaleString()} tokens, $${grandCost.toFixed(4)}`, ...alertLines()].join("\n"),
 			);
 		},
 	});

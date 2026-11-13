@@ -50,6 +50,45 @@ Exit 2 on reconciliation failure. The registry is read read-only from the
 coordinator db; any read problem degrades to an empty registry (everything
 unattributed), never a crash.
 
+## Usage anomaly alerts (Theme D5)
+
+Offline threshold evaluation over the local rollup — **no network calls, no
+notification infrastructure**. An alert is a machine-readable surface (a JSON
+line) that a caller (script, bridge, agent) can act on.
+
+**Disabled by default.** With no env flag and no config file, nothing is
+evaluated and every output surface is byte-for-byte unchanged. The monitor is
+armed by either:
+
+- env `PI_USAGE_ALERTS=1` (or `true`), or
+- the presence of `~/.pi/agent/usage-alerts.json` — same flat routing-config
+  style as pi-superagent's `model-routing.json`:
+  `{"enabled": true, "dailyTokens": 1000000, "weekSpendUsd": 50}`
+  (`"enabled": false` opts back out, even against the env flag).
+
+When armed, thresholds resolve **env > config file > sane defaults** for both
+checks (strictly-greater fires; exactly-at-threshold does not):
+
+| Check | Env | Config key | Default |
+|---|---|---|---|
+| daily tokens (UTC day) | `PI_USAGE_ALERT_DAILY_TOKENS` | `dailyTokens` | 1,000,000 |
+| 7-day spend (rolling window) | `PI_USAGE_ALERT_WEEK_SPEND_USD` | `weekSpendUsd` | $50 |
+
+Surfaces, all additive:
+
+- **CLI**: after the rollup and reconciliation, each exceeded threshold prints
+  one JSON line to **stdout** —
+  `{"type":"usage_anomaly","severity":"warn","check":"daily_tokens","value":…,"threshold":…,"unit":"tokens","message":…,"at":…}`
+  — plus a human `WARN:` line to **stderr**. The spend check always evaluates a
+  true rolling 7-day window regardless of `--days`. Exit codes are unchanged.
+- **`/usage`** (both views): an `alerts:` section — `alerts: N fired` with one
+  `WARN <check>: …` line each, or `alerts: 0 (monitoring armed, no anomalies)`.
+  Disarmed → the section is absent entirely.
+
+Implementation: `usage-alerts.ts` (pure `resolveAlertConfig` / `alertInputs` /
+`evaluateAlerts` + tolerant file parse), pinned by `tests/usage-alerts.test.ts`
+including a real CLI-path integration test.
+
 The web bridge's `/projects` endpoint exposes the same rollup additively as
 `usage7d` (see packages/pi-web-bridge).
 

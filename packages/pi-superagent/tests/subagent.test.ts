@@ -32,7 +32,7 @@ const happy = (final: string) => (fp: FakePi, c: any) => {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Spawn-tree env vars that would otherwise leak from the host session into test managers. */
-const HEREDITY = ["PI_SUBAGENT_ID", "PI_SPAWN_DEPTH", "PI_SPAWN_CHAIN", "PI_SPAWN_BUDGET", "PI_SPAWN_REQUIRE_PROJECT_TAG"] as const;
+const HEREDITY = ["PI_SUBAGENT_ID", "PI_SPAWN_DEPTH", "PI_SPAWN_CHAIN", "PI_SPAWN_BUDGET", "PI_SPAWN_REQUIRE_PROJECT_TAG", "PI_SUBAGENT_MODEL"] as const;
 
 async function setup(script: (fp: FakePi, c: any) => void, extra: Partial<ConstructorParameters<typeof SubagentManager>[0]> = {}, env: Partial<Record<(typeof HEREDITY)[number], string>> = {}) {
   const dir = await mkdtemp(join(tmpdir(), "sub-"));
@@ -45,7 +45,7 @@ async function setup(script: (fp: FakePi, c: any) => void, extra: Partial<Constr
   for (const k of HEREDITY) delete process.env[k];
   try {
     for (const [k, v] of Object.entries(env)) if (v !== undefined) process.env[k] = v;
-    const m = new SubagentManager({ spawn, extensionPath: "/ext/index.ts", baseDir: dir, progressThrottleMs: 60_000, ...extra }, { deliver: (t, o) => msgs.push({ t, wake: o.wake }) });
+    const m = new SubagentManager({ spawn, extensionPath: "/ext/index.ts", baseDir: dir, progressThrottleMs: 60_000, modelRouting: undefined, ...extra }, { deliver: (t, o) => msgs.push({ t, wake: o.wake }) });
     return { m, kids, spawned, envs, msgs, dir };
   } finally {
     for (const [k, v] of saved) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }

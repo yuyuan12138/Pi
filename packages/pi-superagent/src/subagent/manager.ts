@@ -1,6 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ChildLike, FanoutMemberResult, Report, ReportStatus, SpawnFn, SpawnOptions, SubagentInfo } from "./types.ts";
+import { loadModelRouting, projectTagOf, resolveModel } from "./model-routing.ts";
+import type { ModelRoutingConfig } from "./model-routing.ts";
 import type { Exec } from "../types.ts";
 
 export const REPORT_TOOL = "report_to_parent";
@@ -134,6 +136,8 @@ export interface ManagerOptions {
   spawnBudget?: number;
   /** Require a [project:<name>] token in every spawned task (default: PI_SPAWN_REQUIRE_PROJECT_TAG env, unset = on). Format only — registry truth is the coordinator guard's. */
   requireProjectTag?: boolean;
+  /** Declarative model routing table (Theme D4). When the KEY is present the value is pinned as-is (tests pass `undefined` for hermetic runs); when the key is absent it is loaded ONCE from ~/.pi/agent/model-routing.json — absent file = exactly current behavior. Latched for the manager's lifetime. */
+  modelRouting?: ModelRoutingConfig;
 }
 
 export function truncate(s: string, n: number): string {
@@ -164,6 +168,8 @@ export class SubagentManager {
   private used = 0;
   /** Spawn-tag gate (project-space routing): every spawned task must carry [project:<name>]. Format only. */
   private requireProjectTag: boolean;
+  /** Declarative routing table (Theme D4), latched at construction: explicit model args always win; the table only fills the default slot. */
+  private modelRouting: ModelRoutingConfig | undefined;
 
   constructor(private o: ManagerOptions, private d: Delivery) {
     this.max = Math.max(1, o.maxConcurrent ?? 3);
@@ -180,6 +186,11 @@ export class SubagentManager {
     // Env-pinned at construction (same precedent as depth/budget): the kill switch is an
     // ops-level setting for the whole session, not a per-call toggle.
     this.requireProjectTag = o.requireProjectTag ?? parseSpawnTagRequired(process.env[SPAWN_TAG_ENV]);
+    // Model routing (Theme D4): latched at construction (same precedent as the spawn-tag gate).
+    // "modelRouting" present in the options pins the value (tests pass `undefined` for hermetic
+    // runs); otherwise the config file is read ONCE here — absent file = exactly the pre-D4
+    // behavior (env > fallback), malformed file warns and behaves as absent.
+    this.modelRouting = "modelRouting" in o ? o.modelRouting : loadModelRouting();
   }
 
   list(): SubagentInfo[] { return [...this.subs.values()].map((l) => l.info); }
@@ -251,7 +262,7 @@ export class SubagentManager {
         );
         const logDir = join(this.o.baseDir, dirName);
         mkdirSync(logDir, { recursive: true });
-        const info: SubagentInfo = { id, label: opts.label ?? opts.task.slice(0, 40), task: opts.task, state: "queued", cwd: opts.cwd ?? this.o.baseDir, model: opts.model, tools: opts.tools, session: opts.session, reports: [], logDir, toolCalls: 0, spawnedBy: [...this.childSpawnedBy], depth: this.childDepth };
+        const info: SubagentInfo = { id, label: opts.label ?? opts.task.slice(0, 40), task: opts.task, state: "queued", cwd: opts.cwd ?? this.o.baseDir, model: opts.model, role: opts.role, tools: opts.tools, session: opts.session, reports: [], logDir, toolCalls: 0, spawnedBy: [...this.childSpawnedBy], depth: this.childDepth };
         if (n > 1) info.fanout = { groupId: base, total: n, index: i, memberIds };
         if (opts.isolate) {
           if (!this.o.exec) throw new Error("isolate requires git exec");
@@ -315,11 +326,31 @@ export class SubagentManager {
       if (l.info.tools.length === 0) args.push("--no-tools");
       else args.push("--tools", [...l.info.tools, REPORT_TOOL, SPAWN_TOOL].join(","));
     }
-    // Localization: always pass a model so the worker never falls back to Pi's
-    // default (which 401s on this host). Precedence: explicit subagent_spawn model
-    // > PI_SUBAGENT_MODEL env > self-hosted training-coder/GLM-5.3-Flash default.
-    const defaultModel = process.env.PI_SUBAGENT_MODEL || "training-coder/GLM-5.3-Flash";
-    args.push("--model", l.info.model || defaultModel);
+    // Model resolution (Theme D4 precedence): explicit per-spawn arg > routing table
+    // (project tag > role > table default) > PI_SUBAGENT_MODEL env > built-in fallback.
+    // The table only fills the DEFAULT slot — an explicit model arg is never overridden,
+    // and with no table on disk this is exactly the pre-D4 behavior. The decision is
+    // recorded per dispatch (info.modelSource + routing.log) for audit.
+    const requested = l.info.model;
+    const resolution = resolveModel({
+      explicit: requested,
+      project: projectTagOf(l.info.task),
+      role: l.info.role,
+      routing: this.modelRouting,
+      env: process.env.PI_SUBAGENT_MODEL,
+    });
+    args.push("--model", resolution.model);
+    l.info.model = resolution.model;
+    l.info.modelSource = resolution.source;
+    this.log(l, "routing.log", JSON.stringify({
+      at: new Date(this.now()).toISOString(),
+      subagent: l.info.id,
+      requested: requested ?? null,
+      project: projectTagOf(l.info.task) ?? null,
+      role: l.info.role ?? null,
+      resolved: resolution.model,
+      source: resolution.source,
+    }));
     // Recursion: children learn their position in the spawn tree via env. PI_SPAWN_DEPTH 1 =
     // spawned by the root session; depth is uncapped observability/lineage, and the per-agent
     // budget (PI_SPAWN_BUDGET, fanout counts as N) is the only runaway bound. PI_SPAWN_CHAIN is

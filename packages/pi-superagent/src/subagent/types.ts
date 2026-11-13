@@ -1,3 +1,5 @@
+import type { ModelSource } from "./model-routing.ts";
+
 export type ReportStatus = "progress" | "blocked" | "ready" | "failed" | "dropped";
 export type SubagentState = "queued" | "running" | "done" | "failed" | "stopped";
 
@@ -14,6 +16,8 @@ export interface SpawnOptions {
   fanout?: number;
   model?: string;
   label?: string;
+  /** Optional role selector for the declarative model routing table (Theme D4, `roles` key of ~/.pi/agent/model-routing.json). Ignored when no table is configured or no entry matches; never overrides an explicit model arg. */
+  role?: string;
   /** Exact tool-name allowlist for the child (workflow limit, not a sandbox). [] disables all built-in tools; omit for pi defaults. */
   tools?: string[];
   /** Named child session id: created on first spawn, resumed on later spawns with the same id. */
@@ -29,7 +33,11 @@ export interface SubagentInfo {
   worktree?: string;
   branch?: string;
   model?: string;
+  /** How the launched model was chosen (Theme D4 audit field): explicit arg, a routing-table hit, env, or the built-in fallback. Set at launch; absent for queued subagents. */
+  modelSource?: ModelSource;
   tools?: string[];
+  /** Role selector passed at spawn (Theme D4 routing input); absent when not provided. */
+  role?: string;
   session?: string;
   reports: Report[];
   result?: string;
