@@ -30,6 +30,22 @@
 //                                  than it protects. Upgrade is evidence-gated:
 //                                  revisit only when the observe log shows a
 //                                  concrete false-negative class.
+//   reload_safety                — OBSERVE-ONLY THIS WAVE (expansion plan A3,
+//                                  2026-11-13): a tool-call-visible /reload attempt
+//                                  (tmux send-keys or quoted "/reload" command text)
+//                                  while .pi/subagents shows non-settled dispatches
+//                                  is logged as would_deny and NEVER blocked. The
+//                                  enforce flip is a USER decision (plan §7 / D3a
+//                                  pattern): review the JSONL log first. The
+//                                  non-settled inference is not reimplemented —
+//                                  reload.js imports tools/restart_handoff.py's
+//                                  scan_subagents() as a library (python3 -c), so
+//                                  the done/running/stale semantics stay single-
+//                                  sourced with the restart runbook's handoff
+//                                  ledger. Scan failure logs decision "error"
+//                                  (pattern reload_scan_failed) and never blocks.
+//                                  A TUI-typed /reload produces no tool call and is
+//                                  therefore out of scope by construction.
 //
 // Mode resolution (per tool call, precedence env > config file > default):
 //   1. PI_COORDINATOR_GUARD env, when set: "enforce" → enforce, anything else → observe.
@@ -60,6 +76,7 @@ import { classifyToolCall, extractProjectTags, DEFAULT_ALLOWLIST } from "./class
 import { appendGuardLog, DEFAULT_LOG_PATH } from "./log.js";
 import { createConfigLoader, DEFAULT_CONFIG_PATH } from "./config.js";
 import { readRegistryProjects, registryProjectId, DEFAULT_REGISTRY_DB } from "./registry.js";
+import { scanNonSettledDispatches, nonSettledExcerpt, PROJECT_ROOT_ENV } from "./reload.js";
 
 const EXCERPT_MAX = 200;
 
@@ -73,6 +90,8 @@ export const MODE_ENV = "PI_COORDINATOR_GUARD";
 export const ALLOW_ENV = "PI_COORDINATOR_GUARD_ALLOW";
 /** env var: log sink override (default ~/.pi/agent/logs/coordinator-guard.jsonl). */
 export const LOG_PATH_ENV = "PI_COORDINATOR_GUARD_LOG";
+/** Re-exported from reload.js: env var overriding the project root for the reload_safety scan. */
+export { PROJECT_ROOT_ENV };
 
 /** Legacy env-only resolution (kept for compatibility): default observe. */
 export function resolveMode(env = process.env) {
@@ -140,7 +159,8 @@ export function unknownProjectDenyReason(tagName, registeredIds, logPath) {
 /**
  * Build the tool_call handler. Options override live resolution (for tests /
  * hard pinning): mode pins the mode, allowlist pins the whole allowlist,
- * configPath redirects the config file, env swaps the env source.
+ * configPath redirects the config file, env swaps the env source; projectRoot /
+ * pythonPath / scanTimeoutMs pin the reload_safety subagent scan (tests).
  * The handler classifies, logs would-deny/denied decisions, and returns
  * { block: true, reason } per the pi 1.5.0 ToolCallEventResult contract. It NEVER throws.
  */
@@ -217,8 +237,36 @@ export function createGuard(options = {}) {
       }
       if (category === "passthrough") return undefined;
 
+      // reload_safety (A3): OBSERVE-ONLY this wave — log and pass through, never
+      // block, in every mode. The scan reuses restart_handoff.py's inference
+      // (see reload.js); a safe reload (everything settled) passes silently.
+      if (category === "reload_safety") {
+        const scan = await scanNonSettledDispatches({
+          projectRoot: options.projectRoot ?? envSource[PROJECT_ROOT_ENV],
+          pythonPath: options.pythonPath,
+          timeoutMs: options.scanTimeoutMs,
+        });
+        if (scan.ok && scan.nonSettled.length === 0) return undefined;
+        appendGuardLog(
+          {
+            ts: new Date().toISOString(),
+            mode,
+            decision: scan.ok ? "would_deny" : "error",
+            tool: event?.toolName,
+            category: "reload_safety",
+            pattern: scan.ok ? pattern : "reload_scan_failed",
+            excerpt: scan.ok ? nonSettledExcerpt(scan.nonSettled) : excerpt,
+            ...(scan.ok ? {} : { error: scan.error }),
+            toolCallId: event?.toolCallId,
+          },
+          logPath,
+        );
+        return undefined;
+      }
+
       // Per-category enforcement (see header): edit_write and the two spawn-tag rules
-      // deny in enforce mode; mutating_bash is log-only in EVERY mode.
+      // deny in enforce mode; mutating_bash is log-only in EVERY mode; reload_safety
+      // never reaches this line (observe-only branch above returns early).
       const deny =
         mode === "enforce" &&
         (category === "edit_write" ||

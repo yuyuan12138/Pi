@@ -7,7 +7,7 @@
 // against temp files with explicit utime bumps (deterministic mtime cache).
 import { describe, test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -25,7 +25,8 @@ import coordinatorGuard, {
   ALLOW_ENV,
   LOG_PATH_ENV,
 } from "../index.js";
-import { classifyBash, classifyToolCall, classifySpawn, extractProjectTags, isAllowlisted, DEFAULT_ALLOWLIST } from "../classify.js";
+import { classifyBash, classifyToolCall, classifySpawn, classifyReloadBash, extractProjectTags, isAllowlisted, isPlaceholderTagName, DEFAULT_ALLOWLIST } from "../classify.js";
+import { scanNonSettledDispatches, scanSnippet, nonSettledExcerpt, DEFAULT_PROJECT_ROOT, PROJECT_ROOT_ENV } from "../reload.js";
 import { appendGuardLog } from "../log.js";
 import { parseConfigText, createConfigLoader, DEFAULT_CONFIG_PATH, CONFIG_VERSION, safeDefaultConfig } from "../config.js";
 import {
@@ -285,6 +286,280 @@ describe("subagent_spawn project-tag classifier", () => {
 
   test("other tools are unaffected by the spawn rule", () => {
     assert.equal(classifyToolCall("report_to_parent", { status: "ready", summary: "[project:x]" }).category, "passthrough");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (f) reload_safety — /reload detection classifier (expansion plan A3)
+// ---------------------------------------------------------------------------
+describe("classifyReloadBash — /reload detection patterns", () => {
+  const flagged = [
+    ["tmux send-keys -t coordinator '/reload' Enter", "reload_send_keys"],
+    ['tmux send-keys -t pi "/reload" Enter', "reload_send_keys"],
+    ["tmux send-keys '/reload' C-m", "reload_send_keys"],
+    ["cd /Users/yuyuan/PiAgents && tmux send-keys -t 0 '/reload' Enter", "reload_send_keys"],
+    ["echo '/reload'", "reload_quoted"],
+    ['printf "%s" "/reload"', "reload_quoted"],
+    ["osascript -e 'display dialog \"/reload\"'", "reload_quoted"],
+    ["/reload", "reload_bare"],
+    ["  /reload  ", "reload_bare"],
+  ];
+  for (const [command, expected] of flagged) {
+    test(`flags: ${command} -> ${expected}`, () => {
+      assert.equal(classifyReloadBash(command), expected);
+    });
+  }
+
+  const clean = [
+    "grep -rn reload packages/pi-web-bridge/src/",
+    "cat src/reload/index.ts", // path segment containing /reload/ is NOT a reload command
+    "node packages/pi-web-bridge/src/reload.ts",
+    "echo reload",
+    "tmux send-keys -t pi 'reload' Enter", // no slash: not the TUI command
+    "tmux send-keys -t pi C-c Enter",
+    "ls -la",
+  ];
+  for (const command of clean) {
+    test(`passes through: ${command}`, () => {
+      assert.equal(classifyReloadBash(command), null);
+    });
+  }
+
+  test("reload_safety wins over mutating_bash when both match", () => {
+    const r = classifyToolCall("bash", { command: "tmux send-keys '/reload' Enter && git push" });
+    assert.equal(r.category, "reload_safety");
+    assert.equal(r.pattern, "reload_send_keys");
+  });
+
+  test("classifyToolCall maps bash reload commands to category reload_safety", () => {
+    const r = classifyToolCall("bash", { command: "tmux send-keys -t pi '/reload' Enter" });
+    assert.equal(r.category, "reload_safety");
+    assert.equal(r.pattern, "reload_send_keys");
+    assert.ok(r.excerpt.length > 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (g) reload_safety — non-settled dispatch scan (library import of restart_handoff.py)
+// ---------------------------------------------------------------------------
+describe("scanNonSettledDispatches — restart_handoff.py library reuse", () => {
+  /** The real A1 module the guard imports as a library (production location). */
+  const REAL_HANDOFF_MODULE = "/Users/yuyuan/PiAgents/tools/restart_handoff.py";
+
+  /**
+   * Fixture root mirroring the production layout: <root>/tools/restart_handoff.py
+   * (copied from the real repo, so the library-import contract is exercised) and
+   * <root>/.pi/subagents/<id>/events.jsonl per dispatch.
+   * kindById: id -> { kind: "running" | "done" | "stale" }.
+   */
+  function fixtureRoot(kindById) {
+    const root = tempDir();
+    mkdirSync(join(root, "tools"), { recursive: true });
+    copyFileSync(REAL_HANDOFF_MODULE, join(root, "tools", "restart_handoff.py"));
+    for (const [id, kind] of Object.entries(kindById)) {
+      const dir = join(root, ".pi", "subagents", id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "events.jsonl"), JSON.stringify({ type: "tool_call", toolName: "read" }) + "\n");
+      if (kind === "done") writeFileSync(join(dir, "result.md"), "done\n");
+      if (kind === "stale") {
+        const old = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2h ago > STALE_SECONDS
+        utimesSync(join(dir, "events.jsonl"), old, old);
+      }
+    }
+    return root;
+  }
+
+  test("running dispatch (fresh events, no result.md, no terminal marker) is non-settled", async () => {
+    const root = fixtureRoot({ w1: "running", w2: "done" });
+    const r = await scanNonSettledDispatches({ projectRoot: root });
+    assert.equal(r.ok, true);
+    assert.equal(r.total, 2);
+    assert.deepEqual(r.nonSettled.map((e) => e.id), ["w1"]);
+    assert.equal(r.nonSettled[0].status, "running");
+  });
+
+  test("stale dispatch (quiet >30min, no marker) counts as non-settled", async () => {
+    const root = fixtureRoot({ old1: "stale" });
+    const r = await scanNonSettledDispatches({ projectRoot: root });
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.nonSettled.map((e) => e.id), ["old1"]);
+    assert.equal(r.nonSettled[0].status, "stale");
+  });
+
+  test("all done (result.md present) -> zero non-settled (safe reload)", async () => {
+    const root = fixtureRoot({ a: "done", b: "done" });
+    const r = await scanNonSettledDispatches({ projectRoot: root });
+    assert.equal(r.ok, true);
+    assert.equal(r.nonSettled.length, 0);
+  });
+
+  test("missing .pi/subagents dir -> ok with zero non-settled (nothing in flight)", async () => {
+    const r = await scanNonSettledDispatches({ projectRoot: fixtureRoot({}) }); // tools/ present, no subagents dir
+    assert.equal(r.ok, true);
+    assert.equal(r.nonSettled.length, 0);
+  });
+
+  test("missing python binary -> ok:false with error, never rejects", async () => {
+    const root = fixtureRoot({ w1: "running" });
+    const r = await scanNonSettledDispatches({ projectRoot: root, pythonPath: "no-such-python-binary-xyz" });
+    assert.equal(r.ok, false);
+    assert.equal(typeof r.error, "string");
+    assert.ok(r.error.length > 0);
+  });
+
+  test("scanSnippet imports restart_handoff as a library (module path + scan_subagents call)", () => {
+    const s = scanSnippet("/repo/tools", "/repo/.pi/subagents");
+    assert.match(s, /sys\.path\.insert\(0, "\/repo\/tools"\)/);
+    assert.match(s, /import restart_handoff/);
+    assert.match(s, /restart_handoff\.scan_subagents\(Path\("\/repo\/\.pi\/subagents"\)\)/);
+  });
+
+  test("nonSettledExcerpt lists ids with statuses, truncated to 200", () => {
+    const line = nonSettledExcerpt([{ id: "w1", status: "running" }, { id: "w2", status: "stale" }]);
+    assert.match(line, /^2 non-settled dispatch\(es\): w1 \(running\), w2 \(stale\)$/);
+    assert.equal(nonSettledExcerpt([{ id: "x".repeat(300), status: "running" }]).length, 200);
+  });
+
+  test("default project root is the PiAgents coordinator workspace", () => {
+    assert.equal(DEFAULT_PROJECT_ROOT, "/Users/yuyuan/PiAgents");
+    assert.equal(PROJECT_ROOT_ENV, "PI_COORDINATOR_GUARD_PROJECT_ROOT");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (h) reload_safety — guard wiring: observe-only, never blocks, in every mode
+// ---------------------------------------------------------------------------
+describe("guard wiring — reload_safety (A3, observe-only wave)", () => {
+  const REAL_HANDOFF_MODULE = "/Users/yuyuan/PiAgents/tools/restart_handoff.py";
+
+  /** Fixture root with the production layout (real handoff module + fixture dispatches). */
+  function fixtureSubagents(kindById) {
+    const root = tempDir();
+    mkdirSync(join(root, "tools"), { recursive: true });
+    copyFileSync(REAL_HANDOFF_MODULE, join(root, "tools", "restart_handoff.py"));
+    for (const [id, kind] of Object.entries(kindById)) {
+      const dir = join(root, ".pi", "subagents", id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "events.jsonl"), JSON.stringify({ type: "tool_call" }) + "\n");
+      if (kind === "done") writeFileSync(join(dir, "result.md"), "done\n");
+    }
+    return root;
+  }
+
+  const RELOAD_CMD = "tmux send-keys -t coordinator '/reload' Enter";
+
+  test("enforce mode: /reload with a running dispatch logs would_deny and NEVER blocks", async () => {
+    const p = tempLogPath();
+    const root = fixtureSubagents({ w1: "running" });
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), projectRoot: root });
+    const result = await handler({ toolCallId: "rl1", toolName: "bash", input: { command: RELOAD_CMD } });
+    assert.equal(result, undefined); // observe-only wave: no block even in enforce
+    const [line] = readLines(p);
+    assert.equal(line.decision, "would_deny");
+    assert.equal(line.mode, "enforce");
+    assert.equal(line.category, "reload_safety");
+    assert.equal(line.pattern, "reload_send_keys");
+    assert.match(line.excerpt, /1 non-settled dispatch\(es\): w1 \(running\)/);
+    assert.equal(line.toolCallId, "rl1");
+  });
+
+  test("observe mode: same shape, decision would_deny", async () => {
+    const p = tempLogPath();
+    const root = fixtureSubagents({ w1: "running" });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath(), projectRoot: root });
+    const result = await handler({ toolName: "bash", input: { command: RELOAD_CMD } });
+    assert.equal(result, undefined);
+    assert.equal(readLines(p)[0].decision, "would_deny");
+  });
+
+  test("safe reload (every dispatch settled) passes silently — no log line at all", async () => {
+    const p = tempLogPath();
+    const root = fixtureSubagents({ w1: "done" });
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), projectRoot: root });
+    const result = await handler({ toolName: "bash", input: { command: RELOAD_CMD } });
+    assert.equal(result, undefined);
+    assert.throws(() => statSync(p), Error);
+  });
+
+  test("scan failure logs decision 'error' (pattern reload_scan_failed) and never blocks", async () => {
+    const p = tempLogPath();
+    const root = fixtureSubagents({ w1: "running" });
+    const handler = createGuard({
+      mode: "enforce",
+      logPath: p,
+      configPath: noConfigPath(),
+      projectRoot: root,
+      pythonPath: "no-such-python-binary-xyz",
+    });
+    const result = await handler({ toolName: "bash", input: { command: RELOAD_CMD } });
+    assert.equal(result, undefined);
+    const [line] = readLines(p);
+    assert.equal(line.decision, "error");
+    assert.equal(line.category, "reload_safety");
+    assert.equal(line.pattern, "reload_scan_failed");
+    assert.ok(line.error.length > 0);
+  });
+
+  test("non-reload bash calls never trigger the scan", async () => {
+    const p = tempLogPath();
+    const root = fixtureSubagents({ w1: "running" });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath(), projectRoot: root });
+    await handler({ toolName: "bash", input: { command: "cat src/reload/index.ts" } });
+    assert.throws(() => statSync(p), Error);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (i) placeholder exemption — the [project:<name>] convention string (live FP fix)
+// ---------------------------------------------------------------------------
+// Live false positive, 2026-11-13: a dispatch brief quoting the documentation
+// convention string "[project:<name>]" in prose had "<name>" extracted as a tag
+// name and denied by the registry check. Angle brackets never occur in real
+// project ids, so placeholder-form tags are exempt from extraction; a real
+// non-placeholder tag is still required.
+describe("placeholder exemption — [project:<name>] convention string", () => {
+  const BRIEF_WITH_PROSE_CONVENTION =
+    "[project:PiAgents] Write the routing doc. Every dispatch brief must begin with " +
+    "[project:<name>] per PROJECT-SPACE-STANDARD; the tag names the attributed project.";
+
+  test("isPlaceholderTagName: angle brackets mark the convention, real ids do not", () => {
+    assert.equal(isPlaceholderTagName("<name>"), true);
+    assert.equal(isPlaceholderTagName("<project>"), true);
+    assert.equal(isPlaceholderTagName("PiAgents"), false);
+    assert.equal(isPlaceholderTagName("pi-web-bridge"), false);
+    assert.equal(isPlaceholderTagName(undefined), false);
+  });
+
+  test("REGRESSION: real leading tag + prose convention string passes tag validation", () => {
+    assert.equal(classifySpawn({ task: BRIEF_WITH_PROSE_CONVENTION }), null);
+    assert.equal(classifyToolCall("subagent_spawn", { task: BRIEF_WITH_PROSE_CONVENTION }).category, "passthrough");
+  });
+
+  test("REGRESSION: extraction returns only the real tag, never '<name>'", () => {
+    assert.deepEqual(extractProjectTags({ task: BRIEF_WITH_PROSE_CONVENTION }), ["PiAgents"]);
+    assert.deepEqual(extractProjectTags({ task: "cite [project:<name>] and [project:blog]" }), ["blog"]);
+    assert.deepEqual(extractProjectTags({ task: "only [project:<name>] convention" }), []);
+  });
+
+  test("placeholder alone does NOT satisfy the dispatch-tag rule", () => {
+    assert.equal(classifySpawn({ task: "briefs start [project:<name>] always" }), "dispatch_missing_project_tag");
+    assert.equal(classifyToolCall("subagent_spawn", { task: "[project:<name>] placeholder only" }).category, "dispatch_missing_project_tag");
+  });
+
+  test("enforce wiring: real tag + prose convention passes registry validation untouched", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    const result = await handler({ toolCallId: "fp1", toolName: "subagent_spawn", input: { task: BRIEF_WITH_PROSE_CONVENTION } });
+    assert.equal(result, undefined); // no registry deny on the '<name>' prose token
+    assert.throws(() => statSync(p), Error); // and no log line
+  });
+
+  test("enforce wiring: placeholder-only task is still denied as missing tag", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:<name>] placeholder only" } });
+    assert.ok(result && result.block === true);
+    assert.equal(readLines(p)[0].category, "dispatch_missing_project_tag");
   });
 });
 

@@ -19,6 +19,7 @@ CrewAI's manager toolset hard-fail).
 | `dispatch_missing_project_tag` | `subagent_spawn` whose task/arguments lack the literal token `[project:<name>]` | `would_deny`, never blocks | **`denied`** — returns `{block:true, reason}` |
 | `dispatch_unknown_project` | `subagent_spawn` whose `[project:<name>]` tag names a project **not in the coordinator registry** (read errors fail OPEN to format-only — see below) | `would_deny`, never blocks | **`denied`** — returns `{block:true, reason}` |
 | `mutating_bash` | git commit/push/reset/clean · `rm -rf` (any flag grouping) · `mv` or `>` overwrite outside obvious temp (`/tmp`, `$TMPDIR`, `/var/folders`, `/dev/null`) · brew/npm/pip/uv installs · kill/pkill/killall · curl/wget piped into sh/bash/zsh/dash/fish | `would_deny` | **`would_deny` — LOG-ONLY, deliberately** (see rationale) |
+| `reload_safety` | a tool-call-visible `/reload` attempt (`tmux send-keys … '/reload' …`, an exactly-quoted `"/reload"` token, or the bare command) **while `.pi/subagents` shows non-settled dispatches** (expansion plan A3, 2026-11-13) | `would_deny` | **`would_deny` — OBSERVE-ONLY this wave; the enforce flip is a user decision (plan §7)**. Never blocks in any mode. A safe reload (every dispatch settled) passes silently. |
 | passthrough | everything else (including edit/write inside the allowlist, tagged spawns) | not logged | not logged |
 
 The deny shape matches the pi 1.5.0 `tool_call` hook contract
@@ -57,6 +58,43 @@ as `pi-web-bridge/src/projects.ts`; zero dependencies).
   enforces the tag **format** at the spawn chokepoint for every path (root and
   nested); **registry truth stays here**, next to the db and the router. The
   manager deliberately does not duplicate registry validation.
+
+### reload_safety: /reload while dispatches are in flight (A3, observe-only)
+
+The 2026-11-13 restart forensics (`docs/runbooks/pi-restart.md`) proved that
+`/reload` does not swap extension module code in a long-lived process — and a
+reload/restart with in-flight subagent dispatches orphans them. This category
+makes those attempts *visible* before anyone flips enforcement on:
+
+- **Detection** (`classify.js: classifyReloadBash`, precision-first): a bash
+  segment invoking `tmux send-keys` whose keys mention `/reload`; an exactly
+  quoted `"/reload"` token; or the bare command. A TUI-typed `/reload` never
+  produces a tool call and is out of scope by construction. Paths like
+  `src/reload/index.ts` do not match.
+- **In-flight check** (`reload.js`): the done/running/stale inference is **not
+  reimplemented** — a `python3 -c` snippet imports `tools/restart_handoff.py`
+  (the A1 handoff module) as a library and JSON-dumps `scan_subagents()` over
+  `<projectRoot>/.pi/subagents`, so the guard and the restart runbook share one
+  implementation and cannot drift. Non-settled = status `running` or `stale`.
+- **Verdict**: at least one non-settled dispatch → one `would_deny` log line
+  (excerpt lists the ids and statuses); zero → silent passthrough. Scan
+  failure (python missing, import error, timeout 5s) → one `error` line
+  (`pattern:"reload_scan_failed"`). Either way the tool call proceeds: **never
+  blocks, in every mode** — the enforce flip is a user decision recorded per
+  the plan's §7 gate pattern (same as mutating-bash D3a).
+- **Root resolution**: `options.projectRoot` (tests) > env
+  `PI_COORDINATOR_GUARD_PROJECT_ROOT` > `/Users/yuyuan/PiAgents`.
+
+### Placeholder exemption for the spawn tag (live false-positive fix, 2026-11-13)
+
+A dispatch brief that QUOTES the documentation convention string
+`[project:<name>]` in prose (e.g. "every brief must begin `[project:<name>]`")
+had `<name>` extracted as a tag name and denied by the registry check. A tag
+name containing angle brackets is the convention string, never a real project
+id, so it is now exempt from tag extraction (`classify.js:
+isPlaceholderTagName`): prose mentions no longer trip the registry validation,
+and a placeholder alone still does NOT satisfy the dispatch-tag rule — a real,
+non-placeholder `[project:<name>]` tag is required.
 
 ### Why mutating_bash is log-only in every mode (deliberate)
 
@@ -204,8 +242,9 @@ npm test          # node --test test/
 
 ## Files
 
-- `classify.js` — pure classifier (bash pattern table, allowlist matcher with traversal normalization, spawn-tag rule + tag extraction, `DEFAULT_ALLOWLIST`)
+- `classify.js` — pure classifier (bash pattern table, allowlist matcher with traversal normalization, spawn-tag rule + placeholder-exempt tag extraction, `/reload` detection, `DEFAULT_ALLOWLIST`)
 - `registry.js` — coordinator-registry reader (lazy `node:sqlite` via `createRequire`, router-parity membership, 60s TTL cache, fail-open read contract)
+- `reload.js` — non-settled-dispatch scanner for `reload_safety` (library import of `tools/restart_handoff.py` via `python3 -c`; fail-open, never rejects)
 - `config.js` — live config loader (`stat` + mtime cache, v1 schema parse, safe observe fallback, once-per-change error reporting)
 - `log.js` — JSONL log-writer (append, `0600`, swallow-all-errors)
 - `index.js` — extension entry (`tool_call` hook, env > config > default mode resolution, per-category enforcement, deny reasons)

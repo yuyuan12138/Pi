@@ -120,6 +120,57 @@ const PROJECT_TAG = /\[project:[^\]\s]+\]/;
 const PROJECT_TAG_GLOBAL = /\[project:[^\]\s]+\]/g;
 const PROJECT_TAG_PREFIX = "[project:";
 
+/**
+ * Placeholder exemption (live false positive, 2026-11-13): a tag NAME containing
+ * angle brackets is the DOCUMENTATION CONVENTION string ("[project:<name>]",
+ * as printed in AGENTS.md/README prose), never a real project id. It must be
+ * exempt from tag extraction: (a) prose mentions of the convention must not be
+ * validated against the registry (the registry lookup would deny unknown
+ * project "<name>"), and (b) a placeholder alone does NOT satisfy the
+ * dispatch-tag rule — a real, non-placeholder tag is still required.
+ */
+export function isPlaceholderTagName(name) {
+  return /[<>]/.test(String(name ?? ""));
+}
+
+/** All NON-placeholder [project:<name>] matches in a haystack (raw match objects). */
+function realTagMatches(haystack) {
+  return [...haystack.matchAll(PROJECT_TAG_GLOBAL)].filter(
+    (m) => !isPlaceholderTagName(m[0].slice(PROJECT_TAG_PREFIX.length, -1)),
+  );
+}
+
+/** Exact quoted '/reload' token: "/reload" or '/reload' (not paths like src/reload/x). */
+const QUOTED_RELOAD = /(["'])\/reload\1/;
+
+/**
+ * /reload detection for the reload_safety category (expansion plan A3):
+ * a tool-call-visible attempt to reload the coordinator TUI. Precision-first —
+ * only the realistic dispatch vectors count:
+ *   reload_send_keys — a bash segment invoking tmux send-keys whose keys mention /reload;
+ *   reload_quoted    — an exactly-quoted "/reload" token anywhere in the command;
+ *   reload_bare      — the whole command IS /reload.
+ * A TUI-typed /reload never reaches the guard (no tool call happens) — out of
+ * scope by construction. Paths like src/reload/index.ts do not match (no exact
+ * quoted token, no send-keys). Returns the pattern name or null.
+ */
+export function classifyReloadBash(command) {
+  if (typeof command !== "string" || command.length === 0) return null;
+  if (command.trim() === "/reload") return "reload_bare";
+  // send-keys first: the specific dispatch vector names the pattern even when
+  // the keys are also a quoted "/reload" token.
+  for (const segment of bashSegments(command)) {
+    if (!segment.includes("/reload")) continue;
+    const t = tokens(segment);
+    if (t.length === 0) continue;
+    if (t.some((tok) => tok === "send-keys" || tok.endsWith("/send-keys"))) {
+      return "reload_send_keys";
+    }
+  }
+  if (QUOTED_RELOAD.test(command)) return "reload_quoted";
+  return null;
+}
+
 /** Classify a bash command. Returns the matched pattern name, or null. */
 export function classifyBash(command) {
   if (typeof command !== "string" || command.length === 0) return null;
@@ -176,7 +227,10 @@ function head(s) {
 export function classifySpawn(input) {
   try {
     const haystack = JSON.stringify(input ?? {});
-    return PROJECT_TAG.test(haystack) ? null : "dispatch_missing_project_tag";
+    // Only a REAL (non-placeholder) tag satisfies the rule; the documentation
+    // convention string "[project:<name>]" in prose does not count (see
+    // isPlaceholderTagName).
+    return realTagMatches(haystack).length > 0 ? null : "dispatch_missing_project_tag";
   } catch {
     return "dispatch_missing_project_tag"; // unserializable args: flag defensively
   }
@@ -192,7 +246,7 @@ export function classifySpawn(input) {
 export function extractProjectTags(input) {
   try {
     const hay = JSON.stringify(input ?? {});
-    return [...hay.matchAll(PROJECT_TAG_GLOBAL)].map((m) => m[0].slice(PROJECT_TAG_PREFIX.length, -1));
+    return realTagMatches(hay).map((m) => m[0].slice(PROJECT_TAG_PREFIX.length, -1));
   } catch {
     return null;
   }
@@ -213,6 +267,11 @@ export function classifyToolCall(toolName, input, { allowlist = DEFAULT_ALLOWLIS
     return { category: "passthrough", pattern: null, excerpt: null };
   }
   if ((toolName === "bash" || toolName === "powershell") && input && typeof input.command === "string") {
+    // reload_safety wins over mutating_bash when both match (e.g.
+    // `tmux send-keys '/reload' Enter && git push`): the reload check is the
+    // more specific rule and its observe verdict must not be masked.
+    const reloadPattern = classifyReloadBash(input.command);
+    if (reloadPattern) return { category: "reload_safety", pattern: reloadPattern, excerpt: head(input.command) };
     const pattern = classifyBash(input.command);
     if (pattern) return { category: "mutating_bash", pattern, excerpt: head(input.command) };
     return { category: "passthrough", pattern: null, excerpt: null };
