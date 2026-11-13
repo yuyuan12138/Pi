@@ -1205,7 +1205,16 @@
   // own tooling), evidence: each task brief's own first user message.
   const ORG_PROJECT_EXTRA_ALIASES = {
     minecraft: ["rsi", "wave", "furnace", "episode", "木剑", "mineflayer", "remote-agent/operations"],
-    medical: ["筛查", "screening"],
+    // 2026-11-13 medical SMS/PR wave (evidence: medical repo work records
+    // work/2026-11-13-{sms-web-integration,sms-integration-scout,pr1-close},
+    // commit 5bfc529): sessions sms-cand-{a,b,c}-x1 + sms-draft-pr-x1 (SMS web
+    // integration best-of-3 + draft PR #2) and pr-close-x1 + pr-close-verifier-x1
+    // (upstream PR #1 close) are medical work whose briefs mention medical AND
+    // other registry projects ("English report"), so the label stage refuses
+    // them (2-mention rule) and they fell into the unattributed bucket — the
+    // session-topic prefix is the unambiguous evidence. "medical-*" sessions
+    // need no entry: the registry alias "medical" already covers them.
+    medical: ["筛查", "screening", "sms", "pr-close"],
     "PiAgents.harness": ["memory-index", "memidx", "terminal-bench", "harnessbench", "hbench", "yt-dlp", "whisper", "vlog-auto-edit", "vlog-edit-test", "video toolchain", "video-editing agent"],
     "PiAgents-org": ["pi documentation", "agent organization"],
   };

@@ -679,6 +679,49 @@ describe("live session-name attribution (<topic>-x<N> convention)", () => {
   });
 });
 
+describe("2026-11-13 medical SMS/PR wave attribution (work records, medical commit 5bfc529)", () => {
+  // REG mirrors the live registry: medical carries only "medical"/"医疗"; the
+  // sms/pr-close tokens are page vocabulary (ORG_PROJECT_EXTRA_ALIASES),
+  // evidence: medical repo work/2026-11-13-* (commit 5bfc529).
+  const REG = [
+    { id: "medical", displayName: "Medical platform", root: "/users/yuyuan/projects/mobile-medical/medical-system", aliases: ["medical", "医疗"], childProjects: [] },
+    { id: "english", displayName: "English", root: "/users/yuyuan/projects/english", aliases: ["english", "en"], childProjects: [] },
+    { id: "blog", displayName: "Blog", root: "", aliases: ["blog"], childProjects: [] },
+  ];
+  test("sms-cand-* / sms-draft-pr sessions attribute via the topic prefix (no label needed)", () => {
+    assert.equal(org.orgProjectOf({ id: "sms-cand-a-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sms-cand-b-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sms-cand-c-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sa43", session: "sms-draft-pr-x1", label: null }, REG, null), "medical");
+  });
+  test("pr-close sessions attribute via the topic prefix, incl. collision-suffixed dirs", () => {
+    assert.equal(org.orgProjectOf({ id: "pr-close-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "pr-close-verifier-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "pr-close-verifier-x1-a1b2", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sa44", session: "pr-close-x1-k9f2", label: null }, REG, null), "medical");
+  });
+  test("session topic rescues multi-mention briefs the label stage must refuse", () => {
+    // real brief shape (sms-cand-a-x1 2026-11-13): names the medical root AND
+    // "(English report)" — two registry mentions, so the label stage refuses;
+    // the session-name convention carries the unambiguous evidence instead
+    const label = "You are coder candidate A in a best-of-3 round. PROJECT: /users/yuyuan/projects/mobile-medical/medical-system. DELIVERABLE (English report): baseline results";
+    assert.equal(org.orgProjectOf({ id: "sa42", label }, REG, null), null); // label alone: honest refusal
+    assert.equal(org.orgProjectOf({ id: "sms-cand-a-x1", label }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sms-cand-a-x1#1", session: "sms-cand-a-x1", eraCount: 3, label: "Reply with the single line: CANDIDATE-OK." }, REG, null), "medical"); // era nodes keep the dir session
+  });
+  test("medical-sms / medical-pr sessions need no vocabulary entry (registry alias prefix)", () => {
+    assert.equal(org.orgProjectOf({ id: "medical-pr-x1", label: null }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "medical-sms-scout-x1", label: null }, REG, null), "medical");
+  });
+  test("label tokens: the word 'sms' attributes, a bare 'pr' never does", () => {
+    assert.equal(org.orgProjectOf({ id: "sa77", label: "Implement the SMS send-code rate limiter and controller tests" }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sa78", label: "pr-close follow-up: verify the upstream PR state" }, REG, null), "medical");
+    assert.equal(org.orgProjectOf({ id: "sa79", label: "Open a PR on the blog repo" }, REG, null), "blog"); // 'pr' is not a medical token
+    // word boundary: 'sms' must not hit inside a longer token
+    assert.equal(org.orgProjectOf({ id: "sa80", label: "smsa processor internals" }, REG, null), null);
+  });
+});
+
 describe("new-era dir naming (dd08db5 suffix) in ancestry parsing", () => {
   test("trailing -[0-9a-z]{4} tokens strip for lineage: sa9-b-sa1-k3f9 -> parent sa9-b-k3f9", () => {
     const ids = new Set(["sa9-b-k3f9", "sa9-k3f9", "sa1-k3f9"]);
