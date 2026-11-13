@@ -163,6 +163,7 @@ export default function webBridge(pi: ExtensionAPI) {
       sessionFile: () => sessionFile,
       subagentsDir,
       indexHtml: () => readFileSync(new URL("./index.html", import.meta.url), "utf8"),
+      overviewHtml: () => readFileSync(new URL("./overview.html", import.meta.url), "utf8"),
       stream: () => stream.snapshot(),
       usage7d: createUsage7dSource(log),
       log,

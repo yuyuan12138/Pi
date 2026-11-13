@@ -41,6 +41,7 @@ const server = createBridgeServer({
   sessionFile: () => newestSessionFile(projectDir),
   subagentsDir: () => join(projectDir, ".pi", "subagents"),
   indexHtml: () => readFileSync(new URL("../src/index.html", import.meta.url), "utf8"),
+  overviewHtml: () => readFileSync(new URL("../src/overview.html", import.meta.url), "utf8"),
   log: (m) => console.error(`[web-bridge] ${m}`),
 });
 

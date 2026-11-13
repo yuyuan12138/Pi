@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Overview — Mission Control</title>
+<style>
+  /* ================================================================
+     OVERVIEW — one dedicated dashboard for "what is the coordinator
+     doing right now + key info at a glance".
+     Design language: a faithful port of index.html (Variant B
+     precision instrument) — dark, mono-first data typography, ONE
+     live signal color (#46e0a3), amber for blocked/offline, hairline
+     strips, no filled boxes. Composes ONLY existing GET endpoints
+     (/state /stream /projects /main-log): every section deploys on a
+     hard refresh with zero server changes. Escape-first rendering:
+     untrusted task text enters via textContent only — the markup sink is
+     never touched.
+     ================================================================ */
+  :root {
+    --bg: #07080a;
+    --raise: rgba(255, 255, 255, .024);
+    --raise-2: rgba(255, 255, 255, .05);
+    --glass: rgba(13, 15, 18, .78);
+    --line: rgba(255, 255, 255, .085);
+    --line-2: rgba(255, 255, 255, .045);
+    --t0: #e9ebee;
+    --t1: #9aa1a8;
+    --t2: #7e858d;
+    --t3: #4d535a;
+    --sig: #46e0a3;
+    --sig-dim: rgba(70, 224, 163, .42);
+    --sig-glow: 0 0 10px 0 rgba(70, 224, 163, .45);
+    --warn: #e6b45a;
+    --err: #e5726b;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    --tb-h: 48px;
+    --sa-t: env(safe-area-inset-top, 0px);
+    --sa-b: env(safe-area-inset-bottom, 0px);
+    --tb-full: calc(var(--tb-h) + var(--sa-t));
+    --measure: 900px;
+    --ease: cubic-bezier(.2, .7, .2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  [hidden] { display: none !important; }
+  html { height: 100%; }
+  @supports (height: 100dvh) { html { height: 100dvh; } }
+  body {
+    min-height: 100%; overflow-x: hidden;
+    background: var(--bg); color: var(--t0);
+    font: 14px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(1100px 420px at 38% -8%, rgba(160, 190, 210, .05), transparent 62%),
+      radial-gradient(900px 500px at 108% 112%, rgba(70, 224, 163, .028), transparent 60%),
+      radial-gradient(rgba(255, 255, 255, .03) 1px, transparent 1.1px);
+    background-size: auto, auto, 22px 22px;
+  }
+  @media (prefers-reduced-motion: no-preference) { body { animation: page-in .32s ease-out backwards; } }
+  @keyframes page-in { from { opacity: 0; } }
+  ::selection { background: rgba(70, 224, 163, .22); color: var(--t0); }
+  :focus-visible { outline: 1px solid var(--sig-dim); outline-offset: 2px; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .09); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .09) transparent; }
+
+  /* ---------- topbar: glass + hairline (index.html port) ---------- */
+  #topbar {
+    height: var(--tb-h); height: var(--tb-full); display: flex; align-items: center; gap: 12px;
+    padding: 0 20px 0 24px; padding-top: var(--sa-t); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 60;
+    background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .wordmark {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .3em;
+    text-transform: uppercase; white-space: nowrap; color: var(--t0); text-decoration: none;
+  }
+  #project { font-family: var(--mono); font-size: 11px; color: var(--t2); letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+  .flex-spacer { flex: 1; }
+  .bridge { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--t2); white-space: nowrap; }
+  #updated { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #updated.warn { color: var(--warn); }
+
+  /* activity pulse strip — glows only while the coordinator streams */
+  #pulsebar { position: relative; height: 2px; overflow: hidden; background: rgba(255, 255, 255, .045); z-index: 60;
+    background-image: repeating-linear-gradient(90deg, rgba(255, 255, 255, .07) 0 1px, transparent 1px 7px); }
+  #pulsebar::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 140px; opacity: 0;
+    background: linear-gradient(90deg, transparent, var(--sig-dim), transparent);
+  }
+  #pulsebar.on::after { opacity: 1; animation: sweep 5.2s linear infinite; }
+  @keyframes sweep { from { transform: translateX(-160px); } to { transform: translateX(calc(100vw + 160px)); } }
+
+  /* ---------- page nav: back to the chat UI ---------- */
+  #pagenav { display: flex; gap: 2px; flex: none; border: 1px solid var(--line); border-radius: 7px; padding: 2px; }
+  .navtab {
+    display: inline-flex; align-items: center; min-height: 22px; padding: 2px 10px; border-radius: 5px;
+    font: 600 10px var(--mono); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--t2); text-decoration: none; white-space: nowrap;
+    transition: color .15s var(--ease), background-color .15s var(--ease);
+  }
+  .navtab:hover { color: var(--t0); }
+  @media (max-width: 639px) { .navtab span { display: none; } .navtab::after { content: attr(data-short); } }
+  @media (max-width: 479px) { .wordmark { display: none; } }
+
+  /* ---------- column ---------- */
+  #col {
+    position: relative; z-index: 10; max-width: var(--measure);
+    margin: 0 auto; padding: 20px 24px calc(28px + var(--sa-b));
+    display: flex; flex-direction: column; gap: 22px;
+  }
+  .sec-head { display: flex; align-items: baseline; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+  .plate {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: .17em; text-transform: uppercase; color: var(--t2);
+  }
+  .sec-head .plate { color: var(--t1); }
+  .sec-head .plate::before { content: ""; display: inline-block; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); margin-right: 10px; vertical-align: 1px; }
+  .sec-count { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
+  .empty { color: var(--t2); text-align: center; padding: 26px 0; font-size: 12.5px; letter-spacing: .01em; font-family: var(--mono); }
+
+  /* ---------- status strip: instrument cells (index.html .cluster port) ---------- */
+  .cluster { display: flex; align-items: stretch; flex-wrap: wrap; row-gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line-2); }
+  .cluster::-webkit-scrollbar { display: none; }
+  .cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: 1 1 auto; min-width: 96px; padding: 10px 16px 11px 0; border-right: 1px solid var(--line-2); margin-right: 16px; }
+  .cell:last-child { border-right: 0; margin-right: 0; }
+  .cell .val { font-family: var(--mono); font-size: 12.5px; font-weight: 500; line-height: 17px; color: var(--t0); letter-spacing: .01em; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell .val.cl-sig { color: var(--sig); }
+  .cell .val.cl-warn { color: var(--warn); }
+  #inflight {
+    display: flex; align-items: baseline; gap: 8px; min-width: 0;
+    padding: 9px 0 0; font-family: var(--mono); font-size: 11px; color: var(--t2);
+    border-bottom: 1px solid var(--line-2);
+  }
+  #inflight .tname { color: var(--t0); flex: none; }
+  #inflight .targs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  #inflight .snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--t1); }
+  #inflight.off { display: none; }
+
+  /* ---------- status dots: green = live, amber = blocked ---------- */
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--t3);
+    transition: background-color .35s var(--ease);
+  }
+  .dot.running { background: var(--sig); box-shadow: var(--sig-glow); animation: breathe 2.4s ease-in-out infinite; }
+  .dot.blocked { background: var(--warn); box-shadow: 0 0 9px 0 rgba(230, 180, 90, .4); }
+  .dot.working { background: var(--sig); box-shadow: var(--sig-glow); }
+  @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* ---------- live worker cards (index.html .card port) ---------- */
+  .card {
+    position: relative; display: grid; width: 100%; margin: 6px 0; padding: 11px 13px 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "dot name badge time" "sub sub sub sub" "tick tick tick tick";
+    align-items: center; column-gap: 8px; row-gap: 2px;
+    border: 1px solid var(--line-2); border-radius: 8px; overflow: visible;
+    transition: background-color .18s var(--ease), border-color .18s var(--ease);
+  }
+  .card:hover { background: var(--raise); border-color: var(--line); }
+  .card:has(.dot.running)::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--sig-dim) 30%, var(--sig-dim) 70%, transparent);
+    background-size: 200px 1px; background-repeat: no-repeat;
+    animation: needle 3.4s var(--ease) infinite;
+  }
+  @keyframes needle { 0% { background-position: -200px 0; } 100% { background-position: calc(100% + 200px) 0; } }
+  .card.blocked { border-color: rgba(230, 180, 90, .28); }
+  .card .dot { grid-area: dot; }
+  .card-name { grid-area: name; min-width: 0; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--t0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-time { grid-area: time; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; color: var(--t2); font-variant-numeric: tabular-nums; }
+  .card-sub { grid-area: sub; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-ticker { grid-area: tick; min-width: 0; font-family: var(--mono); font-size: 10px; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* project attribution badge: per-project hash hue, muted */
+  .pbadge {
+    display: inline-flex; align-items: center; gap: 5px; max-width: 140px;
+    padding: 0 7px; border-radius: 4px; border: 1px solid var(--line-2);
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; color: var(--t1);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 16px;
+  }
+  .card .pbadge { grid-area: badge; }
+  .pbadge i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .pbadge.unattributed { border-style: dashed; color: var(--t3); }
+  .pbadge.unattributed i { background: var(--t3); }
+
+  /* ---------- recent activity rows: hairline strips ---------- */
+  .arow {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: baseline; column-gap: 10px; row-gap: 1px;
+    padding: 7px 0 6px; border-bottom: 1px solid var(--line-2);
+    font-family: var(--mono); font-size: 11.5px; min-width: 0;
+  }
+  .arow:last-child { border-bottom: 0; }
+  .ameta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .a-at { color: var(--t3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .a-what { color: #c9cdd2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a-out { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--t3); white-space: nowrap; }
+  .a-out.live { color: var(--sig); }
+  .a-out.blocked { color: var(--warn); }
+  /* narrow: time + badge collapse onto their own line above the what-line */
+  @media (max-width: 519px) {
+    .arow { grid-template-columns: minmax(0, 1fr) auto; }
+    .ameta { grid-column: 1 / -1; }
+    .a-what { grid-column: 1; }
+    .a-out { grid-column: 2; }
+  }
+
+  /* ---------- projects strip (index.html .pcard port) ---------- */
+  .pcard {
+    display: grid; width: 100%; margin: 6px 0; padding: 9px 13px 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "dot name usage" "sub sub sub" "tick tick tick";
+    align-items: center; column-gap: 8px; row-gap: 2px;
+    border: 1px solid var(--line-2); border-radius: 8px;
+    transition: border-color .18s var(--ease), background-color .18s var(--ease);
+  }
+  .pcard:hover { background: var(--raise); border-color: var(--line); }
+  .pcard.bucket { border-style: dashed; }
+  .pcard .dot { grid-area: dot; }
+  .pcard-name { grid-area: name; min-width: 0; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--t0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pcard-usage { grid-area: usage; font-family: var(--mono); font-size: 10px; color: var(--t1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pcard-sub { grid-area: sub; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pcard-tick { grid-area: tick; min-width: 0; font-family: var(--mono); font-size: 10px; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #projects-note { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
+  #projects-note.warn { color: var(--warn); }
+
+  /* ---------- footer stamp ---------- */
+  #foot { text-align: center; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); }
+  @media (max-width: 719px) {
+    #col { padding: 16px 14px calc(24px + var(--sa-b)); gap: 18px; }
+    #topbar { padding: 0 14px; padding-top: var(--sa-t); gap: 10px; }
+    #topbar #project { display: none; }
+    .cell { padding-right: 10px; margin-right: 10px; min-width: 84px; }
+  }
+  /* very narrow: the topbar stamp moves out (the footer stamp stays visible) */
+  @media (max-width: 519px) {
+    #updated { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+    #pulsebar { display: none; }
+  }
+</style>
+</head>
+<body>
+<header id="topbar">
+  <a class="wordmark" href="index.html">Overview</a>
+  <nav id="pagenav" aria-label="Pages">
+    <a class="navtab" href="index.html" data-short="Control"><span>Mission Control</span></a>
+    <a class="navtab" href="index.html#/org" data-short="Org"><span>Org Graph</span></a>
+  </nav>
+  <span id="project" class="mono">&mdash;</span>
+  <span class="flex-spacer"></span>
+  <span id="updated" title="last successful refresh">&mdash;</span>
+  <span class="bridge"><span class="dot" id="bridge-dot"></span><span id="bridge-status" class="mono">connecting</span></span>
+</header>
+<div id="pulsebar" aria-hidden="true"></div>
+
+<main id="col">
+
+  <!-- 1. STATUS strip: bridge up · model · stream state · uptime · session -->
+  <section aria-label="Status">
+    <div class="cluster" id="status-cluster">
+      <div class="cell"><span class="plate">Bridge</span><div class="val" id="st-bridge">&mdash;</div></div>
+      <div class="cell"><span class="plate">Model</span><div class="val" id="st-model">&mdash;</div></div>
+      <div class="cell"><span class="plate">Stream</span><div class="val" id="st-stream">&mdash;</div></div>
+      <div class="cell"><span class="plate">Uptime</span><div class="val tnum" id="st-up">&mdash;</div></div>
+      <div class="cell"><span class="plate">Session</span><div class="val" id="st-sess" title="">&mdash;</div></div>
+    </div>
+    <div id="inflight" class="off" aria-live="polite"></div>
+  </section>
+
+  <!-- 2. NOW: coordinator turn + live worker cards -->
+  <section aria-label="Now">
+    <div class="sec-head"><span class="plate">Now</span><span class="sec-count" id="now-count"></span></div>
+    <div id="now-box"></div>
+  </section>
+
+  <!-- 3. RECENT ACTIVITY: dispatches + journal + work records, newest first -->
+  <section aria-label="Recent activity">
+    <div class="sec-head"><span class="plate">Recent activity</span><span class="sec-count" id="act-count"></span></div>
+    <div id="act-box"></div>
+  </section>
+
+  <!-- 4. PROJECTS: registry + 7d usage + honest unattributed buckets -->
+  <section aria-label="Projects">
+    <div class="sec-head"><span class="plate">Projects</span><span class="sec-count" id="projects-note"></span></div>
+    <div id="proj-box"></div>
+  </section>
+
+  <div id="foot">auto-refresh 3&ndash;10s &middot; <span id="foot-updated">&mdash;</span></div>
+</main>
+
+<script>
+"use strict";
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
+  };
+
+  // ---------- shared state ----------
+  const S = {
+    down: false,          // /state unreachable
+    state: null,          // GET /state payload
+    stream: null,         // GET /stream payload
+    projects: null,       // GET /projects payload
+    usage7d: null,        // GET /projects usage7d (when carried)
+    projectsNote: null,   // degraded-registry note
+    mainStats: null,      // GET /main-log stats (model + startedAt)
+    sessionStart: null,   // parsed from sessionFile path
+    lastOk: 0,            // last successful /state poll (epoch ms)
+    tick: 0,              // bumped every 30s so relative ages re-render
+  };
+
+  // Relative on purpose (same convention as index.html): when served under a
+  // sub-path, a leading slash would resolve against the domain root.
+  async function api(path) {
+    const r = await fetch(path.replace(/^\/+/, ""));
+    let body = null;
+    try { body = await r.json(); } catch { /* empty body */ }
+    return { ok: r.ok, body };
+  }
+  function withInFlight(fn) {
+    let busy = false;
+    return async (...args) => {
+      if (busy) return;
+      busy = true;
+      try { await fn(...args); } finally { busy = false; }
+    };
+  }
+
+  // ---------- formatting helpers (index.html ports) ----------
+  function relTime(ts) {
+    if (!ts) return "";
+    const s = Math.max(0, (Date.now() - ts) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+  function fmtTokens(n) {
+    if (!Number.isFinite(n) || n <= 0) return "0";
+    if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + "G";
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + "k";
+    return String(Math.round(n));
+  }
+  function fmtCostUsd(n) { return Number.isFinite(n) && n > 0 ? "$" + (n >= 0.01 ? n.toFixed(2) : n.toFixed(4)) : "$0"; }
+  function fmtUptime(ms) {
+    const t = Math.max(0, Math.floor(ms / 1000));
+    const d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    const p = (n) => String(n).padStart(2, "0");
+    return d ? `${d}D ${p(h)}H` : `${p(h)}:${p(m)}:${p(s)}`;
+  }
+  // Session file paths embed a UTC stamp: .../2026-11-03T09-28-19-088Z_<id>.jsonl.
+  function parseSessionStart(file) {
+    const m = /(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})/.exec(String(file ?? ""));
+    if (!m) return null;
+    const t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    return Number.isFinite(t) && t > 0 ? t : null;
+  }
+  function fmtClock(ts) {
+    if (!Number.isFinite(ts)) return "";
+    const d = new Date(ts), n = new Date();
+    const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    if (d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()) return hm;
+    const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${MO[d.getMonth()]} ${d.getDate()} ${hm}`;
+  }
+  function firstLine(s, n = 160) {
+    const t = String(s ?? "").split("\n")[0].replace(/\s+/g, " ").trim();
+    return t ? (t.length > n ? t.slice(0, n - 1) + "\u2026" : t) : "";
+  }
+  function trunc(s, n) {
+    const t = String(s ?? "");
+    return t.length > n ? t.slice(0, n - 1) + "\u2026" : t;
+  }
+  function setCell(id, text, cls) {
+    const e = $(id);
+    if (!e || e.textContent === text) { if (e && cls !== undefined) e.className = cls; return; }
+    e.textContent = text;
+    if (cls !== undefined) e.className = cls;
+  }
+
+  // ---------- project attribution (compact honest subset of index.html's
+  // orgProjectOf evidence chain: explicit project > [project:tag] > session
+  // @project > session-topic alias > label root/alias single-hit; NO guess
+  // beyond that — null = explicit unattributed badge) ----------
+  function textMatches(text, alias) {
+    if (!text || !alias) return false;
+    if (!/[a-z0-9]/i.test(alias)) return text.includes(alias.toLowerCase());
+    const esc = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`, "i").test(text);
+  }
+  // superagent uniqueness suffix ("-2x41", trailing 4-char base36) stripped
+  // before convention matching — mirrors state.ts deriveSession.
+  function dirBase(name) {
+    return String(name ?? "").replace(/-([0-9a-z]{4})$/, "");
+  }
+  function registry() { return Array.isArray(S.projects?.projects) ? S.projects.projects : []; }
+  // Attribution evidence lives in the registry: NOW/ACTIVITY signatures must
+  // include it, or a first render that beat the /projects poll would stay
+  // "unattributed" forever (renderIfChanged never re-renders an unchanged sig).
+  function registrySig() {
+    return registry().map((p) => `${p.id}:${(Array.isArray(p?.aliases) ? p.aliases : []).join(",")}:${p.root ?? ""}`).join("|");
+  }
+  function sessionTopicProject(name) {
+    const s = dirBase(String(name ?? "").trim());
+    const m = /^(.+?)-(?:x)?\d+$/.exec(s);
+    if (!m) return null;
+    const topic = m[1].toLowerCase();
+    if (topic.length < 3) return null;
+    let best = null;
+    for (const p of registry()) {
+      for (const a of Array.isArray(p?.aliases) ? p.aliases : []) {
+        const al = String(a).toLowerCase();
+        if (al.length < 3 || !topic.startsWith(al)) continue;
+        if (!best || al.length > best[0].length) best = [al, String(p.id)];
+      }
+    }
+    return best ? best[1] : null;
+  }
+  function projectOf(sub) {
+    // (1) explicit per-dispatch project wins outright
+    if (typeof sub?.project === "string" && sub.project.trim()) return sub.project.trim();
+    const label = String(sub?.label ?? "");
+    const low = label.toLowerCase();
+    // (2) an explicit [project:<name>] tag is strong evidence (registry ids +
+    // aliases; an unknown tag is ignored, never guessed)
+    const tag = /\[project:([^\]]+)\]/i.exec(label);
+    if (tag) {
+      const name = tag[1].trim().toLowerCase();
+      for (const p of registry()) {
+        if (String(p.id).toLowerCase() === name) return String(p.id);
+        if ((Array.isArray(p?.aliases) ? p.aliases : []).some((a) => String(a).toLowerCase() === name)) return String(p.id);
+      }
+    }
+    // (3) session-name convention: role@<project> segments
+    const sess = typeof sub?.session === "string" && sub.session.trim() ? sub.session.trim() : null;
+    if (sess && sess.includes("@")) {
+      const right = sess.split("@")[1] ?? "";
+      const regIds = new Set(registry().map((p) => String(p.id)));
+      for (const cand of [right.trim(), right.split(".")[0].trim()]) {
+        if (cand && regIds.has(cand)) return cand;
+      }
+    }
+    // (4) "<topic>-x<N>" session ids match registry alias prefixes
+    const topic = sessionTopicProject(sess) ?? sessionTopicProject(String(sub?.id ?? ""));
+    if (topic) return topic;
+    // (5) label evidence: registry root path, then alias word-boundary hits —
+    // only when exactly ONE project matches (ambiguous = unattributed)
+    const hits = new Set();
+    for (const p of registry()) {
+      const aliased = (Array.isArray(p?.aliases) ? p.aliases : []).some((a) => textMatches(low, String(a)));
+      if ((p?.root && low.includes(String(p.root).toLowerCase())) || aliased) hits.add(String(p.id));
+    }
+    if (hits.size === 1) return [...hits][0];
+    return null; // honest unattributed bucket
+  }
+  // Stable per-project hue (index.html orgProjectHue port), biased away from
+  // the signal-green band so project color never reads as "live".
+  function projectHue(name) {
+    const s = String(name ?? "");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    h = h % 360;
+    if (h >= 130 && h <= 185) h = (h + 75) % 360;
+    return h;
+  }
+  function pbadge(parent, projectId) {
+    const b = el("span", "pbadge" + (projectId ? "" : " unattributed"));
+    const i = el("i");
+    if (projectId) i.style.background = `hsl(${projectHue(projectId)} 55% 60%)`;
+    const known = registry().find((p) => String(p.id) === projectId);
+    b.append(i, el("span", null, projectId ? (known?.displayName || projectId) : "unattributed"));
+    if (projectId) b.title = projectId;
+    parent.append(b);
+  }
+
+  // ---------- sig-guarded section rendering ----------
+  // A section re-renders only when its data signature changes; the 30s tick
+  // rides along so relative ages and clocks stay honest without churn.
+  function renderIfChanged(box, sig, build) {
+    const key = `${sig}|${S.tick}`;
+    if (box.dataset.sig === key) return false;
+    box.dataset.sig = key;
+    box.textContent = "";
+    build(box);
+    return true;
+  }
+
+  // ---------- 1. STATUS strip ----------
+  function renderStatus() {
+    const st = S.state, stream = S.stream;
+    // bridge cell: the poll loop owns S.down
+    setCell("#st-bridge", S.down ? "offline" : "up 127.0.0.1", "val " + (S.down ? "cl-warn" : "cl-sig"));    // model: /main-log whole-run stats (first assistant message's model)
+    const model = typeof S.mainStats?.model === "string" && S.mainStats.model ? S.mainStats.model : null;
+    setCell("#st-model", model ?? "\u2014", "val" + (model ? " cl-sig" : ""));
+    // stream: idle/busy + in-flight activity line
+    const streaming = !!stream?.streaming;
+    const runAge = stream?.runStartedAt ? relTime(stream.runStartedAt) : null;
+    setCell("#st-stream", streaming ? "busy" : (runAge ? `idle \u00b7 ran ${runAge}` : "idle"), "val " + (streaming ? "cl-sig" : ""));
+    const infl = $("#inflight");
+    const lastTool = Array.isArray(stream?.tools) && stream.tools.length ? stream.tools[stream.tools.length - 1] : null;
+    if (lastTool || (streaming && stream?.text)) {
+      infl.classList.remove("off");
+      infl.textContent = "";
+      infl.append(el("span", "tname", "\u25b8 " + (lastTool ? lastTool.name : "\u2026")));
+      if (lastTool?.summary) infl.append(el("span", "targs", trunc(lastTool.summary, 120)));
+      const snippet = firstLine(stream?.text, 140);
+      if (snippet) infl.append(el("span", "snippet", "\u2014 " + snippet));
+    } else {
+      infl.classList.add("off");
+      infl.textContent = "";
+    }
+    // uptime: session-file path stamp, falling back to /main-log startedAt
+    const start = S.sessionStart ?? (Number.isFinite(S.mainStats?.startedAt) ? S.mainStats.startedAt : null);
+    setCell("#st-up", start ? fmtUptime(Date.now() - start) : "\u2014", "val tnum");
+    // session id: basename of the session file
+    const sf = typeof st?.main?.sessionFile === "string" ? st.main.sessionFile : null;
+    const base = sf ? sf.split("/").pop() ?? "" : "";
+    setCell("#st-sess", base ? trunc(base, 26) : "\u2014", "val");
+    $("#st-sess").title = base;
+    // pulsebar + topbar identity
+    $("#pulsebar").classList.toggle("on", streaming);
+    setCell("#project", typeof st?.project === "string" && st.project ? st.project : "\u2014");
+  }
+
+  // ---------- 2. NOW ----------
+  function renderNow() {
+    const box = $("#now-box");
+    const subs = Array.isArray(S.state?.subagents) ? S.state.subagents : [];
+    const live = subs.filter((s) => s.status === "running" || s.status === "blocked");
+    const stream = S.stream;
+    const streaming = !!stream?.streaming;
+    $("#now-count").textContent = `${live.length} live worker${live.length === 1 ? "" : "s"}` + (streaming ? " \u00b7 coordinator busy" : "");
+    const sig = JSON.stringify([
+      S.tick, streaming, stream?.text ?? "", stream?.tools ?? [], S.state?.main?.sessionMtime ?? null, subs, registrySig(),
+    ]);
+    renderIfChanged(box, sig, (root) => {
+      // coordinator card: the main session's current turn
+      const cc = el("div", "card");
+      const dot = el("span", "dot" + (streaming ? " running" : ""));
+      const name = el("span", "card-name", "coordinator \u00b7 " + (S.state?.project ?? "\u2014"));
+      const age = S.state?.main?.sessionMtime ? relTime(S.state.main.sessionMtime) : "";
+      const time = el("span", "card-time", streaming ? "turn running" : age ? `last activity ${age}` : "");
+      const sub = el("span", "card-sub");
+      if (streaming) {
+        const snippet = firstLine(stream?.text, 180);
+        sub.textContent = snippet ? `\u201d ${trunc(snippet, 150)}` : "\u2026";
+      } else {
+        const runAge = stream?.runStartedAt ? relTime(stream.runStartedAt) : null;
+        sub.textContent = runAge ? `last run ${runAge}` : "idle \u2014 no turn in flight";
+      }
+      cc.append(dot, name, time, sub);
+      root.append(cc);
+      // live worker cards: every non-settled subagent (running/blocked)
+      for (const s of live) {
+        const card = el("div", "card" + (s.status === "blocked" ? " blocked" : ""));
+        const wdot = el("span", "dot " + s.status);
+        const nm = el("span", "card-name", s.id || "?");
+        pbadge(card, projectOf(s));
+        const t = el("span", "card-time", s.lastActivity ? relTime(s.lastActivity) : "");
+        const sub = el("span", "card-sub", firstLine(s.label) || "(no task label)");
+        const tick = el("span", "card-ticker", s.lastExcerpt ? trunc(s.lastExcerpt.replace(/\s+/g, " ").trim(), 150) : "");
+        card.append(wdot, nm, t, sub, tick);
+        card.title = [s.label, s.model ? `model: ${s.model}` : null, s.session ? `session: ${s.session}` : null]
+          .filter(Boolean).join("\n");
+        root.append(card);
+      }
+      if (!live.length && !streaming) {
+        root.append(el("div", "empty", "no live work \u2014 coordinator idle, no unsettled workers"));
+      }
+    });
+  }
+
+  // ---------- 3. RECENT ACTIVITY ----------
+  function renderActivity() {
+    const box = $("#act-box");
+    const subs = Array.isArray(S.state?.subagents) ? S.state.subagents : [];
+    const projects = registry();
+    // Compose the newest ~20 events across projects from the existing
+    // endpoints only: dispatches (/state subagent activity), journal rows
+    // (/projects per-project lastActivity + stage), work records (/projects
+    // work hint = newest RECORD.md per project).
+    const evs = [];
+    for (const s of subs) {
+      if (!Number.isFinite(s.lastActivity)) continue;
+      evs.push({ at: s.lastActivity, proj: projectOf(s), kind: "dispatch", what: firstLine(s.label) || `${s.id} (no task label)`, outcome: s.status });
+    }
+    for (const p of projects) {
+      const t = p.lastActivity ? Date.parse(p.lastActivity) : NaN;
+      if (Number.isFinite(t)) {
+        evs.push({ at: t, proj: String(p.id), kind: "journal", what: `${p.lastJournalStatus || "journal"} \u2014 ${p.displayName || p.id}`, outcome: null });
+      }
+      const w = p.work;
+      if (w) {
+        const wt = Date.parse(w.at);
+        if (Number.isFinite(wt)) evs.push({ at: wt, proj: String(p.id), kind: "work", what: w.title || w.dir, outcome: w.worker });
+      }
+    }
+    evs.sort((a, b) => b.at - a.at);
+    const top = evs.slice(0, 20);
+    $("#act-count").textContent = `${top.length} event${top.length === 1 ? "" : "s"}`;
+    const sig = JSON.stringify([S.tick, top, registrySig()]);
+    renderIfChanged(box, sig, (root) => {
+      if (!top.length) {
+        root.append(el("div", "empty", "no events yet"));
+        return;
+      }
+      for (const e of top) {
+        const row = el("div", "arow");
+        const meta = el("span", "ameta");
+        meta.append(el("span", "a-at", fmtClock(e.at)), pbadgeInline(e.proj));
+        row.append(meta, el("span", "a-what", e.what), outcomeChip(e));
+        row.title = `${e.kind} \u00b7 ${new Date(e.at).toISOString()}`;
+        root.append(row);
+      }
+    });
+  }
+  function pbadgeInline(projectId) {
+    const b = el("span", "pbadge" + (projectId ? "" : " unattributed"));
+    const i = el("i");
+    if (projectId) i.style.background = `hsl(${projectHue(projectId)} 55% 60%)`;
+    const known = registry().find((p) => String(p.id) === projectId);
+    b.append(i, el("span", null, projectId ? (known?.displayName || projectId) : "unattr"));
+    return b;
+  }
+  function outcomeChip(e) {
+    if (e.kind === "dispatch") {
+      const map = { running: ["live", "a-out live"], blocked: ["blocked", "a-out blocked"], done: ["settled", "a-out"] };
+      const [text, cls] = map[e.outcome] ?? ["?", "a-out"];
+      return el("span", cls, text);
+    }
+    if (e.kind === "work") return el("span", "a-out", e.outcome ? trunc(String(e.outcome), 24) : "record");
+    return el("span", "a-out", "journal");
+  }
+
+  // ---------- 4. PROJECTS ----------
+  const PROJECT_WORKING_MS = 30 * 60 * 1000;
+  function renderProjects() {
+    const box = $("#proj-box");
+    const projects = registry();
+    const note = S.projectsNote;
+    const noteEl = $("#projects-note");
+    noteEl.textContent = note ?? (projects.length ? String(projects.length) : "none registered");
+    noteEl.classList.toggle("warn", !!note);
+    const usage7d = S.usage7d && typeof S.usage7d === "object" ? S.usage7d : null;
+    const byProject = new Map((usage7d && Array.isArray(usage7d.projects) ? usage7d.projects : []).map((u) => [String(u.projectId), u]));
+    const sig = JSON.stringify([S.tick, projects, note, usage7d]);
+    renderIfChanged(box, sig, (root) => {
+      if (!projects.length) {
+        root.append(el("div", "empty", note ?? "none registered"));
+        return;
+      }
+      for (const p of projects) {
+        const t = p.lastActivity ? Date.parse(p.lastActivity) : NaN;
+        const working = Number.isFinite(t) && Date.now() - t < PROJECT_WORKING_MS;
+        const card = el("div", "pcard");
+        card.append(el("span", "dot" + (working ? " working" : "")));
+        card.append(el("span", "pcard-name", p.displayName || p.id || "?"));
+        const u = byProject.get(String(p.id));
+        card.append(el("span", "pcard-usage",
+          u ? `7d ${fmtTokens(u.tokens)} tok \u00b7 ${fmtCostUsd(u.cost)}` : "7d \u2014"));
+        card.append(el("span", "pcard-sub", p.root || ""));
+        card.append(el("span", "pcard-tick",
+          Number.isFinite(t) ? `${relTime(t)}${p.lastJournalStatus ? " \u00b7 " + p.lastJournalStatus : ""}` : "no journal activity"));
+        card.title = [p.root, u ? `7d: ${u.tokens.toLocaleString()} tokens \u00b7 $${(u.cost ?? 0).toFixed(4)}` : null,
+          p.status ? `registry: ${p.status}` : null].filter(Boolean).join("\n");
+        root.append(card);
+      }
+      // honest unattributed / personal-ops buckets + grand total, so the
+      // project numbers reconcile visibly (same discipline as index.html)
+      if (usage7d) {
+        const buckets = [
+          ["unattributed", usage7d.unattributed],
+          ["personal-ops", usage7d.personalOps],
+        ];
+        for (const [name, b] of buckets) {
+          if (!b || !(b.tokens > 0)) continue;
+          const card = el("div", "pcard bucket");
+          card.append(el("span", "dot"));
+          card.append(el("span", "pcard-name", name));
+          card.append(el("span", "pcard-usage", `7d ${fmtTokens(b.tokens)} tok \u00b7 ${fmtCostUsd(b.cost)}`));
+          card.append(el("span", "pcard-sub", "no registry attribution (honest bucket)"));
+          card.append(el("span", "pcard-tick", ""));
+          root.append(card);
+        }
+        const tt = usage7d.totals;
+        if (tt) {
+          const card = el("div", "pcard bucket");
+          card.append(el("span", "dot"));
+          card.append(el("span", "pcard-name", "total \u00b7 7d"));
+          card.append(el("span", "pcard-usage", `${fmtTokens(tt.tokens)} tok \u00b7 ${fmtCostUsd(tt.cost)}`));
+          card.append(el("span", "pcard-sub", `${projects.length} project buckets + unattributed + personal-ops`));
+          card.append(el("span", "pcard-tick", ""));
+          root.append(card);
+        }
+      }
+    });
+  }
+
+  // ---------- stamp ----------
+  function renderStamp() {
+    const txt = S.lastOk ? `upd ${new Date(S.lastOk).toTimeString().slice(0, 8)}` : "\u2014";
+    for (const id of ["#updated", "#foot-updated"]) {
+      const e = $(id);
+      if (e) e.textContent = txt;
+    }
+    $("#updated").title = S.lastOk ? `last successful refresh ${new Date(S.lastOk).toISOString()}` : "";
+    $("#updated").classList.toggle("warn", S.down);
+  }
+
+  function renderAll() {
+    renderStatus();
+    renderNow();
+    renderActivity();
+    renderProjects();
+    renderStamp();
+  }
+
+  // ---------- polling (existing GET endpoints only) ----------
+  const pollState = withInFlight(async () => {
+    try {
+      const r = await api("state");
+      if (!r.ok || !r.body) throw new Error(r.ok ? "empty" : r.code ?? "fail");
+      S.down = false;
+      S.state = r.body;
+      S.lastOk = Date.now();
+      S.sessionStart = parseSessionStart(r.body.main?.sessionFile) ?? S.sessionStart;
+      $("#bridge-dot").className = "dot running";
+      $("#bridge-status").textContent = "bridge up";
+      $("#bridge-status").title = "127.0.0.1";
+    } catch {
+      if (!S.down) {
+        S.down = true;
+        $("#bridge-dot").className = "dot blocked";
+        $("#bridge-status").textContent = "bridge offline";
+        $("#bridge-status").title = "";
+        $("#pulsebar").classList.remove("on");
+      }
+    }
+    renderAll();
+  });
+  const pollStream = withInFlight(async () => {
+    const r = await api("stream");
+    if (!r.ok || !r.body) return; // transient failure: keep the current view
+    S.stream = r.body;
+    renderAll();
+  });
+  const pollProjects = withInFlight(async () => {
+    const r = await api("projects");
+    if (!r.ok || !r.body) return;
+    S.projects = r.body;
+    S.projectsNote = typeof r.body.note === "string" ? r.body.note : null;
+    S.usage7d = r.body.usage7d && typeof r.body.usage7d === "object" ? r.body.usage7d : null;
+    renderAll();
+  });
+  // /main-log once per cadence for whole-run stats only (model id + session
+  // start): echo the cursor back so the read stays incremental.
+  const pollMain = withInFlight(async () => {
+    const q = S.mainCursor !== null && S.mainCursor !== undefined ? `?after=${S.mainCursor}` : "";
+    const r = await api(`main-log${q}`);
+    if (!r.ok || !r.body) return;
+    if (Number.isFinite(r.body.cursor)) S.mainCursor = r.body.cursor;
+    if (r.body.stats) S.mainStats = r.body.stats;
+    renderAll();
+  });
+
+  // Boot + cadence: the page refreshes within 3-10s everywhere (brief: 5-10s
+  // for state; stream is the live in-flight view so it polls tighter).
+  pollState();
+  pollStream();
+  pollProjects();
+  pollMain();
+  setInterval(pollState, 5000);
+  setInterval(pollStream, 3000);
+  setInterval(pollProjects, 10000);
+  setInterval(pollMain, 10000);
+  // relative ages / clocks stay honest between data changes
+  setInterval(() => { S.tick++; renderAll(); }, 30000);
+  // resume immediately when a mobile browser un-suspends the tab
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    pollState(); pollStream(); pollProjects(); pollMain();
+  });
+  window.addEventListener("online", () => { pollState(); pollStream(); pollProjects(); pollMain(); });
+})();
+</script>
+</body>
+</html>

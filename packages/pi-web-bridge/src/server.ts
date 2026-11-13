@@ -51,6 +51,8 @@ export interface BridgeDeps {
   subagentsDir: () => string;
   /** The single-file web UI source. */
   indexHtml: () => string;
+  /** Overview dashboard page, served at GET /overview and /overview.html (absent dep -> 404). */
+  overviewHtml?: () => string;
   /** Live in-flight assistant snapshot for GET /stream (defaults to a neutral idle snapshot). */
   stream?: () => StreamSnapshot;
   /** Coordinator projects snapshot for GET /projects (defaults to reading the real coordinator DB read-only). */
@@ -168,6 +170,15 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
 
     if (method === "GET" && (path === "/" || path === "/index.html")) {
       return sendText(res, 200, deps.indexHtml(), "text/html; charset=utf-8");
+    }
+    // Overview dashboard: one static page composing the existing GET endpoints
+    // (/state /stream /projects /main-log). Served like index.html (per-request
+    // source read via the dep), so content edits deploy on a hard refresh; the
+    // ROUTE itself needs one /reload to appear.
+    if (method === "GET" && (path === "/overview" || path === "/overview.html")) {
+      const html = deps.overviewHtml?.();
+      if (html === undefined) return sendJson(res, 404, { ok: false, error: "not found" });
+      return sendText(res, 200, html, "text/html; charset=utf-8");
     }
     if (method === "GET" && path === "/state") {
       const sf = deps.sessionFile();
