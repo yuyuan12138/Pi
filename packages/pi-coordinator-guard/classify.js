@@ -117,6 +117,8 @@ const OVERWRITE_REDIRECT = /(?:^|[\s;(])>(?!>)\s*("[^"]*"|'[^']*'|\S+)/;
 
 /** Literal [project:<name>] token required in every subagent_spawn dispatch. */
 const PROJECT_TAG = /\[project:[^\]\s]+\]/;
+const PROJECT_TAG_GLOBAL = /\[project:[^\]\s]+\]/g;
+const PROJECT_TAG_PREFIX = "[project:";
 
 /** Classify a bash command. Returns the matched pattern name, or null. */
 export function classifyBash(command) {
@@ -177,6 +179,22 @@ export function classifySpawn(input) {
     return PROJECT_TAG.test(haystack) ? null : "dispatch_missing_project_tag";
   } catch {
     return "dispatch_missing_project_tag"; // unserializable args: flag defensively
+  }
+}
+
+/**
+ * All [project:<name>] tag names found anywhere in the serialized spawn input
+ * (same haystack as classifySpawn, so the registry check validates exactly what
+ * the format check accepted). Returns [] when no tag is present, null when the
+ * input is unserializable (classifySpawn flags that case defensively already).
+ * Pure: no I/O, never throws.
+ */
+export function extractProjectTags(input) {
+  try {
+    const hay = JSON.stringify(input ?? {});
+    return [...hay.matchAll(PROJECT_TAG_GLOBAL)].map((m) => m[0].slice(PROJECT_TAG_PREFIX.length, -1));
+  } catch {
+    return null;
   }
 }
 

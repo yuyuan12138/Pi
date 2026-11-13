@@ -5,11 +5,12 @@
 // The classifier is exercised as a table; the log-writer against a temp dir;
 // the extension wiring via synthetic tool_call events; the config loader
 // against temp files with explicit utime bumps (deterministic mtime cache).
-import { describe, test } from "node:test";
+import { describe, test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import coordinatorGuard, {
   createGuard,
   resolveMode,
@@ -19,13 +20,21 @@ import coordinatorGuard, {
   buildAllowlist,
   editWriteDenyReason,
   spawnDenyReason,
+  unknownProjectDenyReason,
   MODE_ENV,
   ALLOW_ENV,
   LOG_PATH_ENV,
 } from "../index.js";
-import { classifyBash, classifyToolCall, classifySpawn, isAllowlisted, DEFAULT_ALLOWLIST } from "../classify.js";
+import { classifyBash, classifyToolCall, classifySpawn, extractProjectTags, isAllowlisted, DEFAULT_ALLOWLIST } from "../classify.js";
 import { appendGuardLog } from "../log.js";
 import { parseConfigText, createConfigLoader, DEFAULT_CONFIG_PATH, CONFIG_VERSION, safeDefaultConfig } from "../config.js";
+import {
+  parseRegistryProjects,
+  readRegistryProjects,
+  registryProjectId,
+  resetRegistryCache,
+  REGISTRY_TTL_MS,
+} from "../registry.js";
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), "pi-guard-test-"));
@@ -38,6 +47,36 @@ function tempLogPath() {
 /** A config path that never exists: keeps wiring tests hermetic (no live config). */
 function noConfigPath() {
   return join(tempDir(), "no-such-config.json");
+}
+
+/** A registry db path that never exists: keeps the registry read on the fail-open path. */
+function noRegistryPath() {
+  return join(tempDir(), "no-such-coordinator.db");
+}
+
+/** Fixture projects used across registry tests (status mix matters: only "registered" is routable). */
+const FIXTURE_PROJECTS = [
+  { id: "PiAgents", aliases: ["piagents"], root: "/Users/yuyuan/PiAgents", status: "registered" },
+  { id: "minecraft", aliases: ["mc"], root: "/Users/yuyuan/projects/mc", status: "registered" },
+  { id: "retired-proj", aliases: ["old"], root: "/x/retired", status: "disabled" },
+];
+
+/** Create a real sqlite registry db (coordinator schema: single row, id=1, JSON). */
+function writeRegistryDb(p, projects) {
+  const db = new DatabaseSync(p);
+  try {
+    db.exec("CREATE TABLE registry (id INTEGER PRIMARY KEY, json TEXT NOT NULL)");
+    db.prepare("INSERT INTO registry (id, json) VALUES (1, ?)").run(JSON.stringify({ schemaVersion: 1, projects }));
+  } finally {
+    db.close();
+  }
+}
+
+/** A hermetic fixture registry containing the projects the tests tag dispatches with. */
+function registryFixtureDb() {
+  const p = join(tempDir(), "coordinator.db");
+  writeRegistryDb(p, FIXTURE_PROJECTS);
+  return p;
 }
 
 /** Write a config file, pinning mtimeMs when given (deterministic cache tests). */
@@ -377,14 +416,15 @@ describe("extension wiring", () => {
 
   test("tagged subagent_spawn is not logged", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
+    // Hermetic registry fixture: the tag names a registered project, so the spawn stays passthrough.
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
     await handler({ toolName: "subagent_spawn", input: { task: "[project:PiAgents] do it" } });
     assert.throws(() => statSync(p), Error); // no log file created at all
   });
 
   test("passthrough calls produce no log lines", async () => {
     const p = tempLogPath();
-    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath() });
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
     await handler({ toolName: "read", input: { path: "/x" } });
     await handler({ toolName: "bash", input: { command: "ls -la" } });
     await handler({ toolName: "grep", input: { pattern: "x" } });
@@ -566,9 +606,271 @@ describe("per-call mode resolution: env unset + config file (live-incident regre
     const p = tempLogPath();
     const cfg = enforceConfigPath();
     writeConfig(cfg, { version: CONFIG_VERSION, mode: "enforce", allow: [] }, 7_000_000);
-    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    // Hermetic registry fixture: the tag names a registered project (dispatch stays valid).
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg, registryPath: registryFixtureDb() });
     const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:PiAgents] attributed work" } });
     assert.equal(result, undefined);
     assert.throws(() => statSync(p), Error);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (e) coordinator-registry validation (dispatch-chain guarantee, user directive 2026-11-13)
+// ---------------------------------------------------------------------------
+// CHANGE 1: a [project:<name>] tag must name a project the coordinator can route.
+// Membership mirrors the coordinator router (id / alias case-insensitive / canonical
+// root, registered-status only); read failures fail OPEN to the format-only check
+// with one warning line in the JSONL sink; results are TTL-cached (60s).
+describe("registry.js — parse + router-parity membership", () => {
+  test("parseRegistryProjects: valid row JSON -> projects; garbage -> []", () => {
+    assert.deepEqual(
+      parseRegistryProjects(JSON.stringify({ schemaVersion: 1, projects: [{ id: "a", aliases: ["x"], root: "/a", status: "registered" }] })),
+      [{ id: "a", aliases: ["x"], root: "/a", status: "registered" }],
+    );
+    assert.deepEqual(parseRegistryProjects("not json"), []);
+    assert.deepEqual(parseRegistryProjects(JSON.stringify({ projects: "nope" })), []);
+    assert.deepEqual(parseRegistryProjects(JSON.stringify({})), []);
+    assert.deepEqual(parseRegistryProjects(undefined), []);
+    // malformed entries skipped; missing fields coerced
+    assert.deepEqual(
+      parseRegistryProjects(JSON.stringify({ projects: [{ noId: true }, { id: "  " }, { id: "ok" }] })),
+      [{ id: "ok", aliases: [], root: "", status: null }],
+    );
+  });
+
+  test("registryProjectId mirrors the coordinator router: exact id, exact alias (case-insensitive), exact canonical root", () => {
+    const projects = FIXTURE_PROJECTS;
+    assert.equal(registryProjectId(projects, "PiAgents"), "PiAgents");
+    assert.equal(registryProjectId(projects, "piagents"), "PiAgents"); // id compared lowercased (router: p.id === lower)
+    assert.equal(registryProjectId(projects, "MC"), "minecraft"); // alias, lowercased (normalizeAlias)
+    assert.equal(registryProjectId(projects, "  mc  "), "minecraft"); // alias, trimmed
+    assert.equal(registryProjectId(projects, "/Users/yuyuan/projects/mc"), "minecraft"); // canonical root
+    assert.equal(registryProjectId(projects, "/Users/yuyuan/projects/mc/"), null); // router compares raw needle, no normalization
+  });
+
+  test("registryProjectId: only status 'registered' is routable; unknown -> null", () => {
+    const projects = FIXTURE_PROJECTS;
+    assert.equal(registryProjectId(projects, "retired-proj"), null); // disabled project: not routable
+    assert.equal(registryProjectId(projects, "old"), null); // its alias neither
+    assert.equal(registryProjectId(projects, "nope"), null);
+    assert.equal(registryProjectId(projects, ""), null);
+    assert.equal(registryProjectId(projects, undefined), null);
+    assert.equal(registryProjectId(null, "x"), null);
+    assert.equal(registryProjectId([], "x"), null);
+  });
+});
+
+describe("registry.js — readRegistryProjects: fail-open reads + 60s TTL cache", () => {
+  afterEach(() => resetRegistryCache());
+
+  test("valid db: projects parsed from the single registry row", () => {
+    const p = join(tempDir(), "ok.db");
+    writeRegistryDb(p, FIXTURE_PROJECTS);
+    const r = readRegistryProjects(p);
+    assert.deepEqual(r.projects.map((x) => x.id), ["PiAgents", "minecraft", "retired-proj"]);
+    assert.equal(r.error, undefined);
+  });
+
+  test("missing db file: projects null + error (fail-open contract, never throws)", () => {
+    const r = readRegistryProjects(noRegistryPath());
+    assert.equal(r.projects, null);
+    assert.equal(typeof r.error, "string");
+    assert.ok(r.error.length > 0);
+  });
+
+  test("corrupt db file: projects null + error", () => {
+    const p = join(tempDir(), "corrupt.db");
+    writeFileSync(p, "this is definitely not a sqlite database".repeat(10));
+    const r = readRegistryProjects(p);
+    assert.equal(r.projects, null);
+    assert.equal(typeof r.error, "string");
+  });
+
+  test("valid sqlite but no registry table: projects null (missing-table is a read failure)", () => {
+    const p = join(tempDir(), "wrongtable.db");
+    const db = new DatabaseSync(p);
+    db.exec("CREATE TABLE other (x)");
+    db.close();
+    const r = readRegistryProjects(p);
+    assert.equal(r.projects, null);
+  });
+
+  test("60s TTL cache: second call does NOT re-read (db deleted in between is still served)", () => {
+    const p = join(tempDir(), "cached.db");
+    writeRegistryDb(p, [{ id: "a", status: "registered" }]);
+    const r1 = readRegistryProjects(p);
+    assert.deepEqual(r1.projects.map((x) => x.id), ["a"]);
+    renameSync(p, `${p}.moved`); // the db vanishes after the first read
+    const r2 = readRegistryProjects(p);
+    assert.equal(r2, r1); // same cached object identity: no re-read within the TTL
+    assert.deepEqual(r2.projects.map((x) => x.id), ["a"]);
+    // Once the TTL window has passed, the read is retried and now fails (file gone).
+    const later = Date.now() + REGISTRY_TTL_MS + 1_000;
+    const r3 = readRegistryProjects(p, { now: () => later });
+    assert.equal(r3.projects, null);
+    assert.notEqual(r3, r1);
+  });
+
+  test("ttlMs option: 0 forces a re-read on every call; now() injection drives expiry", () => {
+    const p = join(tempDir(), "ttl0.db");
+    writeRegistryDb(p, [{ id: "a", status: "registered" }]);
+    const r1 = readRegistryProjects(p, { ttlMs: 0 });
+    renameSync(p, `${p}.moved`);
+    const r2 = readRegistryProjects(p, { ttlMs: 0 });
+    assert.notEqual(r2, r1); // re-read: now fails
+    assert.equal(r2.projects, null);
+  });
+
+  test("failures are cached with the same TTL (a broken db is re-attested once per window)", () => {
+    const p = noRegistryPath(); // never exists
+    const r1 = readRegistryProjects(p);
+    const r2 = readRegistryProjects(p);
+    assert.equal(r2, r1); // cached failure object, not a fresh read
+  });
+});
+
+describe("classify.js — extractProjectTags", () => {
+  test("extracts single, multiple and zero tags from the spawn input", () => {
+    assert.deepEqual(extractProjectTags({ task: "[project:PiAgents] do it" }), ["PiAgents"]);
+    assert.deepEqual(extractProjectTags({ task: "a [project:one] b [project:two] c" }), ["one", "two"]);
+    assert.deepEqual(extractProjectTags({ task: "no tag", label: "work" }), []);
+    assert.deepEqual(extractProjectTags(undefined), []);
+  });
+
+  test("tag may sit in any argument (same haystack as the format check)", () => {
+    assert.deepEqual(extractProjectTags({ task: "do it", cwd: "/x", foo: "[project:lab]" }), ["lab"]);
+  });
+
+  test("unserializable input -> null (classifySpawn flags that case defensively)", () => {
+    const circular = {};
+    circular.self = circular;
+    assert.equal(extractProjectTags(circular), null);
+  });
+});
+
+describe("unknownProjectDenyReason", () => {
+  test("names the offending tag, lists the registered ids, points at the log", () => {
+    const reason = unknownProjectDenyReason("PiAgentz", ["minecraft", "blog"], "/log.jsonl");
+    assert.match(reason, /\[project:PiAgentz\]/);
+    assert.match(reason, /NOT in the coordinator registry/);
+    assert.match(reason, /"minecraft", "blog"/);
+    assert.match(reason, /\/log\.jsonl/);
+  });
+
+  test("empty registry: '(none)'", () => {
+    assert.match(unknownProjectDenyReason("x", [], "/log.jsonl"), /\(none\)/);
+    assert.match(unknownProjectDenyReason("x", null, "/log.jsonl"), /\(none\)/);
+  });
+});
+
+describe("guard wiring — dispatch_unknown_project (registry-backed tag validation)", () => {
+  afterEach(() => resetRegistryCache());
+
+  test("enforce: unknown-project tag DENIED with the registered ids listed in the reason", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    const result = await handler({ toolCallId: "u1", toolName: "subagent_spawn", input: { task: "[project:PiAgentz] typo dispatch" } });
+    assert.ok(result && result.block === true);
+    assert.match(result.reason, /\[project:PiAgentz\]/);
+    assert.match(result.reason, /"PiAgents", "minecraft"/); // registered ids listed
+    const [line] = readLines(p);
+    assert.equal(line.decision, "denied");
+    assert.equal(line.category, "dispatch_unknown_project");
+    assert.equal(line.excerpt, "[project:PiAgentz] typo dispatch");
+  });
+
+  test("enforce: registered tag passes untouched (no log)", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    assert.equal(await handler({ toolName: "subagent_spawn", input: { task: "[project:PiAgents] ok" } }), undefined);
+    assert.throws(() => statSync(p), Error);
+  });
+
+  test("enforce: alias tag passes (router parity — the coordinator routes aliases)", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    assert.equal(await handler({ toolName: "subagent_spawn", input: { task: "[project:mc] alias dispatch" } }), undefined);
+    assert.throws(() => statSync(p), Error);
+  });
+
+  test("enforce: disabled (non-registered) project tag denied", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:retired-proj] not routable" } });
+    assert.ok(result && result.block === true);
+    assert.match(result.reason, /\[project:retired-proj\]/);
+  });
+
+  test("a call carrying several tags is flagged when ANY tag is unknown (first unknown named)", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:PiAgents] plus [project:Nope]" } });
+    assert.ok(result && result.block === true);
+    assert.match(result.reason, /\[project:Nope\]/);
+  });
+
+  test("observe: unknown-project tag logged as would_deny, never blocked", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "observe", logPath: p, configPath: noConfigPath(), registryPath: registryFixtureDb() });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:Nope] observe" } });
+    assert.equal(result, undefined);
+    const [line] = readLines(p);
+    assert.equal(line.decision, "would_deny");
+    assert.equal(line.category, "dispatch_unknown_project");
+  });
+
+  test("registry db absent: tagged unknown dispatch FAILS OPEN to format-only + one warning logged", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: noRegistryPath() });
+    const result = await handler({ toolCallId: "u2", toolName: "subagent_spawn", input: { task: "[project:Whatever] db hiccup must not brick dispatching" } });
+    assert.equal(result, undefined); // fail-open: the format is fine, so the dispatch proceeds
+    const lines = readLines(p);
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].category, "registry_unavailable");
+    assert.equal(lines[0].decision, "error");
+    assert.equal(lines[0].pattern, "registry_read_failed");
+    assert.ok(lines[0].error.length > 0);
+  });
+
+  test("corrupt db: same fail-open + warning", async () => {
+    const p = tempLogPath();
+    const reg = join(tempDir(), "corrupt.db");
+    writeFileSync(reg, "garbage bytes, not a database".repeat(10));
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: reg });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:Whatever] still dispatched" } });
+    assert.equal(result, undefined);
+    const [line] = readLines(p);
+    assert.equal(line.category, "registry_unavailable");
+  });
+
+  test("registry warning fires once per read, not once per call (cached failure identity)", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: noRegistryPath() });
+    await handler({ toolName: "subagent_spawn", input: { task: "[project:A] one" } });
+    await handler({ toolName: "subagent_spawn", input: { task: "[project:B] two" } });
+    const warnings = readLines(p).filter((l) => l.category === "registry_unavailable");
+    assert.equal(warnings.length, 1); // one warning for the cached failure window
+  });
+
+  test("untagged spawn (format deny) never touches the registry: no registry warning, format reason", async () => {
+    const p = tempLogPath();
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: noRegistryPath() });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "no tag at all" } });
+    assert.ok(result && result.block === true);
+    assert.match(result.reason, /\[project:<name>\]/); // the FORMAT deny reason, not the registry one
+    const lines = readLines(p);
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].category, "dispatch_missing_project_tag"); // format gate fired first
+  });
+
+  test("registry read failures never break the handler (node:sqlite unavailable still fails open)", async () => {
+    const p = tempLogPath();
+    // A directory where the db file should be: open() fails on any runtime.
+    const reg = join(tempDir(), "db-is-a-dir");
+    mkdirSync(reg);
+    const handler = createGuard({ mode: "enforce", logPath: p, configPath: noConfigPath(), registryPath: reg });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:x] survives" } });
+    assert.equal(result, undefined);
+    assert.equal(readLines(p)[0].category, "registry_unavailable");
   });
 });
