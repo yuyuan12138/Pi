@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "test": "python3 -m unittest discover -s tests -p 'test_*.py'",
-    "dry-run": "python3 tests/dry_run/run_dry_run.py"
+    "dry-run": "python3 tests/dry_run/run_dry_run.py",
+    "evidence": "PYTHONPATH=src python3 -m rsi_loop --evidence"
   }
 }

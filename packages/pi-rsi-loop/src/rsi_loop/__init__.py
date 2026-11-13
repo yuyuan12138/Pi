@@ -28,6 +28,9 @@ from .ports import (AcceptGate, RecordingApplier, SaturationCurriculum,
 from .filter import filter_proposals, validate_entry_generic, entry_from_raw
 from .proposer import HttpProposer, strict_key_loader
 from .engine import RsiLoopEngine, emit_decision, EXIT_CODES
+from .evidence import (EVIDENCE_SCHEMA, EvidenceReadError,
+                       build_cycle_evidence, persist_evidence_envelope,
+                       read_evidence)
 
 __all__ = [
     'ProposerUnavailable', 'load_terminal_results', 'extract_json_object',
@@ -37,4 +40,6 @@ __all__ = [
     'filter_proposals', 'validate_entry_generic', 'entry_from_raw',
     'HttpProposer', 'strict_key_loader',
     'RsiLoopEngine', 'emit_decision', 'EXIT_CODES',
+    'EVIDENCE_SCHEMA', 'EvidenceReadError', 'build_cycle_evidence',
+    'persist_evidence_envelope', 'read_evidence',
 ]

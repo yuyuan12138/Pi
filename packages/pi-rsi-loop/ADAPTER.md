@@ -62,10 +62,25 @@ MC c005 bug class). Outcome vocabulary: `completed`, `model_failed` count as
 comparable; `infra_failure`, `timeout`, `died`, `aborted_budget`,
 `cap_reached` are incomplete (extend via `AcceptGate(extra_not_completed=)`).
 
+**Evidence envelope key (C3, engine-written, optional):** after a cycle
+closes, the ENGINE may add a top-level `evidence` key to this envelope
+(`rsi-loop-evidence/1` schema, see `rsi_loop.evidence`). Drivers never write
+it and must ignore it; the terminal rule is unaffected. Arm dicts MAY carry
+a `scorer_output` field (any JSON value) — it flows into the evidence record
+bounded (strings >400 chars truncated, dicts/lists capped at 20 entries,
+error-code counts capped at 20 with an `*_omitted` sibling count).
+
+**Proposer identity (provenance):** `HttpProposer` exposes `model` and
+`last_prompt_hash` (sha256 of the exact accepted round's messages, computed
+by the transport — set it yourself in custom proposers so the evidence chain
+stays inspectable). A proposer without these attributes still gets its class
+name recorded; missing fields stay `null`, never fabricated.
+
 **State file** (`LoopState`, atomic 0600 writes, checkpoint after every
 step): `mode` (observe|live), `status`, `node`, counters, budget
 (`token_cap`/`spent`), caps (`max_cycles_per_day`), `cycle` (in-flight
-checkpoint), `cycles` history, `would_accept`, `revert`, `live_transition`
+checkpoint), `cycles` history (each closed cycle carries an `evidence`
+record — see above), `would_accept`, `revert`, `live_transition`
 (how/when apply was authorized), `extra` (adapter payload).
 
 **Exit codes** (stable): 0 ok/daily-cap · 3 `paused_no_llm` · 4
@@ -107,6 +122,18 @@ checkpoint), `cycles` history, `would_accept`, `revert`, `live_transition`
   treatment completed AND (control present → control completed; a capped
   control is never a valid baseline). Replaceable, but replace it only to
   TIGHTEN (§7).
+- **Evidence auto-plumbing (C3)** — the engine builds one bounded
+  `rsi-loop-evidence/1` record per closed cycle (arm summaries, error-code
+  deltas, scorer verdict, gate inputs/decision/reason, apply/revert outcome
+  with commit sha, proposer provenance incl. model + prompt-hash) and
+  persists it: always into the state cycle record (`record['evidence']`) and,
+  when the experiment produced a TERMINAL results envelope, additively into
+  that envelope too. Evidence is write-only bookkeeping: it never affects
+  gating, budgeting, the two-strikes breaker, crash-resume (terminal-results
+  rule unchanged — the `evidence` key is not part of terminality), or the
+  observe-mode no-apply guarantee. Read-back for tooling:
+  `PYTHONPATH=src python3 -m rsi_loop --evidence <state|auto_dir|results.json>`
+  (exit 0 evidence · 2 path missing · 3 artifact unreadable, e.g. non-terminal).
 
 ## 4. What a project MUST decide / provide
 

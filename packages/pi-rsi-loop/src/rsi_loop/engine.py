@@ -25,6 +25,8 @@ import json
 from pathlib import Path
 
 from .errors import ProposerUnavailable
+from .evidence import (build_cycle_evidence, persist_evidence_envelope,
+                       proposer_provenance)
 from .filter import filter_proposals
 from .ports import (AcceptGate, RecordingApplier, SaturationCurriculum,
                     observe_estimate)
@@ -151,7 +153,10 @@ class RsiLoopEngine:
         usage = getattr(self.proposer, 'last_usage', {}) or {}
         if usage.get('total_tokens'):
             self.state.data['budget']['spent'] += usage['total_tokens']
-        self.state.checkpoint('propose', raw_proposals=raw_hyps, proposer_usage=usage)
+        # provenance (C3): who proposed this, on which model, from which prompt
+        provenance = proposer_provenance(self.proposer)
+        self.state.checkpoint('propose', raw_proposals=raw_hyps, proposer_usage=usage,
+                              provenance=provenance)
         emit_decision('propose', cycle=cycle_id,
                       raw_count=len(raw_hyps) if isinstance(raw_hyps, list) else 0,
                       usage=usage)
@@ -230,8 +235,13 @@ class RsiLoopEngine:
             self.state.data['budget']['spent'] += tokens
             self.state.save()
             next_after = self._post_experiment_next(cycle_id)
+        budget_ok = self.state.budget_ok()
         gate = self.gate.decide(control, treatment, sense.get('next_before'),
-                                next_after, budget_ok=self.state.budget_ok())
+                                next_after, budget_ok=budget_ok)
+        # gate INPUTS (C3 evidence): exactly what the gate saw, recorded with
+        # the decision so the acceptance chain is inspectable end to end.
+        gate['inputs'] = {'next_before': sense.get('next_before'),
+                          'next_after': next_after, 'budget_ok': budget_ok}
         # fail loudly, never silently 'no metrics': always record WHAT the gate
         # read (exact source path + keys) so the evidence chain is inspectable.
         diagnostics = exp_out.get('diagnostics') or \
@@ -241,7 +251,8 @@ class RsiLoopEngine:
         gate['evidence']['metrics_read'] = diagnostics
         if treatment is None and verdict:
             gate['evidence']['driver_verdict'] = verdict.get('result')
-        self.state.checkpoint('gate', gate=gate, control=control, treatment=treatment)
+        self.state.checkpoint('gate', gate=gate, control=control, treatment=treatment,
+                              verdict=verdict)
         emit_decision('gate', cycle=cycle_id, hypothesis=entry['id'],
                       gate_decision=gate['decision'], reason=gate['reason'],
                       evidence=gate['evidence'])
@@ -323,6 +334,50 @@ class RsiLoopEngine:
                  '```', '']
         path.write_text('\n'.join(lines))
 
+    # -- evidence (C3) ------------------------------------------------------
+    def _build_evidence(self, cycle_id, entry, gate, treatment, apply_result,
+                        observe=False):
+        """Auto-collect the cycle's evidence record from the in-flight
+        checkpoint + close-time arguments. Honest degradation: fields the
+        crashed/skipped stages never produced stay None (resume paths
+        included) — the evidence chain is never fabricated."""
+        inflight = self.state.data.get('cycle') or {}
+        hypothesis = None
+        if entry:
+            hypothesis = {'id': entry.get('id'), 'raw_id': entry.get('raw_id'),
+                          'scope': entry.get('scope'),
+                          'prediction': entry.get('prediction')}
+        return build_cycle_evidence(
+            cycle_id, provenance=inflight.get('provenance'),
+            hypothesis=hypothesis,
+            control=inflight.get('control'),
+            treatment=treatment if treatment is not None else inflight.get('treatment'),
+            verdict=inflight.get('verdict'),
+            auto_dir=inflight.get('auto_dir'),
+            runner_ok=inflight.get('runner_ok'),
+            runner_reason=inflight.get('runner_reason'),
+            gate=gate, apply=apply_result, revert=self.state.data.get('revert'),
+            observe=observe, mode=self.state.data.get('mode'),
+            node=(self.state.data.get('node') or {}).get('current'),
+            budget_spent=self.state.data['budget']['spent'],
+            budget_cap=self.state.data['budget'].get('token_cap'))
+
+    def _persist_envelope(self, cycle_id, evidence, observe=False):
+        """Write the evidence into the cycle's results envelope (terminal
+        only). Emits one decision line either way; never raises."""
+        if observe:
+            return None
+        auto_dir = (self.state.data.get('cycle') or {}).get('auto_dir')
+        if not auto_dir:
+            return None
+        path, error = persist_evidence_envelope(auto_dir, evidence)
+        if path is not None:
+            emit_decision('evidence_envelope_written', cycle=cycle_id, path=str(path))
+        else:
+            emit_decision('evidence_envelope_skipped', cycle=cycle_id,
+                          auto_dir=str(auto_dir), reason=error)
+        return path
+
     # -- one full cycle -----------------------------------------------------
     def run_cycle(self, cycle_id):
         self.state.data['cycle'] = {'id': cycle_id, 'started_at': utcnow(), 'phase': 'sense'}
@@ -398,15 +453,19 @@ class RsiLoopEngine:
             c['consecutive_failures'] += 1
             c['consecutive_successes'] = 0
         transition = self.curriculum(cycle_id, accepted_now, treatment)
+        evidence = self._build_evidence(cycle_id, entry, gate, treatment,
+                                        apply_result, observe)
         record = {'id': cycle_id, 'at': utcnow(),
                   'hypothesis': entry['id'] if entry else None,
                   'gate': gate, 'accepted': accepted_now, 'observe': observe,
                   'treatment_requests': (treatment or {}).get('model_requests'),
                   'apply': apply_result, 'curriculum': transition,
+                  'evidence': evidence,
                   'node': self.state.data['node']['current'],
                   'budget_spent': self.state.data['budget']['spent']}
         c = self.state.data['counters']
         c['accepted' if accepted_now else 'rejected'] += 1
+        self._persist_envelope(cycle_id, evidence, observe)
         self.state.finish_cycle(record)
         self.write_cycle_report(record)
         emit_decision('cycle_closed', cycle=cycle_id, accepted=accepted_now,
@@ -470,14 +529,19 @@ class RsiLoopEngine:
 
         if phase == 'curriculum':
             # curriculum was already applied and checkpointed; finish the record only
+            gate = cycle.get('gate') or {}
+            evidence = self._build_evidence(cycle_id, entry, gate,
+                                            cycle.get('treatment'), None)
             record = {'id': cycle_id, 'at': utcnow(),
                       'hypothesis': entry['id'] if entry else None,
-                      'gate': cycle.get('gate') or {}, 'accepted': bool(entry),
+                      'gate': gate, 'accepted': bool(entry),
                       'observe': False,
                       'treatment_requests': (cycle.get('treatment') or {}).get('model_requests'),
                       'apply': None, 'curriculum': cycle.get('curriculum') or {},
+                      'evidence': evidence,
                       'node': self.state.data['node']['current'],
                       'budget_spent': self.state.data['budget']['spent']}
+            self._persist_envelope(cycle_id, evidence)
             self.state.finish_cycle(record)
             self.write_cycle_report(record)
             emit_decision('cycle_closed', cycle=cycle_id, accepted=record['accepted'],
@@ -598,9 +662,12 @@ class RsiLoopEngine:
             except Exception as error:                          # noqa: BLE001 - infra strike
                 emit_decision('cycle_infra_failure', cycle=cycle_id,
                               error='%s: %s' % (type(error).__name__, str(error)[:300]))
+                infra_gate = {'decision': 'reject', 'reason': 'infra_exception',
+                              'evidence': {'error': str(error)[:300]}}
                 record = {'id': cycle_id, 'accepted': False,
-                          'gate': {'decision': 'reject', 'reason': 'infra_exception',
-                                   'evidence': {'error': str(error)[:300]}}}
+                          'gate': infra_gate,
+                          'evidence': self._build_evidence(cycle_id, None, infra_gate,
+                                                           None, None)}
                 self.state.data['cycles'].append(record)
                 self.state.data['counters']['consecutive_failures'] += 1
                 self.state.data['counters']['consecutive_successes'] = 0

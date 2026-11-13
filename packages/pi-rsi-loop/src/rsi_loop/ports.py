@@ -7,7 +7,7 @@ for dry-run/observe), SaturationCurriculum (streak+variance node policy).
 """
 import abc
 
-from .results import INFRA_OUTCOMES, arm_tokens, is_completed_outcome
+from .results import INFRA_OUTCOMES, arm_tokens, error_code_delta, is_completed_outcome
 from .state import utcnow
 
 DEFAULT_REQUEST_IMPROVEMENT = 0.15
@@ -157,14 +157,7 @@ class AcceptGate(Gate):
         if not (advanced or improved):
             return {'decision': 'reject', 'reason': 'primary_metric_not_met', 'evidence': evidence}
         if control is not None:
-            delta = {}
-            codes = set(control.get('error_code_counts') or {}) \
-                | set(treatment.get('error_code_counts') or {})
-            for code in codes:
-                d = (treatment.get('error_code_counts') or {}).get(code, 0) \
-                    - (control.get('error_code_counts') or {}).get(code, 0)
-                if d:
-                    delta[code] = d
+            delta = error_code_delta(control, treatment)
             worsened = sorted(c for c, d in delta.items() if d > 0)
             evidence['error_code_delta'] = delta
             if worsened:
@@ -322,4 +315,4 @@ __all__ = ['LedgerSource', 'Proposer', 'ExperimentRunner', 'Gate', 'AcceptGate',
            'request_variance_ok', 'observe_estimate', 'INFRA_OUTCOMES',
            'DEFAULT_REQUEST_IMPROVEMENT', 'SATURATION_SUCCESS_STREAK',
            'SATURATION_VARIANCE', 'FAILURE_HOLD_STREAK', 'arm_tokens',
-           'is_completed_outcome']
+           'is_completed_outcome', 'error_code_delta']

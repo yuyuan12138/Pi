@@ -18,6 +18,12 @@ Canonical results.json shape (part of the adapter contract, see ADAPTER.md):
         "treatment": {... same shape ...}
       }
     }
+
+ADDITIVE (Theme C3 evidence auto-plumbing): after a cycle closes, the ENGINE
+may add a top-level ``evidence`` key (``rsi-loop-evidence/1`` schema, see
+``rsi_loop.evidence``) to this envelope — engine-written, never
+driver-written. Consumers must treat it as optional; files without it (all
+results written before C3) load exactly as before.
 """
 import json
 from pathlib import Path
@@ -61,9 +67,33 @@ def load_terminal_results(auto_dir, terminal_key='verdict', require_treatment=Tr
     if require_treatment and 'treatment' not in inner:
         diagnostics['error'] = 'treatment_key_missing_from_results'
         return {'ok': False, 'diagnostics': diagnostics}
+    evidence = doc.get('evidence')            # optional, engine-written (C3)
+    diagnostics['evidence_present'] = isinstance(evidence, dict)
     return {'ok': True, 'results': inner, 'verdict': doc.get(terminal_key) or {},
             'finished_at': doc.get('finished_at'), 'doc': doc,
+            'evidence': evidence if isinstance(evidence, dict) else None,
             'diagnostics': diagnostics}
+
+
+def error_code_delta(control, treatment):
+    """Per-code treatment-minus-control delta, nonzero entries only.
+
+    Pure; the single definition of the delta the AcceptGate rejects on and
+    the evidence record reports (Theme C3). Raises TypeError on malformed
+    counts — the gate lets that surface (infra strike); reporting callers
+    degrade honestly instead.
+    """
+    control = control or {}
+    treatment = treatment or {}
+    codes = set(control.get('error_code_counts') or {}) \
+        | set(treatment.get('error_code_counts') or {})
+    delta = {}
+    for code in codes:
+        d = (treatment.get('error_code_counts') or {}).get(code, 0) \
+            - (control.get('error_code_counts') or {}).get(code, 0)
+        if d:
+            delta[code] = d
+    return delta
 
 
 def arm_tokens(arm):

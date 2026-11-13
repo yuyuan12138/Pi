@@ -10,7 +10,20 @@ becomes the first consumer/reference adapter, not the owner.
 Six pluggable ports (`LedgerSource`, `Proposer`, `ExperimentRunner`, `Gate`,
 `Applier`, `Curriculum`); framework-owned features: budget caps, two-strikes
 infra breaker, crash-resume (terminal `results.json` only, never relaunch),
-observe-first / live gating, proposal filter with rejection memory.
+observe-first / live gating, proposal filter with rejection memory, and
+**per-cycle evidence records** (auto-collected by the engine, read back via
+the CLI — no driver-log re-parsing):
+
+```sh
+PYTHONPATH=src python3 -m rsi_loop --evidence <state.json|auto-dir|results.json> [--cycle ID]
+```
+
+Every closed cycle gets a bounded `rsi-loop-evidence/1` record — arm
+summaries (requests/tokens/error-code deltas/scorer output), gate inputs +
+verdict + reason, apply/revert outcome with commit sha, and proposer
+provenance (model, prompt-hash) — persisted by the engine into the state
+cycle record and (additively, terminal-only) into the cycle's results
+envelope. Old state/results files load unchanged.
 
 - **Adapter contract:** [ADAPTER.md](ADAPTER.md) — what a project must
   provide; MC's `closed_loop.py` documented as the reference adapter.
@@ -51,7 +64,7 @@ exit_code = engine.run(10)   # 0/3/4/5/6/7/8 — see ADAPTER.md §2
 
 ```sh
 cd packages/pi-rsi-loop
-python3 -m unittest discover -s tests -p "test_*.py"   # 93 tests
+python3 -m unittest discover -s tests -p "test_*.py"   # 131 tests
 python3 tests/dry_run/run_dry_run.py                   # C2 toy consumer, exit 7
 python3 tests/dry_run/run_dry_run.py --observe         # observe posture, exit 6
 ```
@@ -59,5 +72,7 @@ python3 tests/dry_run/run_dry_run.py --observe         # observe posture, exit 6
 ## Status
 
 P0 of Theme C (architecture-expansion plan, 2026-11-13): C1 extraction +
-C2 adapter contract & toy consumer, delivered. Not yet wired to any live
-project; MC's instance keeps running its own proven code path.
+C2 adapter contract & toy consumer, delivered. C3 evidence auto-plumbing
+delivered (engine-side only; consumers adopt by reading back, see
+ADAPTER.md §2.4). Not yet wired to any live project; MC's instance keeps
+running its own proven code path.

@@ -11,12 +11,15 @@ from rsi_loop.results import (arm_tokens, is_completed_outcome,     # noqa: E402
                               load_terminal_results)
 
 
-def terminal_doc():
-    return {'verdict': {'result': 'treatment_favors'}, 'finished_at': '2026-11-13T00:00:00Z',
-            'results': {'control': {'arm': 'control', 'outcome': 'completed',
-                                    'model_requests': 100},
-                        'treatment': {'arm': 'treatment', 'outcome': 'completed',
-                                      'model_requests': 80}}}
+def terminal_doc(evidence=None):
+    doc = {'verdict': {'result': 'treatment_favors'}, 'finished_at': '2026-11-13T00:00:00Z',
+           'results': {'control': {'arm': 'control', 'outcome': 'completed',
+                                   'model_requests': 100},
+                       'treatment': {'arm': 'treatment', 'outcome': 'completed',
+                                     'model_requests': 80}}}
+    if evidence is not None:
+        doc['evidence'] = evidence
+    return doc
 
 
 class LoadTerminalResultsTests(unittest.TestCase):
@@ -85,6 +88,32 @@ class LoadTerminalResultsTests(unittest.TestCase):
         self._write(doc)
         out = load_terminal_results(self.dir, terminal_key='final')
         self.assertEqual(out['ok'], True)
+
+    # -- Theme C3: optional engine-written evidence key (additive) ----------
+    def test_old_results_without_evidence_still_load(self):
+        # all pre-C3 results files: no 'evidence' key -> loads, evidence None
+        self._write(terminal_doc())
+        out = load_terminal_results(self.dir)
+        self.assertEqual(out['ok'], True)
+        self.assertIsNone(out['evidence'])
+        self.assertEqual(out['diagnostics']['evidence_present'], False)
+
+    def test_results_with_evidence_load_and_surface_it(self):
+        evidence = {'schema': 'rsi-loop-evidence/1', 'cycle_id': 'c001'}
+        doc = terminal_doc(evidence=evidence)
+        self._write(doc)
+        out = load_terminal_results(self.dir)
+        self.assertEqual(out['ok'], True)
+        self.assertEqual(out['evidence'], evidence)
+        self.assertEqual(out['diagnostics']['evidence_present'], True)
+        # an evidence-carrying envelope still satisfies the terminal rule
+        self.assertEqual(out['verdict'], {'result': 'treatment_favors'})
+
+    def test_non_dict_evidence_ignored(self):
+        self._write(terminal_doc(evidence='garbage'))
+        out = load_terminal_results(self.dir)
+        self.assertEqual(out['ok'], True)
+        self.assertIsNone(out['evidence'])
 
 
 class ArmHelpersTests(unittest.TestCase):

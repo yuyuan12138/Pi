@@ -7,6 +7,7 @@ NEVER — never parsed as data, never fed back as instructions), key never
 logged. Project parts (endpoint, model, prompts, key source) are constructor
 arguments / adapter-supplied.
 """
+import hashlib
 import http.client
 import json
 import os
@@ -108,6 +109,15 @@ class HttpProposer:
             if not base_path.endswith('/chat/completions') else base_path
         self.last_usage = {}
         self.last_headers = None   # tests only; the key is never logged
+        self.last_prompt_hash = None   # provenance (C3): sha256 of the accepted round's messages
+
+    @staticmethod
+    def prompt_hash(messages):
+        """Stable hash over the EXACT prompt messages of a round (provenance
+        evidence, Theme C3): sha256 of the canonical JSON, full hex digest.
+        Covers system+user messages including repair-round extensions."""
+        return hashlib.sha256(json.dumps(messages, ensure_ascii=False,
+                                         sort_keys=True).encode('utf-8')).hexdigest()
 
     def endpoint(self):
         return (self.scheme, self.host, self.port, self.path)
@@ -207,6 +217,7 @@ class HttpProposer:
         last_error = None
         for round_index in range(REPAIR_ROUNDS):
             raw = self.chat(messages)
+            self.last_prompt_hash = self.prompt_hash(messages)
             if raw_sink is not None:
                 raw_sink(round_index, raw)
             try:
