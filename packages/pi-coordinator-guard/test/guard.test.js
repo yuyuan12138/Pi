@@ -445,3 +445,130 @@ describe("extension wiring", () => {
     assert.equal(await handler({ toolName: "write", input: null }), undefined);
   });
 });
+
+// ---------------------------------------------------------------------------
+// per-call mode resolution (regression: legacy env-pinned resolution, 699f8ea)
+// ---------------------------------------------------------------------------
+// The 2026-11-13 live incident: the coordinator session kept serving the P0
+// module, whose createGuard() pinned `mode = resolveMode()` (env-only) at
+// FACTORY time and ignored coordinator-guard.json entirely — config "enforce"
+// never applied and every probe logged mode:"observe". bc1c7b4's intended
+// contract is per-call: env override ?? config file ?? observe. These tests pin
+// that chain with an UNPINNED handler (no options.mode), the exact shape the
+// extension entry point uses (createGuard() with no options).
+const OUTSIDE_PATH = "/outside/allowlist/regression.txt";
+
+function noGuardEnv() {
+  return {}; // no PI_COORDINATOR_GUARD*: env must not decide the mode
+}
+
+function enforceConfigPath() {
+  return join(tempDir(), "coordinator-guard.json");
+}
+
+describe("per-call mode resolution: env unset + config file (live-incident regression)", () => {
+  test("env unset + no config yet: observe — untagged spawn is logged, never blocked", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    const result = await handler({ toolCallId: "r1", toolName: "subagent_spawn", input: { task: "no tag yet" } });
+    assert.equal(result, undefined); // pi contract: undefined = allow
+    const [line] = readLines(p);
+    assert.equal(line.mode, "observe");
+    assert.equal(line.decision, "would_deny");
+    assert.equal(line.category, "dispatch_missing_project_tag");
+  });
+
+  test("env unset + enforce config file appearing later: SAME handler blocks untagged spawn", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    // Before the config exists: observe.
+    assert.equal(await handler({ toolCallId: "r2a", toolName: "subagent_spawn", input: { task: "pre-config" } }), undefined);
+    // Config appears on disk (no /reload — the loader must pick it up per call).
+    writeConfig(cfg, { version: CONFIG_VERSION, mode: "enforce", allow: [] }, 1_000_000);
+    const result = await handler({ toolCallId: "r2b", toolName: "subagent_spawn", input: { task: "post-config, still no tag" } });
+    assert.ok(result && result.block === true, "enforce config must flip the SAME handler to blocking");
+    assert.equal(typeof result.reason, "string");
+    assert.ok(result.reason.length > 0);
+    assert.match(result.reason, /\[project:<name>\]/);
+    const lines = readLines(p);
+    assert.equal(lines[0].decision, "would_deny");
+    assert.equal(lines[1].mode, "enforce");
+    assert.equal(lines[1].decision, "denied");
+    assert.equal(lines[1].toolCallId, "r2b");
+  });
+
+  test("env unset + enforce config file: edit/write outside the allowlist is blocked with the path named", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    writeConfig(cfg, { version: CONFIG_VERSION, mode: "enforce", allow: [] }, 2_000_000);
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    const result = await handler({ toolCallId: "r3", toolName: "write", input: { path: OUTSIDE_PATH, content: "x" } });
+    assert.ok(result && result.block === true);
+    assert.equal(typeof result.reason, "string");
+    assert.ok(result.reason.includes(OUTSIDE_PATH));
+    assert.match(result.reason, /coordinator-guard\.json/);
+    const [line] = readLines(p);
+    assert.equal(line.mode, "enforce");
+    assert.equal(line.decision, "denied");
+    assert.equal(line.category, "edit_write");
+  });
+
+  test("env unset + enforce config: config allow entries merge — inside passes, outside blocks", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    writeConfig(cfg, { version: CONFIG_VERSION, mode: "enforce", allow: ["/sanctioned/root"] }, 3_000_000);
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    assert.equal(await handler({ toolName: "edit", input: { path: "/sanctioned/root/a.js" } }), undefined);
+    const blocked = await handler({ toolName: "edit", input: { path: "/unsanctioned/b.js" } });
+    assert.ok(blocked && blocked.block === true);
+  });
+
+  test("precedence: env 'observe' overrides an enforce config file (no block)", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    writeConfig(cfg, { version: CONFIG_VERSION, mode: "enforce", allow: [] }, 4_000_000);
+    const handler = createGuard({ env: { [MODE_ENV]: "observe" }, logPath: p, configPath: cfg });
+    const result = await handler({ toolCallId: "r5", toolName: "subagent_spawn", input: { task: "env wins" } });
+    assert.equal(result, undefined);
+    assert.equal(readLines(p)[0].mode, "observe");
+  });
+
+  test("precedence: env 'enforce' overrides an observe config file and blocks", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    writeConfig(cfg, { version: CONFIG_VERSION, mode: "observe", allow: [] }, 5_000_000);
+    const handler = createGuard({ env: { [MODE_ENV]: "enforce" }, logPath: p, configPath: cfg });
+    const result = await handler({ toolCallId: "r6", toolName: "write", input: { path: OUTSIDE_PATH, content: "x" } });
+    assert.ok(result && result.block === true);
+    assert.equal(readLines(p)[0].mode, "enforce");
+  });
+
+  test("safe fallback: corrupt config + env unset degrades to observe, never blocks", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    writeConfig(cfg, "{ this is not json", 6_000_000);
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    const result = await handler({ toolCallId: "r7", toolName: "subagent_spawn", input: { task: "no tag" } });
+    assert.equal(result, undefined);
+    // Line 0 is the config_error entry (mode "unknown") emitted via onError; the
+    // spawn decision itself must be the safe observe default.
+    const lines = readLines(p);
+    assert.equal(lines[0].category, "config_error");
+    const decision = lines.find((l) => l.category === "dispatch_missing_project_tag");
+    assert.ok(decision);
+    assert.equal(decision.mode, "observe");
+    assert.equal(decision.decision, "would_deny");
+  });
+
+  test("tagged spawn under enforce config passes untouched (no log line)", async () => {
+    const p = tempLogPath();
+    const cfg = enforceConfigPath();
+    writeConfig(cfg, { version: CONFIG_VERSION, mode: "enforce", allow: [] }, 7_000_000);
+    const handler = createGuard({ env: noGuardEnv(), logPath: p, configPath: cfg });
+    const result = await handler({ toolName: "subagent_spawn", input: { task: "[project:PiAgents] attributed work" } });
+    assert.equal(result, undefined);
+    assert.throws(() => statSync(p), Error);
+  });
+});
