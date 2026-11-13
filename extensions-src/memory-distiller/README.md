@@ -62,7 +62,11 @@ Dedup: `hash` = sha256 of the normalized claim (case/whitespace-insensitive),
 checked against the project's existing atoms AND within the batch. Watermark
 state: `~/.pi/agent/memory/distiller/state.json` (`PI_DISTILLER_STATE`),
 written atomically (temp file + rename) and only **after** a successful run;
-`/distill --dry-run` writes neither atoms nor watermarks.
+`/distill --dry-run` writes neither atoms nor watermarks. Each successful real
+run also persists a bounded additive `lastRun` summary (`at`, `trigger`,
+`scanned`, `written`, `llmUsed`, `degradedReason`, `atomsFile`) into the same
+file, so degraded runs are diagnosable from state instead of console-only;
+older state files without the key load unchanged.
 
 ## Extraction: LLM first, rules as honest degrade
 
@@ -100,7 +104,7 @@ skipped and counted.
 
 | Surface | Default | Override |
 |---|---|---|
-| Watermark state | `~/.pi/agent/memory/distiller/state.json` | `PI_DISTILLER_STATE` |
+| Watermark + lastRun state | `~/.pi/agent/memory/distiller/state.json` | `PI_DISTILLER_STATE` |
 | Idle debounce | 60000 ms | `PI_DISTILLER_IDLE_MS` (≥5000) |
 | KB root | `<cwd>/knowledge-base` | `PI_MEMORY_KB_ROOT` |
 

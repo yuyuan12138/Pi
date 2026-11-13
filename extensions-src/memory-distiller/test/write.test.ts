@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runDistillation, formatRunStats, kbRootForCwd } from "../src/distill.js";
+import { DistillerState } from "../src/state.js";
 import { fakeStreamSimpleFactory, CRED_FIXTURE_TEXT } from "./llm-fixtures.js";
 import { writeFixtureSession } from "./helpers.js";
 
@@ -80,6 +81,7 @@ describe("runDistillation write path (Theme B1 acceptance)", () => {
 		expect(stats.written).toBe(0);
 		expect(stats.atomsFile).toBeNull();
 		expect(existsSync(f.kbRoot)).toBe(false); // nothing created at all
+		expect(existsSync(f.statePath)).toBe(false); // dry-run: not even lastRun diagnostics
 		// watermark must NOT advance on dry-run: a later real run re-reads the delta
 		const stats2 = await runDistillation(f.deps, { dryRun: false, trigger: "manual" });
 		expect(stats2.written).toBe(stats.extracted);
@@ -171,6 +173,10 @@ describe("runDistillation write path (Theme B1 acceptance)", () => {
 		expect(stats2.candidates).toBe(0);
 		expect(stats2.written).toBe(0);
 		expect(existsSync(f.statePath)).toBe(true);
+		// zero-yield run is still recorded honestly in lastRun diagnostics
+		const st = new DistillerState(f.statePath);
+		st.load();
+		expect(st.getLastRun()).toMatchObject({ trigger: "manual", written: 0 });
 	});
 
 	it("no session dir → clean empty run", async () => {
@@ -178,6 +184,38 @@ describe("runDistillation write path (Theme B1 acceptance)", () => {
 		const stats = await runDistillation({ ...f.deps, sessionDir: undefined }, { dryRun: false, trigger: "manual" });
 		expect(stats.candidates).toBe(0);
 		expect(stats.written).toBe(0);
+	});
+
+	it("LLM-failure degrade persists a bounded lastRun into state.json (degradedReason recoverable)", async () => {
+		// Regression: the 2026-11-13 21:05 idle run wrote 23 atoms via the rule
+		// degrade but its degradedReason went only to console.error — lost.
+		const f = fixture();
+		const deps = {
+			...f.deps,
+			model: { provider: "test", id: "test-model" },
+			modelRegistry: {
+				hasConfiguredAuth: () => true,
+				streamSimple: fakeStreamSimpleFactory({ mode: "garbage" }),
+			},
+		};
+		const stats = await runDistillation(deps, { dryRun: false, trigger: "idle-debounce" });
+		expect(stats.llmUsed).toBe(false);
+		expect(stats.degradedReason).toContain("llm-error");
+		const st = new DistillerState(f.statePath);
+		st.load();
+		const last = st.getLastRun();
+		expect(last).toBeTruthy();
+		// bounded key set, exactly as specified
+		expect(Object.keys(last!).sort()).toEqual(
+			["at", "atomsFile", "degradedReason", "llmUsed", "scanned", "trigger", "written"],
+		);
+		expect(last!.trigger).toBe("idle-debounce");
+		expect(last!.scanned).toBe(stats.filesScanned);
+		expect(last!.written).toBe(stats.written);
+		expect(last!.llmUsed).toBe(false);
+		expect(last!.degradedReason).toBe(stats.degradedReason);
+		expect(last!.atomsFile).toBe(stats.atomsFile);
+		expect(Number.isNaN(Date.parse(last!.at))).toBe(false); // ISO timestamp
 	});
 });
 

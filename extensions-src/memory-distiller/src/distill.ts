@@ -15,7 +15,7 @@
  */
 import path from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
-import { DistillerState } from "./state.js";
+import { DistillerState, type LastRunSummary } from "./state.js";
 import { scanSessionDeltas } from "./scan.js";
 import {
 	llmExtractAtoms,
@@ -64,6 +64,19 @@ function shortError(message: string): string {
 	return message.length > 160 ? `${message.slice(0, 157)}...` : message;
 }
 
+/** Bounded lastRun projection of the run stats (the fields worth persisting). */
+function lastRunSummary(stats: DistillRunStats, at: Date): LastRunSummary {
+	return {
+		at: at.toISOString(),
+		trigger: stats.trigger,
+		scanned: stats.filesScanned,
+		written: stats.written,
+		llmUsed: stats.llmUsed,
+		degradedReason: stats.degradedReason,
+		atomsFile: stats.atomsFile,
+	};
+}
+
 export async function runDistillation(
 	deps: DistillDeps,
 	opts: { dryRun: boolean; trigger: string },
@@ -87,6 +100,7 @@ export async function runDistillation(
 
 	const state = new DistillerState(deps.statePath);
 	state.load();
+	const now = deps.now ?? new Date();
 	if (!deps.sessionDir) {
 		log("no session dir; nothing to distill");
 		return stats;
@@ -100,6 +114,10 @@ export async function runDistillation(
 
 	const commitWatermarks = () => {
 		for (const [filePath, wm] of scan.newWatermarks) state.setWatermark(filePath, wm);
+		// Persist the bounded run diagnostics with the same atomic save (additive
+		// key). Dry-runs never reach this, so they still write nothing anywhere;
+		// the no-session-dir early return above also stays write-free.
+		state.setLastRun(lastRunSummary(stats, now));
 		state.save();
 	};
 
@@ -145,7 +163,6 @@ export async function runDistillation(
 	const known = await loadKnownKeys(atomsDir);
 	const seenHashes = new Set(known.hashes);
 	const seenIds = new Set(known.ids);
-	const now = deps.now ?? new Date();
 	const toWrite: Atom[] = [];
 	for (const draft of drafts.slice(0, MAX_ATOMS_PER_RUN)) {
 		const atom = materializeAtom(draft, project, now);

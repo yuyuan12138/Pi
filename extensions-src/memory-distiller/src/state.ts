@@ -5,6 +5,11 @@
  * directory): a kill mid-save leaves the previous state intact, and a kill
  * between write and save only causes a re-read that content-hash dedup
  * makes harmless. Override the path with PI_DISTILLER_STATE.
+ *
+ * The file also carries an additive, bounded `lastRun` diagnostics summary
+ * of the most recent real (non-dry) run (degraded runs were previously
+ * console-only and unrecoverable). It is diagnostics-only: old state files
+ * without it load unchanged, and a malformed one is dropped, not fatal.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -16,9 +21,39 @@ export interface Watermark {
 	mtime_ms: number;
 }
 
+/** Bounded summary of the most recent real (non-dry) distillation run. */
+export interface LastRunSummary {
+	/** ISO-8601 UTC time the run finished. */
+	at: string;
+	trigger: string;
+	/** Files scanned (ScanStats.filesScanned at run time). */
+	scanned: number;
+	written: number;
+	llmUsed: boolean;
+	degradedReason: string | null;
+	atomsFile: string | null;
+}
+
+/** Diagnostics-only shape check: anything off → drop the field, keep state loadable. */
+function isLastRunSummary(v: unknown): v is LastRunSummary {
+	if (!v || typeof v !== "object") return false;
+	const r = v as Record<string, unknown>;
+	return (
+		typeof r.at === "string" &&
+		typeof r.trigger === "string" &&
+		typeof r.scanned === "number" &&
+		typeof r.written === "number" &&
+		typeof r.llmUsed === "boolean" &&
+		(r.degradedReason === null || typeof r.degradedReason === "string") &&
+		(r.atomsFile === null || typeof r.atomsFile === "string")
+	);
+}
+
 interface StateFile {
 	version: 1;
 	watermarks: Record<string, Watermark>;
+	/** Additive, optional: absent in state files written before this key existed. */
+	lastRun?: LastRunSummary;
 }
 
 export function defaultStatePath(): string {
@@ -42,7 +77,13 @@ export class DistillerState {
 		try {
 			const parsed = JSON.parse(raw) as StateFile;
 			if (parsed && parsed.version === 1 && parsed.watermarks && typeof parsed.watermarks === "object") {
-				this.data = { version: 1, watermarks: parsed.watermarks };
+				this.data = {
+					version: 1,
+					watermarks: parsed.watermarks,
+					// Additive diagnostics only: keep a well-shaped lastRun, drop a
+					// malformed one (never fail to load over a diagnostics field).
+					...(isLastRunSummary(parsed.lastRun) ? { lastRun: parsed.lastRun } : {}),
+				};
 			} else {
 				console.error(`[memory-distiller] unexpected state format in ${this.statePath}; starting fresh`);
 			}
@@ -58,6 +99,15 @@ export class DistillerState {
 
 	setWatermark(filePath: string, wm: Watermark): void {
 		this.data.watermarks[filePath] = wm;
+	}
+
+	/** Last-run diagnostics (undefined until the first persisted real run). */
+	getLastRun(): LastRunSummary | undefined {
+		return this.data.lastRun;
+	}
+
+	setLastRun(summary: LastRunSummary): void {
+		this.data.lastRun = summary;
 	}
 
 	/** Atomic save: temp file + rename in the same directory (kill-safe). */
