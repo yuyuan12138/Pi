@@ -32,3 +32,32 @@ export function fakeStreamSimpleFactory(opts?: { mode?: "good" | "garbage" | "er
 		return stream;
 	};
 }
+
+export const GOOD_CONSOLIDATE_JSON = `[
+	{"title":"Watermarked incremental reads","summary":"Distillation reads each session delta exactly once via per-file byte offsets.","atoms":[1,2],"contradictions":[]},
+	{"title":"Storage backend","summary":"Conflicting claims about the storage backend exist.","atoms":[3,4],"contradictions":[{"atoms":[3,4],"subject":"storage backend","note":"conflicting claims on the same subject"}]}
+]`;
+
+export function fakeConsolidateStreamFactory(opts?: { mode?: "good" | "garbage" | "error" }) {
+	const mode = opts?.mode ?? "good";
+	return () => {
+		const stream = createAssistantMessageEventStream();
+		if (mode === "good") stream.end(message(GOOD_CONSOLIDATE_JSON));
+		else if (mode === "garbage") stream.end(message("I refuse to produce json"));
+		else stream.end(message(GOOD_CONSOLIDATE_JSON, "error"));
+		return stream;
+	};
+}
+
+export const GOOD_PROFILE_MARKDOWN = `Here is the profile:\n\n# User profile\n- Language: deliverables in English unless asked otherwise\n- Style: concise chat messages, one question at a time\n- Workflow: dispatch work to subagents; the user decides acceptance`;
+
+export function fakeProfileStreamFactory(opts?: { mode?: "good" | "garbage" | "error" }) {
+	const mode = opts?.mode ?? "good";
+	return () => {
+		const stream = createAssistantMessageEventStream();
+		if (mode === "good") stream.end(message(GOOD_PROFILE_MARKDOWN));
+		else if (mode === "garbage") stream.end(message("no usable content here"));
+		else stream.end(message(GOOD_PROFILE_MARKDOWN, "error"));
+		return stream;
+	};
+} 

@@ -7,12 +7,14 @@
  *
  *  1. Load through the ACTUALLY INSTALLED pi release loader (the exact
  *     dist/core/extensions/loader.js the user's pi binary runs) and assert
- *     zero errors/warnings + the /distill command registered.
+ *     zero errors/warnings + the /distill, /distill-consolidate and
+ *     /distill-profile commands registered.
  *  2. Boot the real pi CLI headlessly (RPC mode) with ONLY this extension
  *     (--no-extensions --extension <path>), let it initialize and shut down;
  *     assert stderr shows no extension load failure or memory-distiller
  *     runtime error. PI_DISTILLER_STATE / PI_MEMORY_KB_ROOT point at temp
- *     dirs so the boot cannot touch real state or a real KB.
+ *     dirs so the boot cannot touch real state or a real KB. PI_PROFILE_PATH
+ *     also points at a temp file so no real profile is read or written.
  *
  * Usage: node scripts/manual-load-check.mjs [extensionDir]
  * Exits 0 on success, 1 on failure, with evidence printed.
@@ -54,13 +56,16 @@ if (installedPi) {
 		const errors = result.errors ?? [];
 		const warnings = result.warnings ?? [];
 		const command = result.extensions[0]?.commands?.get("distill");
+		const commandConsolidate = result.extensions[0]?.commands?.get("distill-consolidate");
+		const commandProfile = result.extensions[0]?.commands?.get("distill-profile");
 		const handlers = result.extensions[0]?.handlers ?? new Map();
-		const handlerEvents = ["agent_settled", "agent_start", "session_shutdown"].filter((e) => (handlers.get(e)?.length ?? 0) > 0);
+		const handlerEvents = ["agent_settled", "agent_start", "session_shutdown", "before_agent_start"].filter((e) => (handlers.get(e)?.length ?? 0) > 0);
 		console.log(`[check1] installed pi loader: ${installedPi}`);
 		console.log(
-			`[check1] errors=${errors.length} warnings=${warnings.length} /distill=${command ? "registered" : "MISSING"} handlers=${handlerEvents.join(",")}`,
+			`[check1] errors=${errors.length} warnings=${warnings.length} /distill=${command ? "registered" : "MISSING"} ` +
+				`/distill-consolidate=${commandConsolidate ? "registered" : "MISSING"} /distill-profile=${commandProfile ? "registered" : "MISSING"} handlers=${handlerEvents.join(",")}`,
 		);
-		if (errors.length || warnings.length || !command || handlerEvents.length !== 3) {
+		if (errors.length || warnings.length || !command || !commandConsolidate || !commandProfile || handlerEvents.length !== 4) {
 			failed = true;
 			console.error("[check1] diagnostics:", JSON.stringify({ errors, warnings }, null, 2));
 		}
@@ -85,6 +90,9 @@ if (existsSync(piBin)) {
 			...process.env,
 			PI_DISTILLER_STATE: path.join(tmp, "state.json"),
 			PI_MEMORY_KB_ROOT: path.join(tmp, "kb"),
+			PI_PROFILE_PATH: path.join(tmp, "profile.md"),
+			PI_PROFILE_INJECT: "0", // boot check must not inject or generate anything
+			PI_DISTILLER_CONSOLIDATE_IDLE: "0",
 		},
 	});
 	let stderr = "";

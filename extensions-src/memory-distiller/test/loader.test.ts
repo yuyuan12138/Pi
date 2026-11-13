@@ -54,8 +54,17 @@ describe("acceptance 5: real pi 1.5.0 loader", () => {
 	it("registers the documented lifecycle handlers", () => {
 		const { result } = resultRef;
 		const handlers = result.extensions[0].handlers;
-		for (const event of ["agent_settled", "agent_start", "session_shutdown"]) {
+		for (const event of ["agent_settled", "agent_start", "session_shutdown", "before_agent_start"]) {
 			expect(handlers.get(event)?.length ?? 0).toBeGreaterThan(0);
+		}
+	});
+
+	it("registers the B3/B4 commands (Theme B3+B4)", () => {
+		const { result } = resultRef;
+		for (const name of ["distill-consolidate", "distill-profile"]) {
+			const command = result.extensions[0].commands.get(name);
+			expect(command, name).toBeTruthy();
+			expect(command.description).toContain("--dry-run");
 		}
 	});
 });

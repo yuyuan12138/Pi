@@ -154,13 +154,107 @@ temp state/KB) and asserts clean stderr.
 
 ## Limitations (B1)
 
-- L2 consolidation (concept candidates, cap-15 merge pressure, heat) and L3
-  profile generation are sa52 P1b/P1c — deliberately not built here.
 - Atoms are never deleted or updated in place; contradictions accumulate
-  until a future consolidation layer resolves them.
+  until consolidation or human review resolves them.
 - The quit-time flush races process exit: if the LLM exceeds the 12s budget
   the run degrades to rules; idle-debounce is the primary LLM path.
 - One LLM call handles at most 40 blocks per run; longer deltas are covered
   by subsequent runs (watermarks only advance over processed lines).
 - Rule extraction is English/Chinese keyword-gated and conservative by
   design; low yield is expected and preferred over junk.
+
+## B3 — L2 consolidation (`/distill-consolidate`, Theme B3 / sa52 P1b)
+
+Reads the project's accumulated `atoms/<project>/*.jsonl` pool, clusters it
+by topic (one LLM call proposing topic clusters; on any LLM failure a
+deterministic rule fallback: greedy Jaccard clustering over significant
+ASCII tokens + CJK bigrams), and writes DRAFT concept candidates to:
+
+```
+kB/knowledge/concepts/pending-<YYYY-MM-DD>/<slug>-<hash8>.md   + REPORT.md
+```
+
+Guarantees (each pinned by a test):
+
+- **The approved concepts tree is NEVER written.** All writes land inside
+  `concepts/pending-<date>/`; `compile_kb.py` scans only
+  `concepts/*.md` (non-recursive glob), so the scope gate and the human
+  approval gate are untouched. Promotion = a human moves a reviewed file
+  into `concepts/`, after which the normal lint applies.
+- Candidate frontmatter uses ONLY compile_kb's existing field vocabulary
+  (`title/updated/scope/evidence/origin/approval/last_reviewed/sources`)
+  with `scope: pending` + `approval: unreviewed` — no concept ever
+  auto-promotes, structurally (this code has no write path into the
+  approved tree).
+- **Contradictions (conflicting claims on the same subject) are surfaced,
+  never resolved**: each candidate carries a dedicated "Contradictions
+  (surfaced, never auto-resolved)" section, the run REPORT lists all of
+  them, and the renderer never merges conflicting claims into one sentence.
+- Evidence chains run candidate → atom → session entries: every cited atom
+  shows its `source_entry_ids` (recall-compatible) and source session.
+- Candidate file names are derived from the sorted atom-id set (sha256), so
+  a re-run over the same atom pool overwrites the same files idempotently;
+  all writes are atomic (temp+rename). `--dry-run` writes nothing.
+- Bounded: ≤80 atoms per run (most recent), ≤12 clusters, ≤8 contradictions
+  per cluster; 45s LLM race timer with abort.
+
+Deliberate deviation from sa52 §P1b as designed: the UPDATE-default /
+concept-cap-15 / heat-counter pressure rules operate on the approved tree,
+which this stricter brief forbids touching — so they are NOT implemented as
+writes. The per-project concept count is left to the human; candidates are
+promotion-ready instead. The idle-time hook is DISABLED by default: opt in
+with `PI_DISTILLER_CONSOLIDATE_IDLE=1` (fires only when ≥40 new atoms exist
+since the last run AND ≥12h have passed; per-call env, no restart needed).
+
+## B4 — L3 user profile (`/distill-profile`, Theme B4 / sa52 P1c)
+
+A ≤2KB preference layer at `~/.pi/agent/memory/profile.md`
+(`PI_PROFILE_PATH`), maintained by regenerate-and-replace (atomic
+temp+rename — re-running can never append, duplicate, or grow it) and
+injected into every run as a bounded `user-profile` system-prompt SECTION
+via `before_agent_start` → `event.systemPromptOptions.sections` — never
+`forceSystemPrompt`, so the base prompt, transcript-recorded sections, and
+prompt cacheability are preserved (pi 1.5.0 API).
+
+Source discipline (the load-bearing guarantee):
+
+- The generator reads ONLY accepted/approved records: `daily/*.md` (the
+  accepted-results log by KB convention) and `knowledge/concepts/*.md`
+  whose frontmatter carries `approval: user-approved`. Pending/unreviewed
+  concepts are excluded before the generator ever sees them (pinned by a
+  negative test: seeded unreviewed content must not appear in the profile).
+- Atoms are NEVER profile source content (AI-extracted, potentially
+  unverified worker claims). They act only as the refresh TRIGGER: ≥15 new
+  preference-kind atoms since the last refresh (or a missing/30-day-stale
+  profile) fires a refresh at session shutdown; `/distill-profile` refreshes
+  manually any time.
+- The LLM prompt forbids deriving preferences from rejected approaches or
+  worker-originated claims; the rule fallback emits only verbatim
+  preference-pattern sentences from the accepted corpus.
+
+Injection reads the file with an mtime cache (one stat per run, sub-ms) and
+re-applies the 2KB budget defensively every turn. `PI_PROFILE_INJECT=0` is
+the kill switch for injection AND threshold-triggered refresh (the manual
+command still works). Tests exercise the injection through the REAL pi
+1.5.0 loader with a temp-dir `PI_PROFILE_PATH` — the real profile file is
+never touched by tests.
+
+## Limitations (B3/B4, honest)
+
+- **Consolidation false-positive risk**: rule-path clustering is lexical
+  (token overlap), so it both over- and under-groups; the LLM path is
+  better but nondeterministic. Everything is draft + human-gated, so a bad
+  cluster costs review time, not correctness. Contradiction detection is a
+  heuristic (shared subject + negation polarity on the rule path): expect
+  false positives (harmless — human review) and misses on subtler conflicts
+  (the report states that absence of a flag is not a guarantee).
+- **Profile injection latency**: one file stat + cached read per
+  `before_agent_start` (sub-millisecond; the 2KB section itself is
+  cache-stable across turns). Profile *generation* is an LLM call but only
+  at refresh boundaries (threshold/stale/manual), never per turn.
+- LLM wording varies between profile regenerations; "idempotent" means the
+  update operation is regenerate-and-replace (no growth/duplication), not
+  byte-identical output across LLM runs. The rule fallback is deterministic.
+- sa52's trigger conditions P1 (explicit L2 signal) and P2/P2.5/P3 (cold
+  start/recovery/first-scene) are collapsed to: manual command + threshold
+  + staleness — sufficient at personal scale.

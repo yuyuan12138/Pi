@@ -86,3 +86,58 @@ export interface DistillRunStats extends ScanStats {
 	written: number;
 	atomsFile: string | null;
 }
+
+/**
+ * A contradiction between two atoms: conflicting claims on the same subject.
+ * ALWAYS surfaced for human review, never auto-resolved — the consolidator
+ * never picks a winner and never blends conflicting claims into one.
+ */
+export interface Contradiction {
+	/** The shared subject (atom id of the first claim). */
+	atomA: string;
+	atomB: string;
+	claimA: string;
+	claimB: string;
+	subject: string;
+	/** Optional human-readable note on why these conflict (LLM path only). */
+	note: string;
+}
+
+/** A topic cluster of atoms proposed for one draft concept article. */
+export interface ConceptCluster {
+	title: string;
+	summary: string;
+	atomIds: string[];
+	contradictions: Contradiction[];
+}
+
+export interface ConsolidateRunStats {
+	trigger: string;
+	dryRun: boolean;
+	llmUsed: boolean;
+	degradedReason: string | null;
+	/** Atoms read from the project's atoms dir. */
+	atomsRead: number;
+	atomsClustered: number;
+	clusters: number;
+	/** Draft candidates written to knowledge/concepts/pending-<date>/ (0 for dry-run). */
+	candidates: number;
+	contradictions: number;
+	/** Contradictions that could not be attached to any single cluster. */
+	unattachedContradictions: number;
+	pendingDir: string | null;
+}
+
+export interface ProfileRunStats {
+	trigger: string;
+	dryRun: boolean;
+	llmUsed: boolean;
+	degradedReason: string | null;
+	/** Distilled text sources assembled for the generator (daily + user-approved concepts). */
+	sourcesUsed: number;
+	/** Bytes of the generated profile (after the budget cap). */
+	bytes: number;
+	wrote: boolean;
+	profilePath: string | null;
+}
+
