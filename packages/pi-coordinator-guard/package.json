@@ -1,0 +1,28 @@
+{
+  "name": "pi-coordinator-guard",
+  "version": "0.1.0",
+  "description": "P0 observe-mode guard for the Pi coordinator main session: classifies tool calls (mutating bash, out-of-allowlist edit/write, spawn without [project:<name>] tag) and logs would-deny decisions to a private JSONL log. Never blocks.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "main": "index.js",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "guard",
+    "observe",
+    "delegation",
+    "coordinator"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

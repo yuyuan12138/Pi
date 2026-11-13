@@ -1,0 +1,186 @@
+// classify.js — pure tool-call classifier for pi-coordinator-guard (P0 observe mode).
+//
+// Input: a tool call (toolName + input). Output: { category, pattern, excerpt }:
+//   category "mutating_bash" — the bash command matches a mutating pattern (a):
+//     git commit/push/reset/clean, rm -rf, mv or `>` overwrite outside obvious
+//     temp, brew/npm/pip installs, kill/pkill/killall, curl|wget piped into a shell;
+//   category "edit_write"    — an edit/write tool call targeting a path OUTSIDE the
+//     configured allowlist (b). P0 default allowlist is EMPTY: the project space of
+//     the turn's attributed project is not yet derivable, so every main-session
+//     edit/write is flagged and its target path logged. Set
+//     PI_COORDINATOR_GUARD_ALLOW (colon-separated path prefixes) to quiet known-good
+//     prefixes once the review decides on them;
+//   category "dispatch_missing_project_tag" — a subagent_spawn call whose task/
+//     arguments do NOT contain the literal token [project:<name>] (d). This is the
+//     project-space routing rule: every dispatch must name its attributed project.
+//     Observe-only in P0 — logged as would_deny in every mode, never blocked.
+//   category "passthrough"   — everything else (c).
+//
+// Precision over recall: patterns are deliberately narrow. In observe mode a missed
+// mutation costs nothing; a false positive pollutes the 1-2 day review log.
+
+const EXCERPT_MAX = 200;
+
+/** Obvious temp prefixes: overwrite/move targets under these are not flagged. */
+const TEMP_PREFIXES = [
+  "/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp",
+  "/var/folders", "/dev/null", "$TMPDIR", "${TMPDIR}",
+];
+
+/** Split a shell command into simple segments (approximate; best-effort by design). */
+function bashSegments(command) {
+  return String(command).split(/&&|\|\||[;|\n]/);
+}
+
+function tokens(segment) {
+  let t = segment.trim().split(/\s+/).filter(Boolean);
+  if (t[0] === "sudo") t = t.slice(1);
+  return t;
+}
+
+function isObviousTempPath(p) {
+  if (!p) return false;
+  const s = String(p).replace(/^["']|["']$/g, "");
+  return TEMP_PREFIXES.some((pre) => s === pre || s.startsWith(pre + "/"));
+}
+
+function firstTokenIs(t, name) {
+  return t[0] === name || t[0] === `/${name}` || t[0]?.endsWith(`/${name}`);
+}
+
+/** rm -rf (any flag grouping: -rf, -fr, -r -f, --recursive --force, ...). */
+function isRmRecursiveForce(t) {
+  if (!firstTokenIs(t, "rm")) return false;
+  let recursive = false;
+  let force = false;
+  for (const tok of t.slice(1)) {
+    if (tok === "--") break;
+    if (tok === "-r" || tok === "-R" || tok === "--recursive") { recursive = true; continue; }
+    if (tok === "-f" || tok === "--force") { force = true; continue; }
+    if (/^-[a-zA-Z]*r/i.test(tok)) recursive = true;
+    if (/^-[a-zA-Z]*f/i.test(tok)) force = true;
+  }
+  return recursive && force;
+}
+
+/** mv whose final target is not an obvious temp path. */
+function isMvOutsideTemp(t) {
+  if (!firstTokenIs(t, "mv")) return false;
+  for (let i = t.length - 1; i >= 1; i--) {
+    if (!t[i].startsWith("-")) return !isObviousTempPath(t[i]);
+  }
+  return true; // mv with no visible target: flag defensively
+}
+
+/** Named mutator checks over one segment's tokens: [patternName, predicate]. */
+const SEGMENT_MUTATORS = [
+  ["git_commit", (t) => firstTokenIs(t, "git") && t[1] === "commit"],
+  ["git_push", (t) => firstTokenIs(t, "git") && t[1] === "push"],
+  ["git_reset", (t) => firstTokenIs(t, "git") && t[1] === "reset"],
+  ["git_clean", (t) => firstTokenIs(t, "git") && t[1] === "clean"],
+  ["rm_rf", isRmRecursiveForce],
+  ["mv_outside_temp", isMvOutsideTemp],
+  ["package_install", (t) =>
+    (firstTokenIs(t, "brew") && t[1] === "install") ||
+    (firstTokenIs(t, "npm") && (t[1] === "install" || t[1] === "i" || t[1] === "add")) ||
+    ((firstTokenIs(t, "pip") || firstTokenIs(t, "pip3")) && t[1] === "install") ||
+    ((firstTokenIs(t, "python") || firstTokenIs(t, "python3")) && t[1] === "-m" && t[2] === "pip" && t[3] === "install") ||
+    (firstTokenIs(t, "uv") && t[1] === "pip" && t[2] === "install")],
+  ["process_kill", (t) =>
+    firstTokenIs(t, "kill") || firstTokenIs(t, "pkill") || firstTokenIs(t, "killall")],
+];
+
+/** curl/wget piped into sh/bash/zsh/dash/fish (checked on the raw command). */
+const PIPE_TO_SHELL = /(?:^|[\s;|(])(?:curl|wget)\b[^;&]*\|\s*(?:sudo\s+)?(?:ba|z|da|fi)?sh\b/;
+
+/** `>` overwrite redirection to a non-obvious-temp target (append `>>` is not flagged). */
+const OVERWRITE_REDIRECT = /(?:^|[\s;(])>(?!>)\s*("[^"]*"|'[^']*'|\S+)/;
+
+/** Literal [project:<name>] token required in every subagent_spawn dispatch. */
+const PROJECT_TAG = /\[project:[^\]\s]+\]/;
+
+/** Classify a bash command. Returns the matched pattern name, or null. */
+export function classifyBash(command) {
+  if (typeof command !== "string" || command.length === 0) return null;
+  if (PIPE_TO_SHELL.test(command)) return "pipe_to_shell";
+  for (const segment of bashSegments(command)) {
+    const t = tokens(segment);
+    if (t.length === 0) continue;
+    for (const [name, matches] of SEGMENT_MUTATORS) {
+      if (matches(t)) return name;
+    }
+  }
+  const redirect = command.match(OVERWRITE_REDIRECT);
+  if (redirect && !redirect[1].startsWith("&") && !isObviousTempPath(redirect[1])) {
+    return "overwrite_outside_temp";
+  }
+  return null;
+}
+
+/** Is this edit/write target path covered by the allowlist (path prefixes)? */
+export function isAllowlisted(p, allowlist, cwd = process.cwd()) {
+  if (!Array.isArray(allowlist) || allowlist.length === 0 || typeof p !== "string" || p === "") return false;
+  let target;
+  try { target = resolve(cwd, p); } catch { return false; }
+  return allowlist.some((prefix) => {
+    let pre;
+    try { pre = resolve(cwd, String(prefix)); } catch { return false; }
+    return target === pre || target.startsWith(pre.endsWith("/") ? pre : pre + "/");
+  });
+}
+
+// Local resolve shim: keeps classify.js dependency-light and lets tests pass a cwd.
+function resolve(cwd, p) {
+  if (p.startsWith("/")) return p;
+  if (p.startsWith("~")) return p; // allowlist users should pass absolute prefixes
+  return joinPosix(cwd, p);
+}
+
+function joinPosix(dir, p) {
+  return dir.endsWith("/") ? dir + p : dir + "/" + p;
+}
+
+function head(s) {
+  return String(s).slice(0, EXCERPT_MAX);
+}
+
+/**
+ * Classify a subagent_spawn call against the [project:<name>] tag rule.
+ * The tag may sit anywhere in the task or the other arguments (label, cwd, ...).
+ * Returns the category "dispatch_missing_project_tag" or null (tag present).
+ */
+export function classifySpawn(input) {
+  try {
+    const haystack = JSON.stringify(input ?? {});
+    return PROJECT_TAG.test(haystack) ? null : "dispatch_missing_project_tag";
+  } catch {
+    return "dispatch_missing_project_tag"; // unserializable args: flag defensively
+  }
+}
+
+/**
+ * Classify one tool call. Pure: no I/O, never throws on odd input.
+ * Returns { category, pattern, excerpt }; excerpt is the command head (bash),
+ * target path (edit/write), or task head (subagent_spawn), truncated to 200 chars.
+ */
+export function classifyToolCall(toolName, input, { allowlist = [], cwd = process.cwd() } = {}) {
+  if (toolName === "subagent_spawn") {
+    const violation = classifySpawn(input);
+    if (violation) {
+      const task = input && typeof input.task === "string" ? input.task : JSON.stringify(input ?? {});
+      return { category: violation, pattern: violation, excerpt: head(task) };
+    }
+    return { category: "passthrough", pattern: null, excerpt: null };
+  }
+  if ((toolName === "bash" || toolName === "powershell") && input && typeof input.command === "string") {
+    const pattern = classifyBash(input.command);
+    if (pattern) return { category: "mutating_bash", pattern, excerpt: head(input.command) };
+    return { category: "passthrough", pattern: null, excerpt: null };
+  }
+  if ((toolName === "edit" || toolName === "write") && input && typeof input.path === "string" && input.path !== "") {
+    if (!isAllowlisted(input.path, allowlist, cwd)) {
+      return { category: "edit_write", pattern: "edit_write", excerpt: head(input.path) };
+    }
+  }
+  return { category: "passthrough", pattern: null, excerpt: null };
+}
