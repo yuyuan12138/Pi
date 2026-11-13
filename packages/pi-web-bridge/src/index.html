@@ -377,6 +377,11 @@
     transition: border-color .18s var(--ease), background-color .18s var(--ease);
   }
   .pcard:hover { background: var(--raise); border-color: var(--line); }
+  /* Theme D1 (additive): usage/budget row — only when the /projects payload carries usage7d. */
+  .pcard.has-usage { grid-template-areas: "dot name state" "sub sub sub" "tick tick tick" "usage usage usage"; }
+  .card-usage { grid-area: usage; min-width: 0; font-family: var(--mono); font-size: 10px; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-usage .u-budget { color: var(--t0); }
+  .projects-7d { margin-top: 4px; font-family: var(--mono); font-size: 9.5px; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* recently-active project: steady signal green (no breathe — it is not in-flight work) */
   .dot.working { background: var(--sig); box-shadow: var(--sig-glow); }
   .pstate { grid-area: state; font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--t2); }
@@ -3617,6 +3622,15 @@
   // journal activity < 30 min; "idle" otherwise (incl. never dispatched);
   // "no data" only when the whole DB read degraded (API returns a note).
   const PROJECT_WORKING_MS = 30 * 60 * 1000;
+  // Theme D1 (additive): compact token + cost formatting for the /projects rows.
+  function fmtTokCompact(n) {
+    if (!Number.isFinite(n)) return "0";
+    if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+    return String(Math.round(n));
+  }
+  function fmtCostUsd(n) { return Number.isFinite(n) && n > 0 ? "$" + (n >= 0.01 ? n.toFixed(2) : n.toFixed(4)) : "$0"; }
   let projectsSig = "\u00b7"; // forces the first render
   function projectChipState(p) {
     const t = p.lastActivity ? Date.parse(p.lastActivity) : NaN;
@@ -3636,7 +3650,11 @@
       if (document.body.dataset.route === "org") renderOrg();
     }
     const note = typeof r.body.note === "string" ? r.body.note : null;
-    const sig = JSON.stringify([projects, note]);
+    // Theme D1 (additive): last-7-day per-project tokens+cost; absent on old
+    // payloads (usage source unavailable) — the panel renders without it.
+    const usage7d = r.body.usage7d && typeof r.body.usage7d === "object" ? r.body.usage7d : null;
+    const usageByProject = new Map((usage7d && Array.isArray(usage7d.projects) ? usage7d.projects : []).map((u) => [u.projectId, u]));
+    const sig = JSON.stringify([projects, note, usage7d]);
     if (sig === projectsSig) return;
     projectsSig = sig;
     const box = $("#projects");
@@ -3665,6 +3683,24 @@
         ? `${relTime(t)}${p.lastJournalStatus ? " \u00b7 " + p.lastJournalStatus : ""}`
         : "no journal activity";
       row.append(dot, name, state, sub, tick);
+      // Theme D1: per-project 7d usage + budget (when the payload carries it).
+      const u = usageByProject.get(p.id);
+      if (u) {
+        row.classList.add("has-usage");
+        const usage = document.createElement("span");
+        usage.className = "card-usage";
+        const parts = [`7d ${fmtTokCompact(u.tokens)} tok \u00b7 ${fmtCostUsd(u.cost)}`];
+        if (p.budgetPlanned != null || p.budgetSpent != null) {
+          const b = [];
+          if (p.budgetPlanned != null) b.push(`plan ${p.budgetPlanned}`);
+          if (p.budgetSpent != null) b.push(`spent ${p.budgetSpent}`);
+          parts.push(`<budget ${b.join(" \u00b7 ")}>`);
+        }
+        usage.textContent = parts.join(" \u00b7 ");
+        usage.title = `${u.tokens.toLocaleString()} tokens \u00b7 $${(u.cost ?? 0).toFixed(4)} \u00b7 ${u.turns ?? 0} turns \u00b7 ${u.sessions ?? 0} sessions (last 7 days)`
+          + (p.budgetPlanned != null || p.budgetSpent != null ? `\nbudget (journal envelope units): planned ${p.budgetPlanned ?? "\u2014"} \u00b7 spent ${p.budgetSpent ?? "\u2014"}` : "");
+        row.append(usage);
+      }
       row.title = [p.root, p.status ? `registry: ${p.status}` : null, p.registeredAt ? `registered ${p.registeredAt}` : null]
         .filter(Boolean).join("\n");
       box.append(row);
@@ -3672,6 +3708,27 @@
     const noteEl = $("#projects-note");
     noteEl.textContent = note ?? (projects.length ? String(projects.length) : "none registered");
     noteEl.classList.toggle("warn", !!note);
+    // Theme D1 (additive): one summary line under the rows — totals + the
+    // explicit unattributed / personal-ops buckets, so the org number always
+    // reconciles visibly (projects + buckets = total).
+    let sum7d = $("#projects-7d");
+    if (!sum7d) {
+      sum7d = document.createElement("div");
+      sum7d.id = "projects-7d";
+      sum7d.className = "projects-7d";
+      box.after(sum7d);
+    }
+    if (usage7d && usage7d.totals) {
+      const tt = usage7d.totals;
+      const ua = usage7d.unattributed || { tokens: 0 };
+      const po = usage7d.personalOps || { tokens: 0 };
+      sum7d.textContent = `7d total ${fmtTokCompact(tt.tokens)} tok \u00b7 ${fmtCostUsd(tt.cost)} \u00b7 ${tt.turns ?? tt.records ?? 0} turns`
+        + ` \u00b7 unattributed ${fmtTokCompact(ua.tokens)} tok \u00b7 personal-ops ${fmtTokCompact(po.tokens)} tok`;
+      sum7d.title = `Last-7-day usage summed from the usage JSONL; buckets reconcile exactly (${usage7d.projects?.length ?? 0} project bucket(s) + unattributed + personal-ops = total).`;
+      sum7d.style.display = "";
+    } else {
+      sum7d.style.display = "none";
+    }
   });
 
   // ---------- org graph page (#/org) ----------

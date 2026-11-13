@@ -662,3 +662,132 @@ test("sqlite: pause flag persists via db to a fresh coordinator instance", async
   fresh.unpause();
   assert.equal(coordinator.paused(), false); // shared db: live instance sees the lift
 });
+
+// -------------------------------------------------- budget fields (Theme D2)
+
+test("budget: envelope carries budget_planned/budget_spent onto journal rows and back", async () => {
+  const dir = scratch("budget");
+  const file = path.join(dir, "coordinator.db");
+  const j1 = new TaskJournal(file);
+  const envelope = {
+    taskId: "task-b1",
+    dedupeKey: "kb1",
+    sourceMessageId: "tg-b1",
+    splitIndex: 0,
+    projectId: "alpha",
+    goal: "roll up costs",
+    deliverable: "evidence",
+    mutating: false,
+    budgetPlanned: 5,
+    budgetSpent: 1.25,
+    createdAt: new Date().toISOString(),
+  };
+  assert.equal(j1.recordEnvelope(envelope), true);
+
+  // The received row carries both columns.
+  const row = j1.store.db.prepare("SELECT budget_planned, budget_spent FROM journal WHERE task_id = ? AND phase = 'received'").get("task-b1") as
+    | { budget_planned: number | null; budget_spent: number | null }
+    | undefined;
+  assert.ok(row);
+  assert.equal(row.budget_planned, 5);
+  assert.equal(row.budget_spent, 1.25);
+
+  // getEnvelope round-trips the fields.
+  assert.equal(j1.getEnvelope("task-b1")?.budgetPlanned, 5);
+  assert.equal(j1.getEnvelope("task-b1")?.budgetSpent, 1.25);
+
+  // Replay from disk in a fresh instance keeps both fields (detail JSON path).
+  const j2 = new TaskJournal(file);
+  assert.equal(j2.getEnvelope("task-b1")?.budgetPlanned, 5);
+  assert.equal(j2.getEnvelope("task-b1")?.budgetSpent, 1.25);
+});
+
+test("budget: old rows without budget columns read as null; migration is additive", async () => {
+  const dir = scratch("budget-legacy");
+  const file = path.join(dir, "coordinator.db");
+  // Build a PRE-D2 database with the old schema (no budget columns).
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(file);
+  db.exec(`CREATE TABLE journal(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT NOT NULL,
+    phase TEXT NOT NULL, detail TEXT, stage TEXT, dedupe_sha TEXT);`);
+  const legacyDetail = JSON.stringify({
+    taskId: "task-old", dedupeKey: "kold", sourceMessageId: "tg-old", splitIndex: 0,
+    projectId: "alpha", goal: "legacy", deliverable: "evidence", mutating: false,
+    createdAt: "2026-11-01T00:00:00.000Z",
+  });
+  db.prepare("INSERT INTO journal(at, task_id, phase, detail) VALUES (?,?,?,?)").run("2026-11-01T00:00:00.000Z", "task-old", "received", legacyDetail);
+  db.close();
+
+  // Opening with the current store migrates additively and replays the old row.
+  const j = new TaskJournal(file);
+  const env = j.getEnvelope("task-old");
+  assert.ok(env);
+  assert.equal(env.budgetPlanned, undefined); // reads as null/absent, never fabricated
+  assert.equal(env.budgetSpent, undefined);
+  const cols = j.store.db.prepare("SELECT budget_planned, budget_spent FROM journal WHERE task_id = ?").get("task-old") as { budget_planned: number | null; budget_spent: number | null };
+  assert.equal(cols.budget_planned, null);
+  assert.equal(cols.budget_spent, null);
+
+  // New writes on the migrated db work and carry budgets.
+  assert.equal(j.recordEnvelope({
+    taskId: "task-new", dedupeKey: "knew", sourceMessageId: "tg-new", splitIndex: 0,
+    projectId: "alpha", goal: "new", deliverable: "evidence", mutating: false,
+    budgetPlanned: 2, createdAt: "2026-11-13T00:00:00.000Z",
+  }), true);
+  const newCols = j.store.db.prepare("SELECT budget_planned, budget_spent FROM journal WHERE task_id = ?").get("task-new") as { budget_planned: number | null; budget_spent: number | null };
+  assert.equal(newCols.budget_planned, 2);
+  assert.equal(newCols.budget_spent, null); // planned without spent is legal
+});
+
+test("budget: settled row can refresh budget_spent; replay keeps the freshest value", async () => {
+  const dir = scratch("budget-settle");
+  const file = path.join(dir, "coordinator.db");
+  const j1 = new TaskJournal(file);
+  j1.recordEnvelope({
+    taskId: "task-s1", dedupeKey: "ks1", sourceMessageId: "tg-s1", splitIndex: 0,
+    projectId: "alpha", goal: "measured work", deliverable: "evidence", mutating: false,
+    budgetPlanned: 10, createdAt: new Date().toISOString(),
+  });
+  j1.mark("task-s1", "started");
+  // The settled row reports the measured spend.
+  j1.mark("task-s1", "settled", "completed-unverified: done", 3.5);
+
+  const settledCols = j1.store.db.prepare("SELECT budget_spent FROM journal WHERE task_id = ? AND phase = 'settled'").get("task-s1") as { budget_spent: number | null };
+  assert.equal(settledCols.budget_spent, 3.5);
+  assert.equal(j1.getEnvelope("task-s1")?.budgetSpent, 3.5); // live envelope updated
+
+  // Replay: the freshest spent survives the restart.
+  const j2 = new TaskJournal(file);
+  assert.equal(j2.getEnvelope("task-s1")?.budgetPlanned, 10);
+  assert.equal(j2.getEnvelope("task-s1")?.budgetSpent, 3.5);
+});
+
+test("budget: engine submit passes budgets through; runtime-reported spend lands on the settled row", async () => {
+  const dir = scratch("budget-engine");
+  const rt: ProjectRuntime = {
+    runtimeId: "budgeted",
+    async run(envelope) {
+      return {
+        outcome: "completed-unverified" as TaskOutcome,
+        summary: "ok",
+        budgetSpent: envelope.budgetPlanned != null ? envelope.budgetPlanned / 2 : undefined,
+      };
+    },
+  };
+  const { coordinator } = makeEngine(dir, rt);
+  const res = coordinator.submit({
+    sourceMessageId: "tg-eng1", splitIndex: 0, projectId: "alpha",
+    goal: "budgeted task", deliverable: "evidence", mutating: false,
+    budgetPlanned: 4,
+  });
+  assert.equal(res.status, "queued");
+  await coordinator.drain();
+
+  const received = coordinator.journal.store.db.prepare("SELECT budget_planned, budget_spent FROM journal WHERE task_id = ? AND phase = 'received'").get(res.taskId) as { budget_planned: number | null; budget_spent: number | null };
+  assert.equal(received.budget_planned, 4);
+  assert.equal(received.budget_spent, null); // nothing known at submit time
+  const settled = coordinator.journal.store.db.prepare("SELECT budget_spent FROM journal WHERE task_id = ? AND phase = 'settled'").get(res.taskId) as { budget_spent: number | null };
+  assert.equal(settled.budget_spent, 2); // runtime reported half the plan
+  assert.equal(coordinator.journal.getEnvelope(res.taskId)?.budgetSpent, 2);
+});

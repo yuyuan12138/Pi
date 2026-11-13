@@ -81,6 +81,21 @@ export class CoordinatorStore {
         scope TEXT NOT NULL
       );
     `);
+    this.migrateAdditiveColumns();
+  }
+
+  /**
+   * Additive column migrations (Theme D2): budget_planned / budget_spent on
+   * journal rows. ALTER TABLE ADD COLUMN never touches existing rows (they
+   * read back as NULL), so old journals keep replaying byte-identically.
+   * Checked via table_info so reopening an already-migrated db is a no-op.
+   */
+  private migrateAdditiveColumns(): void {
+    const cols = new Set(
+      (this.db.prepare("PRAGMA table_info(journal)").all() as Array<{ name: string }>).map((c) => c.name),
+    );
+    if (!cols.has("budget_planned")) this.db.exec("ALTER TABLE journal ADD COLUMN budget_planned REAL");
+    if (!cols.has("budget_spent")) this.db.exec("ALTER TABLE journal ADD COLUMN budget_spent REAL");
   }
 
   // ------------------------------------------------------------- meta

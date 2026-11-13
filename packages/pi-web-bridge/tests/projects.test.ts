@@ -9,7 +9,9 @@ import { createBridgeServer } from "../src/server.ts";
 import {
   parseRegistry,
   envelopeProjectId,
+  parseEnvelopeMeta,
   projectActivityFromJournal,
+  projectBudgetsFromJournal,
   readCoordinatorProjects,
   type JournalRowLike,
 } from "../src/projects.ts";
@@ -365,5 +367,166 @@ describe("GET /projects route", () => {
       assert.equal(Array.isArray(body.projects), true); // real DB or degraded — both are a valid shape
       assert.equal(Number.isFinite(Date.parse(body.generatedAt as string)), true);
     } finally { s4.closeBridge(); }
+  });
+});
+
+// ---------- Theme D2: budget fields on journal rows ----------
+
+describe("parseEnvelopeMeta (budget fields in received envelopes)", () => {
+  test("reads camelCase budget fields as the coordinator serializes them", () => {
+    const meta = parseEnvelopeMeta(envelope("task-1", "alpha", { budgetPlanned: 5, budgetSpent: 1.25 }));
+    assert.equal(meta.projectId, "alpha");
+    assert.equal(meta.budgetPlanned, 5);
+    assert.equal(meta.budgetSpent, 1.25);
+  });
+  test("also tolerates snake_case keys", () => {
+    const meta = parseEnvelopeMeta(JSON.stringify({ projectId: "beta", budget_planned: 2, budget_spent: 0.5 }));
+    assert.equal(meta.budgetPlanned, 2);
+    assert.equal(meta.budgetSpent, 0.5);
+  });
+  test("old envelopes without budget fields read as null", () => {
+    const meta = parseEnvelopeMeta(envelope("task-1", "alpha"));
+    assert.equal(meta.projectId, "alpha");
+    assert.equal(meta.budgetPlanned, null);
+    assert.equal(meta.budgetSpent, null);
+  });
+  test("garbage detail degrades to nulls", () => {
+    assert.deepEqual(parseEnvelopeMeta("{broken"), { projectId: null, budgetPlanned: null, budgetSpent: null });
+    assert.deepEqual(parseEnvelopeMeta(null), { projectId: null, budgetPlanned: null, budgetSpent: null });
+    assert.deepEqual(parseEnvelopeMeta(JSON.stringify({ budgetPlanned: "many" })), { projectId: null, budgetPlanned: null, budgetSpent: null });
+  });
+});
+
+describe("projectBudgetsFromJournal (per-project budget sums over the journal window)", () => {
+  test("sums planned/spent; latest settled spend wins per task; tasks without budgets contribute nothing", () => {
+    // NEWEST-FIRST order, as the DESC query returns rows.
+    const rows = [
+      row({ taskId: "task-b1", phase: "settled", detail: "completed-unverified: ok", budgetSpent: 2.5 }),
+      row({ taskId: "task-b1", phase: "received", detail: envelope("task-b1", "beta", { budgetPlanned: 10 }) }),
+      row({ taskId: "task-a1", phase: "settled", detail: "completed-unverified: ok", budgetSpent: 1.5 }),
+      row({ taskId: "task-a1", phase: "received", detail: envelope("task-a1", "alpha", { budgetPlanned: 4, budgetSpent: 1 }) }),
+      row({ taskId: "task-c1", phase: "received", detail: envelope("task-c1", "alpha") }), // no budget fields
+      row({ taskId: "task-d1", phase: "settled", detail: "completed-unverified: orphan" }), // no envelope/project
+    ];
+    const budgets = projectBudgetsFromJournal(rows);
+    assert.equal(budgets.get("alpha")?.planned, 4);
+    assert.equal(budgets.get("alpha")?.spent, 1.5); // settled row's fresher spend, not the envelope's initial 1
+    assert.equal(budgets.get("alpha")?.tasks, 1); // task-c1 carries no budget fields
+    assert.equal(budgets.get("beta")?.planned, 10);
+    assert.equal(budgets.get("beta")?.spent, 2.5);
+    assert.equal(budgets.size, 2);
+  });
+  test("empty rows -> empty map", () => {
+    assert.equal(projectBudgetsFromJournal([]).size, 0);
+  });
+});
+
+describe("readCoordinatorProjects: budget columns (Theme D2)", () => {
+  test("surfaces per-project budget sums when the migrated db carries them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "proj-d2-"));
+    const p = makeDb(dir, "budget.db");
+    const db = new DatabaseSync(p);
+    db.exec("ALTER TABLE journal ADD COLUMN budget_planned REAL");
+    db.exec("ALTER TABLE journal ADD COLUMN budget_spent REAL");
+    // alpha: planned 4 at receive; settled row refreshes spend to 3
+    db.prepare("UPDATE journal SET budget_planned = 4 WHERE task_id = 'task-a1' AND phase = 'received'").run();
+    db.prepare("UPDATE journal SET budget_spent = 3 WHERE task_id = 'task-a1' AND phase = 'settled'").run();
+    db.close();
+    const snap = readCoordinatorProjects(p);
+    const alpha = snap.projects.find((x) => x.id === "alpha");
+    assert.equal(alpha?.budgetPlanned, 4);
+    assert.equal(alpha?.budgetSpent, 3);
+    // beta has no budget fields -> keys omitted (shows them WHEN PRESENT)
+    const beta = snap.projects.find((x) => x.id === "beta");
+    assert.equal(beta?.budgetPlanned, undefined);
+    assert.equal(beta?.budgetSpent, undefined);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a PRE-migration db (no budget columns) still loads, without budgets", () => {
+    const dir = mkdtempSync(join(tmpdir(), "proj-d2-legacy-"));
+    const p = makeDb(dir, "legacy.db"); // plain SCHEMA, no budget columns
+    const snap = readCoordinatorProjects(p);
+    assert.equal(snap.projects.length, 3);
+    assert.equal(snap.note, undefined);
+    assert.equal(snap.projects.every((x) => x.budgetPlanned === undefined && x.budgetSpent === undefined), true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// ---------- Theme D1: usage7d on the /projects route ----------
+
+describe("GET /projects route: usage7d (additive)", () => {
+  test("injected rollup appears in the response; absent wiring omits the field", async () => {
+    const s2 = createBridgeServer({
+      project: "ProjRoute",
+      inject: () => true,
+      sessionFile: () => undefined,
+      subagentsDir: () => "/nonexistent-subagents",
+      indexHtml: () => "<!doctype html><html><body>ui</body></html>",
+      projects: () => ({ projects: [] }),
+      usage7d: () => ({
+        since: "2026-11-06T00:00:00.000Z",
+        until: "2026-11-13T00:00:00.000Z",
+        projects: [{ projectId: "alpha", displayName: "Alpha", tokens: 1234, cost: 0.5, turns: 3, sessions: 1 }],
+        unattributed: { tokens: 10, cost: 0, turns: 1, sessions: 1 },
+        personalOps: { tokens: 20, cost: 0, turns: 1, sessions: 1 },
+        totals: { tokens: 1264, cost: 0.5, turns: 5, sessions: 3, records: 5 },
+        filesRead: [],
+      }),
+      log: () => {},
+    });
+    await new Promise<void>((res) => s2.listen(0, "127.0.0.1", res));
+    try {
+      const r = await fetch(`http://127.0.0.1:${(s2.address() as { port: number }).port}/projects`);
+      const body = await r.json() as Record<string, unknown>;
+      const usage = body.usage7d as Record<string, unknown> | undefined;
+      assert.ok(usage, "usage7d present when wired");
+      assert.equal((usage.projects as Array<Record<string, unknown>>)[0].projectId, "alpha");
+      assert.equal((usage.totals as Record<string, unknown>).tokens, 1264);
+    } finally {
+      s2.closeBridge();
+    }
+    // Without wiring: the field is omitted entirely (old payloads unchanged).
+    const s3 = createBridgeServer({
+      project: "ProjRoute",
+      inject: () => true,
+      sessionFile: () => undefined,
+      subagentsDir: () => "/nonexistent-subagents",
+      indexHtml: () => "<!doctype html><html><body>ui</body></html>",
+      projects: () => ({ projects: [] }),
+      log: () => {},
+    });
+    await new Promise<void>((res) => s3.listen(0, "127.0.0.1", res));
+    try {
+      const r = await fetch(`http://127.0.0.1:${(s3.address() as { port: number }).port}/projects`);
+      const body = await r.json() as Record<string, unknown>;
+      assert.equal("usage7d" in body, false);
+    } finally {
+      s3.closeBridge();
+    }
+  });
+
+  test("a throwing usage7d source degrades to omission (never 500s the panel)", async () => {
+    const s4 = createBridgeServer({
+      project: "ProjRoute",
+      inject: () => true,
+      sessionFile: () => undefined,
+      subagentsDir: () => "/nonexistent-subagents",
+      indexHtml: () => "<!doctype html><html><body>ui</body></html>",
+      projects: () => ({ projects: [] }),
+      usage7d: () => { throw new Error("boom"); },
+      log: () => {},
+    });
+    await new Promise<void>((res) => s4.listen(0, "127.0.0.1", res));
+    try {
+      const r = await fetch(`http://127.0.0.1:${(s4.address() as { port: number }).port}/projects`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as Record<string, unknown>;
+      assert.equal("usage7d" in body, false);
+      assert.equal(body.ok, true);
+    } finally {
+      s4.closeBridge();
+    }
   });
 });

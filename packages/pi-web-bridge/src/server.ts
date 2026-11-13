@@ -9,6 +9,7 @@ import { MainLogReader, readHistoryBefore } from "./mainlog.ts";
 import { readSubLog, readSubHistory } from "./sublog.ts";
 import { EMPTY_STREAM, type StreamSnapshot } from "./stream.ts";
 import { readCoordinatorProjects, type ProjectsSnapshot } from "./projects.ts";
+import type { ProjectUsageRollup } from "../../pi-usage-log/project-usage.ts";
 
 /** Hard cap on request body size (brief: 32KB). */
 export const MAX_BODY_BYTES = 32 * 1024;
@@ -54,6 +55,8 @@ export interface BridgeDeps {
   stream?: () => StreamSnapshot;
   /** Coordinator projects snapshot for GET /projects (defaults to reading the real coordinator DB read-only). */
   projects?: () => ProjectsSnapshot;
+  /** Theme D1: last-7-day per-project token/cost rollup for GET /projects (null/absent = omit the additive field; e.g. usage log unreadable). Wired by extension.ts from pi-usage-log. */
+  usage7d?: () => ProjectUsageRollup | null;
   /** Subagent scanner (defaults to a fresh one). */
   scanner?: SubagentScanner;
   /** Main session log reader (defaults to a fresh one). */
@@ -194,10 +197,20 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
         log(`projects read failed: ${(e as Error).message}`);
         snap = { projects: [], note: "coordinator database unavailable" };
       }
+      // Theme D1 (additive): per-project last-7-day tokens+cost. Any failure or
+      // absent wiring simply omits the field — the panel renders without it.
+      let usage7d: ProjectUsageRollup | null = null;
+      if (deps.usage7d) {
+        try { usage7d = deps.usage7d(); } catch (e) {
+          log(`usage7d rollup failed: ${(e as Error).message}`);
+          usage7d = null;
+        }
+      }
       return sendJson(res, 200, {
         ok: true,
         projects: snap.projects,
         ...(snap.note ? { note: snap.note } : {}),
+        ...(usage7d ? { usage7d } : {}),
         generatedAt: new Date().toISOString(),
       });
     }

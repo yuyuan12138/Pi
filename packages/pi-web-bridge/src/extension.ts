@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import type { ExtensionAPI, MessageEndEvent, MessageStartEvent, MessageUpdateEvent } from "@earendil-works/pi-coding-agent";
 import { createBridgeServer, type BridgeServer } from "./server.ts";
 import { StreamBuffer } from "./stream.ts";
+import type { ProjectUsageRollup } from "../../pi-usage-log/project-usage.ts";
 
 /** Which surface POST /message routed to (drives the delivery decision). */
 export type InjectKind = "main" | "subagent";
@@ -61,6 +62,41 @@ export function createInjector(send: MessageSink, isStreaming: () => boolean, lo
       log(`inject failed: ${(e as Error).message}`);
       return false;
     }
+  };
+}
+
+/**
+ * Theme D1 wiring: the /projects panel's per-project usage rollup, produced by
+ * pi-usage-log's project-usage module (same attribution chain as documented
+ * there). The module is imported lazily and the rollup RE-COMPUTED in the
+ * background on a 60s TTL: the /projects route polls synchronously every ~3s,
+ * so the sync getter serves the last completed rollup (null until the first
+ * one is warm) — the same null-while-warming pattern the bridge's usage.ts
+ * uses for large logs. Any failure (sibling package missing, unreadable
+ * usage dir) logs once and yields null: the panel renders without usage7d.
+ */
+function createUsage7dSource(log: (msg: string) => void): () => ProjectUsageRollup | null {
+  const TTL_MS = 60_000;
+  let cached: { at: number; value: ProjectUsageRollup | null } | null = null;
+  let warming = false;
+  const warm = (): void => {
+    if (warming) return;
+    warming = true;
+    import("../../pi-usage-log/project-usage.ts")
+      .then((m) => {
+        const registry = m.loadRegistryProjects();
+        const value = m.rollupLastDays(m.DEFAULT_USAGE_DIR, registry, 7);
+        cached = { at: Date.now(), value };
+      })
+      .catch((e) => {
+        log(`usage7d source unavailable: ${(e as Error)?.message ?? e}`);
+        cached = { at: Date.now(), value: null }; // degrade honestly for one TTL window
+      })
+      .finally(() => { warming = false; });
+  };
+  return () => {
+    if (!cached || Date.now() - cached.at >= TTL_MS) warm();
+    return cached?.value ?? null;
   };
 }
 
@@ -128,6 +164,7 @@ export default function webBridge(pi: ExtensionAPI) {
       subagentsDir,
       indexHtml: () => readFileSync(new URL("./index.html", import.meta.url), "utf8"),
       stream: () => stream.snapshot(),
+      usage7d: createUsage7dSource(log),
       log,
     });
     // A /reload rebinds this extension while the OLD bridge instance tears

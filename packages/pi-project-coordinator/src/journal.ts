@@ -90,6 +90,10 @@ export interface TaskEnvelope {
   origin?: "user" | "primary";
   /** Recorded authorization basis; gates automatic resume/retry only. */
   authorization?: Authorization;
+  /** Budget planned for this task (Theme D2; envelope-owner units, e.g. USD or tokens). */
+  budgetPlanned?: number;
+  /** Budget spent so far (Theme D2). Written with the envelope and updatable on the settled row (append-only). */
+  budgetSpent?: number;
   createdAt: string;
 }
 
@@ -100,6 +104,8 @@ export interface JournalRecord {
   detail?: string;
   /** Derived stage label (whom the work waits for), recorded at transitions. */
   stage?: TaskStage;
+  /** Budget columns carried by this row (Theme D2); absent = NULL columns (old rows). */
+  budget?: { planned?: number; spent?: number };
 }
 
 export function computeDedupeKey(sourceMessageId: string, splitIndex: number): string {
@@ -124,8 +130,8 @@ export class TaskJournal {
 
   private replay(): void {
     const rows = this.store.db
-      .prepare("SELECT at, task_id, phase, detail, stage FROM journal ORDER BY id")
-      .all() as Array<{ at: string; task_id: string; phase: TaskPhase; detail: string | null; stage: string | null }>;
+      .prepare("SELECT at, task_id, phase, detail, stage, budget_planned, budget_spent FROM journal ORDER BY id")
+      .all() as Array<{ at: string; task_id: string; phase: TaskPhase; detail: string | null; stage: string | null; budget_planned: number | null; budget_spent: number | null }>;
     for (const row of rows) {
       const rec: JournalRecord = {
         at: row.at,
@@ -134,6 +140,12 @@ export class TaskJournal {
         detail: row.detail ?? undefined,
       };
       if (row.stage !== null) rec.stage = row.stage as TaskStage;
+      if (row.budget_planned !== null || row.budget_spent !== null) {
+        rec.budget = {
+          ...(row.budget_planned !== null ? { planned: row.budget_planned } : {}),
+          ...(row.budget_spent !== null ? { spent: row.budget_spent } : {}),
+        };
+      }
       this.absorb(rec);
     }
   }
@@ -142,7 +154,21 @@ export class TaskJournal {
   private absorb(record: JournalRecord): void {
     if (record.phase === "received" && record.detail) {
       const envelope = JSON.parse(record.detail) as TaskEnvelope;
+      // Old rows: the detail JSON predates the budget fields — backfill from
+      // the row columns when present (identical semantics, NULL reads as unset).
+      if (envelope.budgetPlanned === undefined && record.budget?.planned !== undefined) {
+        envelope.budgetPlanned = record.budget.planned;
+      }
+      if (envelope.budgetSpent === undefined && record.budget?.spent !== undefined) {
+        envelope.budgetSpent = record.budget.spent;
+      }
       this.envelopes.set(envelope.taskId, envelope);
+    }
+    // A later row (settled) may carry a fresher budget_spent — keep the live
+    // envelope current without ever rewriting the append-only journal.
+    if (record.phase !== "received" && record.budget?.spent !== undefined) {
+      const envelope = this.envelopes.get(record.taskId);
+      if (envelope) envelope.budgetSpent = record.budget.spent;
     }
     this.records.push(record);
     if (record.phase === "settled") {
@@ -159,8 +185,17 @@ export class TaskJournal {
   private append(record: JournalRecord, dedupeSha?: string): void {
     this.absorb(record);
     this.store.db
-      .prepare("INSERT INTO journal(at, task_id, phase, detail, stage, dedupe_sha) VALUES(?, ?, ?, ?, ?, ?)")
-      .run(record.at, record.taskId, record.phase, record.detail ?? null, record.stage ?? null, dedupeSha ?? null);
+      .prepare("INSERT INTO journal(at, task_id, phase, detail, stage, dedupe_sha, budget_planned, budget_spent) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        record.at,
+        record.taskId,
+        record.phase,
+        record.detail ?? null,
+        record.stage ?? null,
+        dedupeSha ?? null,
+        record.budget?.planned ?? null,
+        record.budget?.spent ?? null,
+      );
     return;
   }
 
@@ -175,15 +210,21 @@ export class TaskJournal {
       if (existing.dedupeKey === envelope.dedupeKey) return false;
     }
     this.envelopes.set(envelope.taskId, envelope);
-    this.append(
-      {
-        at: envelope.createdAt,
-        taskId: envelope.taskId,
-        phase: "received",
-        detail: JSON.stringify(envelope),
-      },
-      envelope.dedupeKey,
-    );
+    const rec: JournalRecord = {
+      at: envelope.createdAt,
+      taskId: envelope.taskId,
+      phase: "received",
+      detail: JSON.stringify(envelope),
+    };
+    // Budget columns only when actually present: no-budget rows keep their old
+    // shape exactly (budget columns written as NULL, no `budget` key at all).
+    if (envelope.budgetPlanned !== undefined || envelope.budgetSpent !== undefined) {
+      rec.budget = {
+        ...(envelope.budgetPlanned !== undefined ? { planned: envelope.budgetPlanned } : {}),
+        ...(envelope.budgetSpent !== undefined ? { spent: envelope.budgetSpent } : {}),
+      };
+    }
+    this.append(rec, envelope.dedupeKey);
     if (envelope.authorization) {
       this.store.db
         .prepare(
@@ -209,13 +250,15 @@ export class TaskJournal {
     return this.knownPhases.get(taskId);
   }
 
-  mark(taskId: string, phase: TaskPhase, detail?: string): void {
+  mark(taskId: string, phase: TaskPhase, detail?: string, budgetSpent?: number): void {
     let outcome = this.outcomes.get(taskId);
     if (phase === "settled" && detail) {
       const o = detail.split(":")[0] as TaskOutcome;
       if (o === "completed-unverified" || o === "failed" || o === "unknown-outcome") outcome = o;
     }
-    this.append({ at: new Date().toISOString(), taskId, phase, detail, stage: deriveStage({ phase, outcome }) });
+    const rec: JournalRecord = { at: new Date().toISOString(), taskId, phase, detail, stage: deriveStage({ phase, outcome }) };
+    if (budgetSpent !== undefined) rec.budget = { spent: budgetSpent };
+    this.append(rec);
   }
 
   /** Ask the user a question; the task waits for a person (person/answer). */

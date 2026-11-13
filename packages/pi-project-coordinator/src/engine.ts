@@ -17,8 +17,9 @@ import { TaskJournal, computeDedupeKey, mandateValid, type Authorization, type T
 export interface ProjectRuntime {
   /** Unique adapter instance identity for lease bookkeeping. */
   readonly runtimeId: string;
-  /** Execute one task for a project. Resolve with an outcome; reject on crash. */
-  run(envelope: TaskEnvelope, root: string, sessionId: string): Promise<{ outcome: TaskOutcome; summary: string }>;
+  /** Execute one task for a project. Resolve with an outcome; reject on crash.
+   *  `budgetSpent` (Theme D2, optional) is recorded on the settled journal row when reported. */
+  run(envelope: TaskEnvelope, root: string, sessionId: string): Promise<{ outcome: TaskOutcome; summary: string; budgetSpent?: number }>;
 }
 
 export interface SubmitResult {
@@ -117,6 +118,10 @@ export class Coordinator {
     mutating: boolean;
     origin?: "user" | "primary";
     authorization?: Authorization;
+    /** Budget planned for this task (Theme D2); omitted = null on the journal row. */
+    budgetPlanned?: number;
+    /** Budget spent known at submit time (Theme D2); the settled row may refresh it. */
+    budgetSpent?: number;
   }): SubmitResult {
     const project = this.registry.projects.find((p) => p.id === input.projectId);
     if (!project || project.status !== "registered") {
@@ -138,6 +143,8 @@ export class Coordinator {
       mutating: input.mutating,
       origin: input.origin,
       authorization: input.authorization,
+      ...(input.budgetPlanned !== undefined ? { budgetPlanned: input.budgetPlanned } : {}),
+      ...(input.budgetSpent !== undefined ? { budgetSpent: input.budgetSpent } : {}),
       createdAt: new Date().toISOString(),
     };
     this.journal.recordEnvelope(envelope);
@@ -213,8 +220,8 @@ export class Coordinator {
 
   private async execute(envelope: TaskEnvelope, root: string, sessionId: string): Promise<void> {
     try {
-      const { outcome, summary } = await this.runtime.run(envelope, root, sessionId);
-      this.journal.mark(envelope.taskId, "settled", `${outcome}: ${summary}`);
+      const { outcome, summary, budgetSpent } = await this.runtime.run(envelope, root, sessionId);
+      this.journal.mark(envelope.taskId, "settled", `${outcome}: ${summary}`, budgetSpent);
       // completed-unverified stays open for explicit primary verification.
     } catch (error) {
       // Runtime crashed or could not confirm delivery: outcome unknown for

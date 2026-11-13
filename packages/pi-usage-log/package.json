@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local usage monitoring for Pi: per-turn token/cost/tool JSONL log and /usage summary",
-  "main": "index.ts"
+  "description": "Local usage monitoring for Pi: per-turn token/cost/tool JSONL log, /usage summary, and per-project rollups (Theme D1)",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/"
+  }
 }
