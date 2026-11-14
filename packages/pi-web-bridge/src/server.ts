@@ -53,6 +53,14 @@ export interface BridgeDeps {
   indexHtml: () => string;
   /** Overview dashboard page, served at GET /overview and /overview.html (absent dep -> 404). */
   overviewHtml?: () => string;
+  /** Overview deep panels: memory / guard / budget(+campaign) / system. Each is
+   *  a fail-open reader (src/overview-data.ts) returning a snapshot or a
+   *  { ok:false, note } degrade; the route wraps them in a catch-all so they
+   *  can never 500. Absent dep -> { ok:false, note: not wired }. */
+  overviewMemory?: () => unknown;
+  overviewGuard?: () => unknown;
+  overviewBudget?: () => unknown;
+  overviewSystem?: () => unknown;
   /** Live in-flight assistant snapshot for GET /stream (defaults to a neutral idle snapshot). */
   stream?: () => StreamSnapshot;
   /** Coordinator projects snapshot for GET /projects (defaults to reading the real coordinator DB read-only). */
@@ -179,6 +187,24 @@ export function createBridgeServer(deps: BridgeDeps): BridgeServer {
       const html = deps.overviewHtml?.();
       if (html === undefined) return sendJson(res, 404, { ok: false, error: "not found" });
       return sendText(res, 200, html, "text/html; charset=utf-8");
+    }
+    // Overview deep panels (additive, read-only, fail-open): each mirrors the
+    // /projects catch-all pattern — a route can never 500 the page.
+    for (const [suffix, read] of [
+      ["/overview/memory", deps.overviewMemory],
+      ["/overview/guard", deps.overviewGuard],
+      ["/overview/budget", deps.overviewBudget],
+      ["/overview/system", deps.overviewSystem],
+    ] as const) {
+      if (method === "GET" && path === suffix) {
+        if (!read) return sendJson(res, 200, { ok: false, generatedAt: new Date().toISOString(), note: "overview panel source not wired" });
+        try {
+          return sendJson(res, 200, read());
+        } catch (e) {
+          log(`overview ${suffix} read failed: ${(e as Error).message}`);
+          return sendJson(res, 200, { ok: false, generatedAt: new Date().toISOString(), note: `panel read failed (${(e as Error).message})` });
+        }
+      }
     }
     if (method === "GET" && path === "/state") {
       const sf = deps.sessionFile();

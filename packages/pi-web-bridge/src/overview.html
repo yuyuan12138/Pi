@@ -7,16 +7,24 @@
 <title>Overview — Mission Control</title>
 <style>
   /* ================================================================
-     OVERVIEW — one dedicated dashboard for "what is the coordinator
-     doing right now + key info at a glance".
+     OVERVIEW — the coordinator's mission-control dashboard: "what is
+     the coordinator doing right now + everything key at a glance".
      Design language: a faithful port of index.html (Variant B
      precision instrument) — dark, mono-first data typography, ONE
      live signal color (#46e0a3), amber for blocked/offline, hairline
-     strips, no filled boxes. Composes ONLY existing GET endpoints
-     (/state /stream /projects /main-log): every section deploys on a
-     hard refresh with zero server changes. Escape-first rendering:
-     untrusted task text enters via textContent only — the markup sink is
-     never touched.
+     strips, no filled boxes.
+
+     Sections: STATUS strip · NOW (coordinator + live workers) ·
+     TIMELINE ribbon (today's dispatches by hour) · RECENT ACTIVITY ·
+     MEMORY layer · SAFETY/GUARD · BUDGET & COST (incl. MC campaign) ·
+     PROJECTS (7d+30d usage) · SYSTEM health (+ Org link).
+
+     Endpoints: /state /stream /projects /main-log (existing) +
+     /overview/memory /overview/guard /overview/budget /overview/system
+     (additive, read-only, fail-open). Every panel degrades to an
+     honest note, never a lie. Escape-first rendering: untrusted task
+     text enters via textContent only — the markup sink is never
+     touched.
      ================================================================ */
   :root {
     --bg: #07080a;
@@ -124,6 +132,8 @@
   .sec-head .plate::before { content: ""; display: inline-block; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); margin-right: 10px; vertical-align: 1px; }
   .sec-count { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
   .empty { color: var(--t2); text-align: center; padding: 26px 0; font-size: 12.5px; letter-spacing: .01em; font-family: var(--mono); }
+  .note { font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: var(--warn); padding: 4px 0; overflow-wrap: break-word; }
+  .note.dim { color: var(--t3); }
 
   /* ---------- status strip: instrument cells (index.html .cluster port) ---------- */
   .cluster { display: flex; align-items: stretch; flex-wrap: wrap; row-gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line-2); }
@@ -189,6 +199,26 @@
   .pbadge.unattributed { border-style: dashed; color: var(--t3); }
   .pbadge.unattributed i { background: var(--t3); }
 
+  /* ---------- mode chips (guard / campaign states) ---------- */
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 999px;
+    border: 1px solid var(--line); font: 600 9px var(--mono); letter-spacing: .12em;
+    text-transform: uppercase; color: var(--t2); line-height: 18px; white-space: nowrap; flex: none;
+  }
+  .chip.sig { color: var(--sig); border-color: var(--sig-dim); }
+  .chip.warn { color: var(--warn); border-color: rgba(230, 180, 90, .4); }
+  .chip.err { color: var(--err); border-color: rgba(229, 114, 107, .4); }
+  .v .chip + .chip, .v .chip + * { margin-left: 6px; }
+
+  /* ---------- timeline ribbon: today's dispatches by hour ---------- */
+  #tl-box { min-width: 0; }
+  .tl { display: flex; align-items: flex-end; gap: 2px; height: 62px; padding-top: 10px; border-bottom: 1px solid var(--line-2); }
+  .tl-b { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
+  .tl-bar { width: 72%; max-width: 18px; border-radius: 2px 2px 0 0; background: rgba(255, 255, 255, .07); }
+  .tl-bar.has { background: var(--sig-dim); }
+  .tl-n { font: 500 8.5px var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+  .tl-axis { display: flex; justify-content: space-between; font: 500 8.5px var(--mono); color: var(--t3); padding-top: 4px; letter-spacing: .06em; }
+
   /* ---------- recent activity rows: hairline strips ---------- */
   .arow {
     display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
@@ -211,6 +241,23 @@
     .a-out { grid-column: 2; }
   }
 
+  /* ---------- key-value rows (memory / guard / campaign detail) ---------- */
+  .kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line-2); font-family: var(--mono); font-size: 11px; align-items: baseline; }
+  .kv:last-child { border-bottom: 0; }
+  .kv .k { color: var(--t2); letter-spacing: .04em; }
+  .kv .v { color: #c9cdd2; min-width: 0; overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
+  .kv .v .warn { color: var(--warn); }
+  .kv .v .sig { color: var(--sig); }
+  .kv .v .dim { color: var(--t3); }
+
+  /* ---------- ratio bar (budget: unattributed share, campaign budget) ---------- */
+  .bar { display: flex; height: 4px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, .06); margin: 6px 0 4px; }
+  .bar i { height: 100%; flex: none; }
+  .bar .b-proj { background: var(--sig-dim); }
+  .bar .b-unattr { background: rgba(230, 180, 90, .55); }
+  .bar .b-over { background: var(--err); }
+  .bar-cap { font: 500 10px var(--mono); color: var(--t2); font-variant-numeric: tabular-nums; }
+
   /* ---------- projects strip (index.html .pcard port) ---------- */
   .pcard {
     display: grid; width: 100%; margin: 6px 0; padding: 9px 13px 8px;
@@ -230,6 +277,16 @@
   #projects-note { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
   #projects-note.warn { color: var(--warn); }
 
+  /* ---------- org link card ---------- */
+  .orglink {
+    display: flex; align-items: center; gap: 10px; width: 100%; margin: 6px 0; padding: 11px 13px;
+    border: 1px dashed var(--line); border-radius: 8px; text-decoration: none;
+    font: 600 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--t2);
+    transition: color .15s var(--ease), border-color .15s var(--ease);
+  }
+  .orglink:hover { color: var(--t0); border-color: rgba(255, 255, 255, .22); }
+  .orglink .arr { margin-left: auto; }
+
   /* ---------- footer stamp ---------- */
   #foot { text-align: center; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); }
   @media (max-width: 719px) {
@@ -237,6 +294,7 @@
     #topbar { padding: 0 14px; padding-top: var(--sa-t); gap: 10px; }
     #topbar #project { display: none; }
     .cell { padding-right: 10px; margin-right: 10px; min-width: 84px; }
+    .kv { grid-template-columns: 84px minmax(0, 1fr); }
   }
   /* very narrow: the topbar stamp moves out (the footer stamp stays visible) */
   @media (max-width: 519px) {
@@ -282,19 +340,49 @@
     <div id="now-box"></div>
   </section>
 
-  <!-- 3. RECENT ACTIVITY: dispatches + journal + work records, newest first -->
+  <!-- 3. TIMELINE ribbon: today's dispatches as hourly buckets -->
+  <section aria-label="Timeline">
+    <div class="sec-head"><span class="plate">Timeline &middot; today</span><span class="sec-count" id="tl-count"></span></div>
+    <div id="tl-box"></div>
+  </section>
+
+  <!-- 4. RECENT ACTIVITY: dispatches + journal + work records, newest first -->
   <section aria-label="Recent activity">
     <div class="sec-head"><span class="plate">Recent activity</span><span class="sec-count" id="act-count"></span></div>
     <div id="act-box"></div>
   </section>
 
-  <!-- 4. PROJECTS: registry + 7d usage + honest unattributed buckets -->
+  <!-- 5. MEMORY layer: atoms · index · profile · distiller -->
+  <section aria-label="Memory">
+    <div class="sec-head"><span class="plate">Memory</span><span class="sec-count" id="mem-count"></span></div>
+    <div id="mem-box"></div>
+  </section>
+
+  <!-- 6. SAFETY / GUARD: mode · today's decisions · recent entries -->
+  <section aria-label="Safety guard">
+    <div class="sec-head"><span class="plate">Safety &middot; guard</span><span class="sec-count" id="guard-count"></span></div>
+    <div id="guard-box"></div>
+  </section>
+
+  <!-- 7. BUDGET & COST: ratio bar · journal budgets · MC campaign -->
+  <section aria-label="Budget and cost">
+    <div class="sec-head"><span class="plate">Budget &middot; cost</span><span class="sec-count" id="bud-count"></span></div>
+    <div id="bud-box"></div>
+  </section>
+
+  <!-- 8. PROJECTS: registry + 7d/30d usage + honest unattributed buckets -->
   <section aria-label="Projects">
     <div class="sec-head"><span class="plate">Projects</span><span class="sec-count" id="projects-note"></span></div>
     <div id="proj-box"></div>
   </section>
 
-  <div id="foot">auto-refresh 3&ndash;10s &middot; <span id="foot-updated">&mdash;</span></div>
+  <!-- 9. SYSTEM health: bridge uptime · guard mode · D4 routing · extensions · org link -->
+  <section aria-label="System">
+    <div class="sec-head"><span class="plate">System</span><span class="sec-count" id="sys-count"></span></div>
+    <div id="sys-box"></div>
+  </section>
+
+  <div id="foot">auto-refresh 3&ndash;30s &middot; <span id="foot-updated">&mdash;</span></div>
 </main>
 
 <script>
@@ -317,6 +405,10 @@
     usage7d: null,        // GET /projects usage7d (when carried)
     projectsNote: null,   // degraded-registry note
     mainStats: null,      // GET /main-log stats (model + startedAt)
+    memory: null,         // GET /overview/memory
+    guard: null,          // GET /overview/guard
+    budget: null,         // GET /overview/budget
+    system: null,         // GET /overview/system
     sessionStart: null,   // parsed from sessionFile path
     lastOk: 0,            // last successful /state poll (epoch ms)
     tick: 0,              // bumped every 30s so relative ages re-render
@@ -342,7 +434,9 @@
   // ---------- formatting helpers (index.html ports) ----------
   function relTime(ts) {
     if (!ts) return "";
-    const s = Math.max(0, (Date.now() - ts) / 1000);
+    const t = typeof ts === "number" ? ts : Date.parse(ts);
+    if (!Number.isFinite(t)) return "";
+    const s = Math.max(0, (Date.now() - t) / 1000);
     if (s < 60) return "just now";
     if (s < 3600) return `${Math.floor(s / 60)}m ago`;
     if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
@@ -486,6 +580,14 @@
     if (projectId) b.title = projectId;
     parent.append(b);
   }
+  function pbadgeInline(projectId) {
+    const b = el("span", "pbadge" + (projectId ? "" : " unattributed"));
+    const i = el("i");
+    if (projectId) i.style.background = `hsl(${projectHue(projectId)} 55% 60%)`;
+    const known = registry().find((p) => String(p.id) === projectId);
+    b.append(i, el("span", null, projectId ? (known?.displayName || projectId) : "unattr"));
+    return b;
+  }
 
   // ---------- sig-guarded section rendering ----------
   // A section re-renders only when its data signature changes; the 30s tick
@@ -498,12 +600,19 @@
     build(box);
     return true;
   }
+  // fail-open panel helper: payload absent or degraded -> one honest note row
+  function panelNote(box, payload, label) {
+    if (!payload) { box.append(el("div", "note dim", `${label}: no data yet`)); return true; }
+    if (payload.ok === false) { box.append(el("div", "note", `${label}: ${payload.note ?? "unavailable"}`)); return true; }
+    return false;
+  }
 
   // ---------- 1. STATUS strip ----------
   function renderStatus() {
     const st = S.state, stream = S.stream;
     // bridge cell: the poll loop owns S.down
-    setCell("#st-bridge", S.down ? "offline" : "up 127.0.0.1", "val " + (S.down ? "cl-warn" : "cl-sig"));    // model: /main-log whole-run stats (first assistant message's model)
+    setCell("#st-bridge", S.down ? "offline" : "up 127.0.0.1", "val " + (S.down ? "cl-warn" : "cl-sig"));
+    // model: /main-log whole-run stats (first assistant message's model)
     const model = typeof S.mainStats?.model === "string" && S.mainStats.model ? S.mainStats.model : null;
     setCell("#st-model", model ?? "\u2014", "val" + (model ? " cl-sig" : ""));
     // stream: idle/busy + in-flight activity line
@@ -584,7 +693,60 @@
     });
   }
 
-  // ---------- 3. RECENT ACTIVITY ----------
+  // ---------- 3. TIMELINE ribbon: today's dispatches by hour ----------
+  function renderTimeline() {
+    const box = $("#tl-box");
+    const subs = Array.isArray(S.state?.subagents) ? S.state.subagents : [];
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const buckets = Array.from({ length: 24 }, () => []);
+    let todayCount = 0;
+    for (const s of subs) {
+      if (!Number.isFinite(s.lastActivity) || s.lastActivity < dayStart) continue;
+      todayCount++;
+      buckets[new Date(s.lastActivity).getHours()].push(s);
+    }
+    $("#tl-count").textContent = `${todayCount} dispatch${todayCount === 1 ? "" : "es"} today`;
+    const sig = JSON.stringify([S.tick, subs, registrySig(), dayStart]);
+    renderIfChanged(box, sig, (root) => {
+      if (!todayCount) {
+        root.append(el("div", "empty", "no dispatches yet today"));
+        return;
+      }
+      const max = Math.max(...buckets.map((b) => b.length));
+      const ribbon = el("div", "tl");
+      buckets.forEach((b, h) => {
+        const cell = el("div", "tl-b");
+        if (b.length) {
+          cell.append(el("span", "tl-n", String(b.length)));
+          const bar = el("div", "tl-bar has");
+          bar.style.height = `${Math.round(8 + 34 * (b.length / max))}px`;
+          // bucket color = dominant project hue inside it (count, then recency)
+          const tally = new Map();
+          for (const s of b) {
+            const pid = projectOf(s) ?? "__unattributed__";
+            tally.set(pid, (tally.get(pid) ?? 0) + 1);
+          }
+          const dom = [...tally.entries()].sort((x, y) => y[1] - x[1])[0][0];
+          const hue = dom === "__unattributed__" ? null : projectHue(dom);
+          bar.style.background = hue === null
+            ? "rgba(77, 83, 90, .8)"
+            : `hsl(${hue} 55% 55% / .8)`;
+          cell.append(bar);
+          const parts = b.map((s) => `${s.id} (${projectOf(s) ?? "unattributed"})`);
+          cell.title = `${String(h).padStart(2, "0")}:00 \u2014 ${b.length} dispatch${b.length === 1 ? "" : "es"}: ${parts.join(", ")}`;
+        } else {
+          cell.append(el("div", "tl-bar"));
+        }
+        ribbon.append(cell);
+      });
+      const axis = el("div", "tl-axis");
+      for (const h of [0, 6, 12, 18, 23]) axis.append(el("span", null, `${String(h).padStart(2, "0")}:00`));
+      root.append(ribbon, axis);
+    });
+  }
+
+  // ---------- 4. RECENT ACTIVITY ----------
   function renderActivity() {
     const box = $("#act-box");
     const subs = Array.isArray(S.state?.subagents) ? S.state.subagents : [];
@@ -628,14 +790,6 @@
       }
     });
   }
-  function pbadgeInline(projectId) {
-    const b = el("span", "pbadge" + (projectId ? "" : " unattributed"));
-    const i = el("i");
-    if (projectId) i.style.background = `hsl(${projectHue(projectId)} 55% 60%)`;
-    const known = registry().find((p) => String(p.id) === projectId);
-    b.append(i, el("span", null, projectId ? (known?.displayName || projectId) : "unattr"));
-    return b;
-  }
   function outcomeChip(e) {
     if (e.kind === "dispatch") {
       const map = { running: ["live", "a-out live"], blocked: ["blocked", "a-out blocked"], done: ["settled", "a-out"] };
@@ -646,7 +800,268 @@
     return el("span", "a-out", "journal");
   }
 
-  // ---------- 4. PROJECTS ----------
+  // ---------- 5. MEMORY layer ----------
+  function renderMemory() {
+    const box = $("#mem-box");
+    const m = S.memory;
+    $("#mem-count").textContent = m && m.ok !== false
+      ? `${m.atoms?.total ?? 0} atoms \u00b7 ${m.index?.total ?? 0} indexed`
+      : "";
+    const sig = JSON.stringify([S.tick, m]);
+    renderIfChanged(box, sig, (root) => {
+      if (panelNote(root, m, "memory layer")) return;
+      const grid = el("div");
+      const kv = (k, ...vNodes) => {
+        const row = el("div", "kv");
+        row.append(el("span", "k", k));
+        const v = el("span", "v");
+        v.append(...vNodes);
+        row.append(v);
+        return row;
+      };
+      // atoms: total + per-project day lines (newest 3 days each)
+      const atoms = m.atoms ?? { projects: [], total: 0, note: undefined };
+      const atomsV = el("span");
+      atomsV.append(el("span", "sig", `${atoms.total ?? 0} atoms`));
+      if (atoms.files != null) atomsV.append(el("span", "dim", ` \u00b7 ${atoms.files} day-file${atoms.files === 1 ? "" : "s"}`));
+      grid.append(kv("Atoms", atomsV));
+      for (const p of (atoms.projects ?? []).slice(0, 6)) {
+        const days = (p.days ?? []).slice(0, 3).map((d) => `${d.day.slice(5)}: ${d.count}`).join(" \u00b7 ");
+        grid.append(kv(`  ${trunc(p.project, 18)}`, el("span", null, days || "0")));
+      }
+      if (atoms.note) grid.append(kv("  note", el("span", "warn", atoms.note)));
+      // index.db row counts by kind
+      const idx = m.index ?? { kinds: [], total: 0 };
+      const idxV = el("span");
+      const kinds = idx.kinds ?? [];
+      if (kinds.length) {
+        kinds.forEach((k, i) => {
+          if (i) idxV.append(el("span", "dim", " \u00b7 "));
+          idxV.append(el("span", null, `${k.kind} ${k.count}`));
+        });
+      } else {
+        idxV.append(el("span", "dim", "no rows"));
+      }
+      if (idx.note) idxV.append(el("span", "warn", ` \u00b7 ${idx.note}`));
+      grid.append(kv("Obs index", idxV));
+      // profile.md: existence + size + age
+      const prof = m.profile ?? { exists: false };
+      const profV = el("span");
+      if (prof.exists) {
+        profV.append(el("span", "sig", "present"));
+        if (prof.bytes != null) profV.append(el("span", "dim", ` \u00b7 ${prof.bytes} B`));
+        if (prof.mtime) profV.append(el("span", "dim", ` \u00b7 ${relTime(prof.mtime)}`));
+        if (prof.note) profV.append(el("span", "warn", ` \u00b7 ${prof.note}`));
+      } else {
+        profV.append(el("span", "warn", "absent"));
+      }
+      grid.append(kv("Profile", profV));
+      // last distill run
+      const dist = m.distiller ?? { exists: false, lastRun: null };
+      const distV = el("span");
+      const lr = dist.lastRun;
+      if (lr) {
+        distV.append(el("span", null, `${relTime(lr.at) || lr.at}`));
+        distV.append(el("span", "dim", ` \u00b7 ${lr.trigger} \u00b7 wrote ${lr.written}/${lr.scanned}`));
+        if (lr.llmUsed) distV.append(el("span", "dim", " \u00b7 llm"));
+        if (lr.degradedReason) distV.append(el("span", "warn", ` \u00b7 degraded: ${trunc(lr.degradedReason, 90)}`));
+      } else if (dist.exists) {
+        distV.append(el("span", "dim", "state present \u00b7 no run recorded yet"));
+      } else {
+        distV.append(el("span", "warn", "no distiller state"));
+      }
+      if (dist.note) distV.append(el("span", "warn", ` \u00b7 ${dist.note}`));
+      grid.append(kv("Distill", distV));
+      root.append(grid);
+    });
+  }
+
+  // ---------- 6. SAFETY / GUARD ----------
+  function renderGuard() {
+    const box = $("#guard-box");
+    const g = S.guard;
+    if (g && g.ok !== false) {
+      const t = g.today ?? {};
+      $("#guard-count").textContent =
+        `${g.mode} \u00b7 today: ${t.denied ?? 0} denied, ${t.would_deny ?? 0} would_deny`;
+    } else {
+      $("#guard-count").textContent = "";
+    }
+    const sig = JSON.stringify([S.tick, g]);
+    renderIfChanged(box, sig, (root) => {
+      if (panelNote(root, g, "guard panel")) return;
+      const grid = el("div");
+      const kv = (k, ...vNodes) => {
+        const row = el("div", "kv");
+        row.append(el("span", "k", k));
+        const v = el("span", "v");
+        v.append(...vNodes);
+        row.append(v);
+        return row;
+      };
+      // mode chip + source
+      const modeV = el("span");
+      const chip = el("span", "chip " + (g.mode === "enforce" ? "warn" : ""), g.mode);
+      modeV.append(chip, el("span", "dim", ` \u00b7 source: ${g.modeSource}`));
+      if (g.note) modeV.append(el("span", "warn", ` \u00b7 ${g.note}`));
+      grid.append(kv("Mode", modeV));
+      // today's decisions
+      const t = g.today ?? {};
+      const todayV = el("span");
+      todayV.append(el("span", t.denied ? "warn" : "dim", `${t.denied ?? 0} denied`));
+      todayV.append(el("span", "dim", " \u00b7 "));
+      todayV.append(el("span", t.would_deny ? null : "dim", `${t.would_deny ?? 0} would_deny`));
+      if (t.errors) todayV.append(el("span", "warn", ` \u00b7 ${t.errors} errors`));
+      grid.append(kv("Today", todayV));
+      // by-category tally
+      const cats = t.byCategory ?? [];
+      if (cats.length) {
+        const catV = el("span");
+        cats.slice(0, 6).forEach((c, i) => {
+          if (i) catV.append(el("span", "dim", " \u00b7 "));
+          catV.append(el("span", null, `${c.category} \u00d7${c.count}`));
+        });
+        grid.append(kv("Categories", catV));
+      }
+      // last 5 entries
+      const recent = Array.isArray(g.recent) ? g.recent : [];
+      for (const e of recent) {
+        const rowV = el("span");
+        const ts = e.ts ? Date.parse(e.ts) : NaN;
+        rowV.append(el("span", "dim", Number.isFinite(ts) ? fmtClock(ts) : "??:??"));
+        rowV.append(el("span", e.decision === "denied" ? "warn" : "dim", ` ${e.decision}`));
+        rowV.append(el("span", null, ` ${trunc([e.tool, e.category].filter(Boolean).join("/"), 40)}`));
+        if (e.excerpt) rowV.append(el("span", "dim", ` \u2014 ${trunc(e.excerpt, 90)}`));
+        grid.append(kv("Recent", rowV));
+      }
+      root.append(grid);
+    });
+  }
+
+  // ---------- 7. BUDGET & COST ----------
+  function usageOf() {
+    // prefer the budget endpoint's d7 rollup; fall back to /projects usage7d
+    const b7 = S.budget && S.budget.d7 ? S.budget.d7 : null;
+    return b7 ?? S.usage7d ?? null;
+  }
+  function renderBudget() {
+    const box = $("#bud-box");
+    const b = S.budget;
+    const u = usageOf();
+    if (b && b.ok !== false) {
+      const tt = u?.totals;
+      $("#bud-count").textContent = tt ? `7d ${fmtTokens(tt.tokens)} tok \u00b7 ${fmtCostUsd(tt.cost)}` : "";
+    } else {
+      $("#bud-count").textContent = "";
+    }
+    const sig = JSON.stringify([S.tick, b, u, S.projects]);
+    renderIfChanged(box, sig, (root) => {
+      if (!b || b.ok === false) {
+        // budget endpoint down: still show what /projects carries
+        if (panelNote(root, b, "budget panel")) return;
+      }
+      const grid = el("div");
+      const kv = (k, ...vNodes) => {
+        const row = el("div", "kv");
+        row.append(el("span", "k", k));
+        const v = el("span", "v");
+        v.append(...vNodes);
+        row.append(v);
+        return row;
+      };
+      // unattributed ratio bar (7d): projects share vs unattributed+personal-ops
+      const tt = u?.totals;
+      if (tt && Number.isFinite(tt.tokens) && tt.tokens > 0) {
+        const ua = u.unattributed?.tokens ?? 0;
+        const po = u.personalOps?.tokens ?? 0;
+        const off = ua + po;
+        const pct = Math.min(100, Math.round((off / tt.tokens) * 100));
+        const row = el("div");
+        const bar = el("div", "bar");
+        const projSeg = el("i", "b-proj");
+        projSeg.style.width = `${100 - pct}%`;
+        const unattrSeg = el("i", "b-unattr");
+        unattrSeg.style.width = `${pct}%`;
+        bar.append(projSeg, unattrSeg);
+        row.append(bar);
+        const cap = el("div", "bar-cap");
+        cap.textContent = `unattributed + personal-ops ${pct}% \u00b7 ${fmtTokens(off)} of ${fmtTokens(tt.tokens)} tok (7d)`;
+        row.append(cap);
+        grid.append(kv("Share", row));
+      }
+      // 30d totals
+      const d30 = S.budget?.d30?.totals;
+      if (d30) {
+        grid.append(kv("30d", el("span", null, `${fmtTokens(d30.tokens)} tok \u00b7 ${fmtCostUsd(d30.cost)} \u00b7 ${d30.turns ?? 0} turns`)));
+      }
+      // coordinator journal budget sums (from /projects views, when present)
+      const views = registry();
+      let planned = 0, spent = 0, tasks = 0;
+      for (const p of views) {
+        if (p.budgetPlanned != null || p.budgetSpent != null) tasks++;
+        if (Number.isFinite(p.budgetPlanned)) planned += p.budgetPlanned;
+        if (Number.isFinite(p.budgetSpent)) spent += p.budgetSpent;
+      }
+      grid.append(kv("Journal", tasks
+        ? el("span", null, `planned ${planned} \u00b7 spent ${spent} \u00b7 ${tasks} task${tasks === 1 ? "" : "s"} with budget fields`)
+        : el("span", "dim", "no budget fields in the journal window")));
+      // MC closed-loop campaign card
+      const c = b?.campaign;
+      const campV = el("span");
+      if (!c) {
+        campV.append(el("span", "dim", "no campaign source"));
+      } else if (!c.exists || !c.state) {
+        campV.append(el("span", "warn", c.note || "no closed_loop_state.json under the minecraft root"));
+        if (c.root) campV.append(el("span", "dim", ` (${c.root})`));
+      } else {
+        const st = c.state;
+        const head = el("span");
+        const modeChip = el("span", "chip " + (st.mode === "live" ? "sig" : ""), st.mode ?? "—");
+        const status = st.status ?? "unknown";
+        head.append(modeChip, el("span", "chip" + (status !== "running" ? " warn" : ""), status));
+        campV.append(head);
+        const ctr = st.counters ?? {};
+        const line1 = el("div", "bar-cap");
+        line1.textContent = `cycles ${ctr.cycles_started ?? 0} started \u00b7 ${ctr.cycles_completed ?? 0} completed \u00b7 ${ctr.accepted ?? 0} accepted \u00b7 ${ctr.rejected ?? 0} rejected`
+          + (ctr.cycles_today ? ` \u00b7 ${ctr.cycles_today} today` : "");
+        campV.append(line1);
+        // budget bar: spent vs cap
+        const cap = st.budget?.token_cap, spent = st.budget?.spent;
+        if (Number.isFinite(cap) && cap > 0 && Number.isFinite(spent)) {
+          const pct = Math.min(100, Math.round((spent / cap) * 100));
+          const bar = el("div", "bar");
+          const seg = el("i", spent > cap ? "b-over" : "b-proj");
+          seg.style.width = `${pct}%`;
+          bar.append(seg);
+          campV.append(bar);
+          const bl = el("div", "bar-cap");
+          bl.textContent = `budget ${fmtTokens(spent)} / ${fmtTokens(cap)} tok (${pct}%)`;
+          campV.append(bl);
+        }
+        const cur = st.curriculum ?? {};
+        const line2 = el("div", "bar-cap");
+        line2.textContent = `node ${st.node ?? "—"}`
+          + (cur.node ? ` \u00b7 curriculum ${cur.node}` : "")
+          + (st.updatedAt ? ` \u00b7 upd ${relTime(st.updatedAt)}` : "");
+        campV.append(line2);
+        const drv = c.driver;
+        const line3 = el("div", "bar-cap");
+        if (drv) {
+          line3.textContent = `driver PID ${drv.pid} alive \u00b7 up ${drv.etime}`;
+          line3.style.color = "var(--sig)";
+        } else {
+          line3.textContent = "no live driver process";
+          line3.style.color = "var(--warn)";
+        }
+        campV.append(line3);
+      }
+      grid.append(kv("MC loop", campV));
+      if (b?.note) grid.append(kv("  note", el("span", "warn", b.note)));
+      root.append(grid);
+    });
+  }
+
+  // ---------- 8. PROJECTS ----------
   const PROJECT_WORKING_MS = 30 * 60 * 1000;
   function renderProjects() {
     const box = $("#proj-box");
@@ -656,8 +1071,11 @@
     noteEl.textContent = note ?? (projects.length ? String(projects.length) : "none registered");
     noteEl.classList.toggle("warn", !!note);
     const usage7d = S.usage7d && typeof S.usage7d === "object" ? S.usage7d : null;
-    const byProject = new Map((usage7d && Array.isArray(usage7d.projects) ? usage7d.projects : []).map((u) => [String(u.projectId), u]));
-    const sig = JSON.stringify([S.tick, projects, note, usage7d]);
+    const d7 = S.budget && S.budget.d7 && Array.isArray(S.budget.d7.projects) ? S.budget.d7 : usage7d;
+    const byProject7 = new Map((d7 && Array.isArray(d7.projects) ? d7.projects : []).map((x) => [String(x.projectId), x]));
+    const d30 = S.budget && S.budget.d30 && Array.isArray(S.budget.d30.projects) ? S.budget.d30 : null;
+    const byProject30 = new Map((d30 && Array.isArray(d30.projects) ? d30.projects : []).map((x) => [String(x.projectId), x]));
+    const sig = JSON.stringify([S.tick, projects, note, d7, d30]);
     renderIfChanged(box, sig, (root) => {
       if (!projects.length) {
         root.append(el("div", "empty", note ?? "none registered"));
@@ -669,34 +1087,37 @@
         const card = el("div", "pcard");
         card.append(el("span", "dot" + (working ? " working" : "")));
         card.append(el("span", "pcard-name", p.displayName || p.id || "?"));
-        const u = byProject.get(String(p.id));
+        const u7 = byProject7.get(String(p.id));
+        const u30 = byProject30.get(String(p.id));
         card.append(el("span", "pcard-usage",
-          u ? `7d ${fmtTokens(u.tokens)} tok \u00b7 ${fmtCostUsd(u.cost)}` : "7d \u2014"));
+          `7d ${u7 ? fmtTokens(u7.tokens) : "\u2014"} \u00b7 30d ${u30 ? fmtTokens(u30.tokens) : "\u2014"}`));
         card.append(el("span", "pcard-sub", p.root || ""));
         card.append(el("span", "pcard-tick",
           Number.isFinite(t) ? `${relTime(t)}${p.lastJournalStatus ? " \u00b7 " + p.lastJournalStatus : ""}` : "no journal activity"));
-        card.title = [p.root, u ? `7d: ${u.tokens.toLocaleString()} tokens \u00b7 $${(u.cost ?? 0).toFixed(4)}` : null,
+        card.title = [p.root,
+          u7 ? `7d: ${u7.tokens.toLocaleString()} tokens \u00b7 $${(u7.cost ?? 0).toFixed(4)}` : null,
+          u30 ? `30d: ${u30.tokens.toLocaleString()} tokens \u00b7 $${(u30.cost ?? 0).toFixed(4)}` : null,
           p.status ? `registry: ${p.status}` : null].filter(Boolean).join("\n");
         root.append(card);
       }
       // honest unattributed / personal-ops buckets + grand total, so the
       // project numbers reconcile visibly (same discipline as index.html)
-      if (usage7d) {
+      if (d7) {
         const buckets = [
-          ["unattributed", usage7d.unattributed],
-          ["personal-ops", usage7d.personalOps],
+          ["unattributed", d7.unattributed],
+          ["personal-ops", d7.personalOps],
         ];
-        for (const [name, b] of buckets) {
-          if (!b || !(b.tokens > 0)) continue;
+        for (const [name, bk] of buckets) {
+          if (!bk || !(bk.tokens > 0)) continue;
           const card = el("div", "pcard bucket");
           card.append(el("span", "dot"));
           card.append(el("span", "pcard-name", name));
-          card.append(el("span", "pcard-usage", `7d ${fmtTokens(b.tokens)} tok \u00b7 ${fmtCostUsd(b.cost)}`));
+          card.append(el("span", "pcard-usage", `7d ${fmtTokens(bk.tokens)} tok \u00b7 ${fmtCostUsd(bk.cost)}`));
           card.append(el("span", "pcard-sub", "no registry attribution (honest bucket)"));
           card.append(el("span", "pcard-tick", ""));
           root.append(card);
         }
-        const tt = usage7d.totals;
+        const tt = d7.totals;
         if (tt) {
           const card = el("div", "pcard bucket");
           card.append(el("span", "dot"));
@@ -707,6 +1128,62 @@
           root.append(card);
         }
       }
+    });
+  }
+
+  // ---------- 9. SYSTEM health + org link ----------
+  function renderSystem() {
+    const box = $("#sys-box");
+    const sys = S.system;
+    if (sys && sys.ok !== false) {
+      $("#sys-count").textContent = `guard ${sys.guard?.mode ?? "?"} \u00b7 ${sys.extensions?.count ?? "?"} extensions`;
+    } else {
+      $("#sys-count").textContent = "";
+    }
+    const sig = JSON.stringify([S.tick, sys]);
+    renderIfChanged(box, sig, (root) => {
+      if (panelNote(root, sys, "system health")) return;
+      const grid = el("div");
+      const kv = (k, ...vNodes) => {
+        const row = el("div", "kv");
+        row.append(el("span", "k", k));
+        const v = el("span", "v");
+        v.append(...vNodes);
+        row.append(v);
+        return row;
+      };
+      const up = Number.isFinite(sys.bridgeStartedAt) ? fmtUptime(Date.now() - sys.bridgeStartedAt) : null;
+      grid.append(kv("Bridge", el("span", up ? "sig" : "dim", up ? `up ${up}` : "uptime unknown")));
+      const gchip = el("span", "chip " + (sys.guard?.mode === "enforce" ? "warn" : ""), sys.guard?.mode ?? "?");
+      grid.append(kv("Guard", (() => {
+        const v = el("span");
+        v.append(gchip, el("span", "dim", ` \u00b7 ${sys.guard?.modeSource ?? "?"}`));
+        return v;
+      })()));
+      const r = sys.routing ?? { exists: false };
+      grid.append(kv("Routing (D4)", r.exists
+        ? (() => {
+            const v = el("span");
+            v.append(el("span", "sig", `active \u00b7 ${r.roles ?? "?"} role${r.roles === 1 ? "" : "s"}`));
+            if (r.mtime) v.append(el("span", "dim", ` \u00b7 ${relTime(r.mtime)}`));
+            if (r.note) v.append(el("span", "warn", ` \u00b7 ${r.note}`));
+            return v;
+          })()
+        : el("span", "dim", "dormant (no model-routing.json)")));
+      const ext = sys.extensions ?? { entries: [], count: 0 };
+      const extV = el("span");
+      extV.append(el("span", null, `${ext.count ?? 0} installed`));
+      const newest = (ext.entries ?? []).slice(0, 2);
+      for (const e of newest) extV.append(el("span", "dim", ` \u00b7 ${trunc(e.name, 24)} ${relTime(e.mtime)}`));
+      if (ext.truncated) extV.append(el("span", "dim", " \u00b7 (list truncated)"));
+      if (ext.note) extV.append(el("span", "warn", ` \u00b7 ${ext.note}`));
+      grid.append(kv("Extensions", extV));
+      root.append(grid);
+      // ORG view: link to the existing org-graph page (never duplicated here)
+      const org = el("a", "orglink");
+      org.href = "index.html#/org";
+      org.append(el("span", null, "Org graph \u2014 full spawn-tree view"), el("span", "arr", "\u2192"));
+      root.append(org);
     });
   }
 
@@ -724,12 +1201,17 @@
   function renderAll() {
     renderStatus();
     renderNow();
+    renderTimeline();
     renderActivity();
+    renderMemory();
+    renderGuard();
+    renderBudget();
     renderProjects();
+    renderSystem();
     renderStamp();
   }
 
-  // ---------- polling (existing GET endpoints only) ----------
+  // ---------- polling (existing GET endpoints + additive overview panels) ----------
   const pollState = withInFlight(async () => {
     try {
       const r = await api("state");
@@ -776,25 +1258,62 @@
     if (r.body.stats) S.mainStats = r.body.stats;
     renderAll();
   });
+  // additive overview deep panels: memory 30s, guard 10s, budget 30s, system 30s
+  const pollMemory = withInFlight(async () => {
+    const r = await api("overview/memory");
+    if (!r.ok || !r.body) return;
+    S.memory = r.body;
+    renderAll();
+  });
+  const pollGuard = withInFlight(async () => {
+    const r = await api("overview/guard");
+    if (!r.ok || !r.body) return;
+    S.guard = r.body;
+    renderAll();
+  });
+  const pollBudget = withInFlight(async () => {
+    const r = await api("overview/budget");
+    if (!r.ok || !r.body) return;
+    S.budget = r.body;
+    renderAll();
+  });
+  const pollSystem = withInFlight(async () => {
+    const r = await api("overview/system");
+    if (!r.ok || !r.body) return;
+    S.system = r.body;
+    renderAll();
+  });
 
-  // Boot + cadence: the page refreshes within 3-10s everywhere (brief: 5-10s
-  // for state; stream is the live in-flight view so it polls tighter).
+  // Boot + cadence: live surfaces refresh in 3-10s; deep panels in 10-30s
+  // (their server-side sources are TTL-cached or append-only logs).
   pollState();
   pollStream();
   pollProjects();
   pollMain();
+  pollMemory();
+  pollGuard();
+  pollBudget();
+  pollSystem();
   setInterval(pollState, 5000);
   setInterval(pollStream, 3000);
   setInterval(pollProjects, 10000);
   setInterval(pollMain, 10000);
+  setInterval(pollGuard, 10000);
+  setInterval(pollMemory, 30000);
+  setInterval(pollBudget, 30000);
+  setInterval(pollSystem, 30000);
   // relative ages / clocks stay honest between data changes
   setInterval(() => { S.tick++; renderAll(); }, 30000);
   // resume immediately when a mobile browser un-suspends the tab
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
     pollState(); pollStream(); pollProjects(); pollMain();
+    pollMemory(); pollGuard(); pollBudget(); pollSystem();
   });
-  window.addEventListener("online", () => { pollState(); pollStream(); pollProjects(); pollMain(); });
+  window.addEventListener("online", () => {
+    pollState(); pollStream(); pollProjects(); pollMain();
+    pollMemory(); pollGuard(); pollBudget(); pollSystem();
+  });
 })();
 </script>
 </body>

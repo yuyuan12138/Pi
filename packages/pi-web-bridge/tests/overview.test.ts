@@ -17,10 +17,11 @@ function listen(server: BridgeServer): Promise<number> {
 }
 
 describe("overview page source (src/overview.html)", () => {
-  test("composes ONLY the existing GET endpoints (relative, sub-path safe)", () => {
-    const fetches = [...overviewSrc.matchAll(/api\(\s*["'`]([a-z][a-z-]*)/g)].map((m) => m[1]);
-    assert.ok(fetches.length >= 4, "expected the four composed endpoints");
-    assert.deepEqual([...new Set(fetches)].sort(), ["main-log", "projects", "state", "stream"]);
+  test("composes ONLY the whitelisted GET endpoints (relative, sub-path safe)", () => {
+    const fetches = [...overviewSrc.matchAll(/api\(\s*["'`]([a-z][a-z/-]*)/g)].map((m) => m[1]);
+    assert.ok(fetches.length >= 8, "expected the composed endpoints");
+    assert.deepEqual([...new Set(fetches)].sort(),
+      ["main-log", "overview/budget", "overview/guard", "overview/memory", "overview/system", "projects", "state", "stream"]);
     // no absolute-path fetches and no other host paths: hard-refresh deploy
     // must hit exactly the endpoints server.ts already serves
     assert.ok(!/api\(["'`]\//.test(overviewSrc), "fetch paths must stay relative");
@@ -34,15 +35,19 @@ describe("overview page source (src/overview.html)", () => {
     assert.ok(overviewSrc.includes("textContent"), "DOM text goes through textContent");
   });
 
-  test("all five required sections + auto-refresh + visible stamp are present", () => {
-    for (const id of ["status-cluster", "now-box", "act-box", "proj-box", "inflight"]) {
+  test("all required sections + auto-refresh + visible stamp are present", () => {
+    for (const id of ["status-cluster", "now-box", "tl-box", "act-box", "mem-box", "guard-box", "bud-box", "proj-box", "sys-box", "inflight"]) {
       assert.ok(overviewSrc.includes(`id="${id}"`), `missing section #${id}`);
     }
-    // auto-refresh cadence within the 5-10s brief (stream polls tighter)
+    // auto-refresh cadence: live surfaces 3-10s, deep panels 10-30s
     assert.ok(overviewSrc.includes("setInterval(pollState, 5000)"), "state 5s");
     assert.ok(overviewSrc.includes("setInterval(pollStream, 3000)"), "stream 3s");
     assert.ok(overviewSrc.includes("setInterval(pollProjects, 10000)"), "projects 10s");
     assert.ok(overviewSrc.includes("setInterval(pollMain, 10000)"), "main-log stats 10s");
+    assert.ok(overviewSrc.includes("setInterval(pollGuard, 10000)"), "guard 10s");
+    assert.ok(overviewSrc.includes("setInterval(pollMemory, 30000)"), "memory 30s");
+    assert.ok(overviewSrc.includes("setInterval(pollBudget, 30000)"), "budget 30s");
+    assert.ok(overviewSrc.includes("setInterval(pollSystem, 30000)"), "system 30s");
     assert.ok(overviewSrc.includes('id="updated"'), "visible last-updated stamp");
     assert.ok(overviewSrc.includes("visibilitychange"), "mobile resume on tab visible");
   });
@@ -60,6 +65,17 @@ describe("overview page source (src/overview.html)", () => {
       "NOW cards = non-settled subagents (running/blocked), done stays out");
     assert.ok(overviewSrc.includes("projectOf"), "project attribution function present");
     assert.ok(overviewSrc.includes("unattributed"), "honest unattributed bucket");
+  });
+
+  test("org view links to the existing org-graph page (never duplicates it)", () => {
+    assert.ok(overviewSrc.includes('href="index.html#/org"'), "org link present");
+    assert.ok(!overviewSrc.includes("renderOrg"), "org rendering is NOT duplicated");
+  });
+
+  test("panel fail-open: degraded payloads render honest notes, never blank lies", () => {
+    assert.ok(overviewSrc.includes("panelNote"), "shared degrade helper");
+    assert.ok(overviewSrc.includes("payload.ok === false"), "ok:false detection");
+    assert.ok(overviewSrc.includes("renderTimeline"), "timeline renderer present");
   });
 });
 
@@ -109,6 +125,40 @@ describe("GET /overview route", () => {
       assert.deepEqual(await r.json(), { ok: false, error: "not found" });
     } finally {
       bare.close();
+    }
+  });
+
+  test("deep panels: wired -> snapshot; unwired -> ok:false note; throwing reader -> catch-all, never 500", async () => {
+    const server = createBridgeServer({
+      project: "demo",
+      inject: () => true,
+      sessionFile: () => undefined,
+      subagentsDir: () => "/nonexistent",
+      indexHtml: () => "<html></html>",
+      overviewMemory: () => ({ ok: true, generatedAt: "t", atoms: { total: 5 } }),
+      overviewGuard: () => { throw new Error("boom"); },
+      overviewBudget: () => ({ ok: true, generatedAt: "t", d7: null, d30: null, campaign: null }),
+    });
+    const port = await listen(server);
+    server.unref();
+    try {
+      const mem = await (await fetch(`http://127.0.0.1:${port}/overview/memory`)).json();
+      assert.equal(mem.ok, true);
+      assert.equal(mem.atoms.total, 5);
+      // throwing reader -> the /projects catch-all pattern: 200 + ok:false note
+      const guardRes = await fetch(`http://127.0.0.1:${port}/overview/guard`);
+      assert.equal(guardRes.status, 200);
+      const guard = await guardRes.json();
+      assert.equal(guard.ok, false);
+      assert.match(guard.note ?? "", /boom/);
+      const bud = await (await fetch(`http://127.0.0.1:${port}/overview/budget`)).json();
+      assert.equal(bud.ok, true);
+      // unwired system -> honest note (200, never a lie)
+      const sys = await (await fetch(`http://127.0.0.1:${port}/overview/system`)).json();
+      assert.equal(sys.ok, false);
+      assert.match(sys.note ?? "", /not wired/);
+    } finally {
+      server.close();
     }
   });
 

@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import type { ExtensionAPI, MessageEndEvent, MessageStartEvent, MessageUpdateEvent } from "@earendil-works/pi-coding-agent";
 import { createBridgeServer, type BridgeServer } from "./server.ts";
 import { StreamBuffer } from "./stream.ts";
+import { readMemoryLayer, readGuardPanel, readBudgetDeep, readSystemHealth } from "./overview-data.ts";
 import type { ProjectUsageRollup } from "../../pi-usage-log/project-usage.ts";
 
 /** Which surface POST /message routed to (drives the delivery decision). */
@@ -62,6 +63,48 @@ export function createInjector(send: MessageSink, isStreaming: () => boolean, lo
       log(`inject failed: ${(e as Error).message}`);
       return false;
     }
+  };
+}
+
+/** Rollup pair served by GET /overview/budget (7d + 30d on one TTL window). */
+export interface UsageRollups {
+  d7: ProjectUsageRollup | null;
+  d30: ProjectUsageRollup | null;
+}
+
+/**
+ * Overview budget source: BOTH the 7d and 30d per-project token/cost rollups
+ * recomputed in the background on a 60s TTL — the same null-while-warming
+ * pattern as createUsage7dSource, but one warm pass fills two windows. Any
+ * failure logs once and yields { d7: null, d30: null } for one TTL window.
+ */
+function createUsageRollupsSource(log: (msg: string) => void): () => UsageRollups {
+  const TTL_MS = 60_000;
+  let cached: { at: number; value: UsageRollups } | null = null;
+  let warming = false;
+  const warm = (): void => {
+    if (warming) return;
+    warming = true;
+    import("../../pi-usage-log/project-usage.ts")
+      .then((m) => {
+        const registry = m.loadRegistryProjects();
+        cached = {
+          at: Date.now(),
+          value: {
+            d7: m.rollupLastDays(m.DEFAULT_USAGE_DIR, registry, 7),
+            d30: m.rollupLastDays(m.DEFAULT_USAGE_DIR, registry, 30),
+          },
+        };
+      })
+      .catch((e) => {
+        log(`usage rollups source unavailable: ${(e as Error)?.message ?? e}`);
+        cached = { at: Date.now(), value: { d7: null, d30: null } }; // degrade honestly for one TTL window
+      })
+      .finally(() => { warming = false; });
+  };
+  return () => {
+    if (!cached || Date.now() - cached.at >= TTL_MS) warm();
+    return cached?.value ?? { d7: null, d30: null };
   };
 }
 
@@ -131,6 +174,7 @@ export default function webBridge(pi: ExtensionAPI) {
   // real state and the stale flag merely degrades to the previous behavior.
   const stream = new StreamBuffer();
   let streaming = false;
+  const bridgeStartedAt = Date.now(); // bridge-process uptime for the system strip
   pi.on("agent_start", () => { streaming = true; stream.reset(); });
   pi.on("agent_settled", () => { streaming = false; stream.settle(); });
 
@@ -157,6 +201,7 @@ export default function webBridge(pi: ExtensionAPI) {
   );
 
   try {
+    const usageRollups = createUsageRollupsSource(log);
     server = createBridgeServer({
       project,
       inject,
@@ -164,6 +209,10 @@ export default function webBridge(pi: ExtensionAPI) {
       subagentsDir,
       indexHtml: () => readFileSync(new URL("./index.html", import.meta.url), "utf8"),
       overviewHtml: () => readFileSync(new URL("./overview.html", import.meta.url), "utf8"),
+      overviewMemory: () => readMemoryLayer(),
+      overviewGuard: () => readGuardPanel(),
+      overviewBudget: () => readBudgetDeep(usageRollups()),
+      overviewSystem: () => readSystemHealth({ bridgeStartedAt }),
       stream: () => stream.snapshot(),
       usage7d: createUsage7dSource(log),
       log,

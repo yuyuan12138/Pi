@@ -13,6 +13,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { createBridgeServer } from "../src/server.ts";
+import { readMemoryLayer, readGuardPanel, readBudgetDeep, readSystemHealth } from "../src/overview-data.ts";
 
 const projectDir = resolve(process.argv[2] ?? process.cwd());
 
@@ -35,6 +36,27 @@ function newestSessionFile(dir) {
 }
 function statMtime(p) { try { return statSync(p).mtimeMs; } catch { return 0; } }
 
+/**
+ * Preview-grade usage rollups (7d + 30d) for the budget panel: computed
+ * synchronously at boot and refreshed in the background every 60s (the
+ * extension's TTL-cache pattern, simplified for a read-only preview server).
+ * pi-usage-log unavailable -> nulls, and the panel renders its honest absence.
+ */
+const rollups = { d7: null, d30: null };
+async function warmRollups() {
+  try {
+    const m = await import("../../pi-usage-log/project-usage.ts");
+    const registry = m.loadRegistryProjects();
+    rollups.d7 = m.rollupLastDays(m.DEFAULT_USAGE_DIR, registry, 7);
+    rollups.d30 = m.rollupLastDays(m.DEFAULT_USAGE_DIR, registry, 30);
+  } catch (e) {
+    console.error(`[web-bridge] usage rollups unavailable: ${e?.message ?? e}`);
+  }
+}
+warmRollups();
+const rollupTimer = setInterval(warmRollups, 60_000);
+rollupTimer.unref?.();
+
 const server = createBridgeServer({
   project: basename(projectDir),
   inject: () => false, // no live pi session to deliver into
@@ -42,6 +64,10 @@ const server = createBridgeServer({
   subagentsDir: () => join(projectDir, ".pi", "subagents"),
   indexHtml: () => readFileSync(new URL("../src/index.html", import.meta.url), "utf8"),
   overviewHtml: () => readFileSync(new URL("../src/overview.html", import.meta.url), "utf8"),
+  overviewMemory: () => readMemoryLayer({ atomsRoot: join(projectDir, "knowledge-base", "atoms") }),
+  overviewGuard: () => readGuardPanel(),
+  overviewBudget: () => readBudgetDeep(rollups),
+  overviewSystem: () => readSystemHealth({ bridgeStartedAt: Date.now() }),
   log: (m) => console.error(`[web-bridge] ${m}`),
 });
 
