@@ -77,6 +77,27 @@ describe("overview page source (src/overview.html)", () => {
     assert.ok(overviewSrc.includes("payload.ok === false"), "ok:false detection");
     assert.ok(overviewSrc.includes("renderTimeline"), "timeline renderer present");
   });
+
+  test("bento grid: 9 independent tiles + collapse persisted in localStorage", () => {
+    const tiles = ["tile-status", "tile-now", "tile-timeline", "tile-memory", "tile-guard", "tile-budget", "tile-activity", "tile-projects", "tile-system"];
+    for (const id of tiles) {
+      assert.ok(overviewSrc.includes(`id="${id}"`), `missing bento tile #${id}`);
+    }
+    assert.equal((overviewSrc.match(/data-tile="/g) ?? []).length, tiles.length, "every tile has exactly one toggle");
+    // collapse persistence
+    assert.ok(overviewSrc.includes("pi-overview-tiles"), "localStorage key");
+    assert.ok(overviewSrc.includes("localStorage.setItem"), "persist on toggle");
+    assert.ok(overviewSrc.includes("initTiles"), "restore on boot");
+    assert.equal((overviewSrc.match(/tile-toggle/g) ?? []).length >= 9, true, "every tile has a toggle");
+    // MC campaign prominence: accent tile + dedicated campaign card rendered first
+    assert.ok(overviewSrc.includes('class="tile accent"'), "budget tile carries the accent treatment");
+    assert.ok(overviewSrc.includes("mc-card"), "MC campaign sub-card");
+    assert.ok(overviewSrc.includes("root.append(mc)"), "campaign card leads the budget tile");
+    // grid CSS: bento not a column stack
+    assert.ok(overviewSrc.includes("grid-template-columns: repeat(6, minmax(0, 1fr))"), "6-col desktop grid");
+    assert.ok(overviewSrc.includes("@media (max-width: 1279px)"), "2-col breakpoint");
+    assert.ok(overviewSrc.includes("@media (max-width: 719px)"), "1-col breakpoint");
+  });
 });
 
 describe("GET /overview route", () => {

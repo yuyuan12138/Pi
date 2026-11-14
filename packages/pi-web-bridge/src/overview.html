@@ -117,28 +117,79 @@
   @media (max-width: 639px) { .navtab span { display: none; } .navtab::after { content: attr(data-short); } }
   @media (max-width: 479px) { .wordmark { display: none; } }
 
-  /* ---------- column ---------- */
-  #col {
-    position: relative; z-index: 10; max-width: var(--measure);
-    margin: 0 auto; padding: 20px 24px calc(28px + var(--sa-b));
-    display: flex; flex-direction: column; gap: 22px;
+  /* ---------- bento grid: independent window panes (control room) ----------
+     Each section is a self-contained tile: bordered rounded card, own header
+     strip, internal scroll. Desktop (>=1280) is a 6-col bento packed for the
+     1440x900 viewport; <=1279 folds to 2 cols; <=719 stacks to 1 col. */
+  #grid {
+    position: relative; z-index: 10; max-width: 1400px; width: 100%;
+    margin: 0 auto; padding: 12px 20px calc(14px + var(--sa-b));
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-auto-rows: min-content;
+    align-items: stretch;
   }
-  .sec-head { display: flex; align-items: baseline; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+  .tile {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    border: 1px solid var(--line-2); border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .014), rgba(255, 255, 255, 0) 120px), rgba(9, 10, 13, .66);
+    overflow: hidden;
+    transition: border-color .18s var(--ease);
+  }
+  .tile:hover { border-color: var(--line); }
+  /* MC campaign tile: the user's live experiment reads first */
+  .tile.accent { border-color: rgba(70, 224, 163, .26); }
+  .tile.accent .plate::before { background: var(--sig); box-shadow: var(--sig-glow); }
+  .tile-head {
+    flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px 6px; border-bottom: 1px solid var(--line-2);
+  }
+  .tile-head .plate { color: var(--t1); }
+  .tile-head .plate::before { content: ""; display: inline-block; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); margin-right: 8px; vertical-align: 1px; }
+  .tile-head .sec-count { margin-left: auto; }
+  .tile-toggle {
+    flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line-2); border-radius: 5px; background: none;
+    color: var(--t2); font: 600 11px/1 var(--mono); cursor: pointer;
+    transition: color .15s var(--ease), border-color .15s var(--ease);
+  }
+  .tile-toggle:hover { color: var(--t0); border-color: var(--line); }
+  .tile-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 10px; }
+  .tile.collapsed .tile-body { display: none; }
+  .tile.collapsed { align-self: start; }
+  .tile.collapsed .tile-head { border-bottom: 0; }
+
+  /* desktop spans (explicit lines so the bento bands never scramble):
+     STATUS full width · NOW 4/6 + TIMELINE 2/6 · MEMORY|GUARD|BUDGET thirds ·
+     ACTIVITY/PROJECTS tall halves · SYSTEM wide bottom */
+  #tile-status { grid-column: 1 / -1; }
+  #tile-now { grid-column: 1 / 5; }
+  #tile-timeline { grid-column: 5 / -1; }
+  #tile-memory { grid-column: 1 / 3; }
+  #tile-guard { grid-column: 3 / 5; }
+  #tile-budget { grid-column: 5 / -1; }
+  #tile-activity { grid-column: 1 / 4; }
+  #tile-projects { grid-column: 4 / -1; }
+  #tile-system { grid-column: 1 / -1; }
+  /* density: tall tiles scroll INTERNALLY (own max-height) instead of stacking */
+  #tile-now .tile-body { max-height: 252px; }
+  #tile-timeline .tile-body { max-height: 168px; }
+  #tile-memory .tile-body, #tile-guard .tile-body, #tile-budget .tile-body { max-height: 244px; }
+  #tile-activity .tile-body, #tile-projects .tile-body { max-height: 300px; }
+
+  .sec-count { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
   .plate {
     font-family: var(--mono); font-size: 9.5px; font-weight: 600;
     letter-spacing: .17em; text-transform: uppercase; color: var(--t2);
   }
-  .sec-head .plate { color: var(--t1); }
-  .sec-head .plate::before { content: ""; display: inline-block; width: 5px; height: 5px; background: var(--t0); transform: rotate(45deg); margin-right: 10px; vertical-align: 1px; }
-  .sec-count { font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
-  .empty { color: var(--t2); text-align: center; padding: 26px 0; font-size: 12.5px; letter-spacing: .01em; font-family: var(--mono); }
+  .empty { color: var(--t2); text-align: center; padding: 22px 0; font-size: 12px; letter-spacing: .01em; font-family: var(--mono); }
   .note { font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: var(--warn); padding: 4px 0; overflow-wrap: break-word; }
   .note.dim { color: var(--t3); }
 
   /* ---------- status strip: instrument cells (index.html .cluster port) ---------- */
   .cluster { display: flex; align-items: stretch; flex-wrap: wrap; row-gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line-2); }
   .cluster::-webkit-scrollbar { display: none; }
-  .cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: 1 1 auto; min-width: 96px; padding: 10px 16px 11px 0; border-right: 1px solid var(--line-2); margin-right: 16px; }
+  .cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: 1 1 auto; min-width: 96px; padding: 8px 14px 9px 0; border-right: 1px solid var(--line-2); margin-right: 14px; }
   .cell:last-child { border-right: 0; margin-right: 0; }
   .cell .val { font-family: var(--mono); font-size: 12.5px; font-weight: 500; line-height: 17px; color: var(--t0); letter-spacing: .01em; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cell .val.cl-sig { color: var(--sig); }
@@ -165,7 +216,7 @@
 
   /* ---------- live worker cards (index.html .card port) ---------- */
   .card {
-    position: relative; display: grid; width: 100%; margin: 6px 0; padding: 11px 13px 10px;
+    position: relative; display: grid; width: 100%; margin: 5px 0; padding: 9px 11px 8px;
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     grid-template-areas: "dot name badge time" "sub sub sub sub" "tick tick tick tick";
     align-items: center; column-gap: 8px; row-gap: 2px;
@@ -181,11 +232,11 @@
   }
   @keyframes needle { 0% { background-position: -200px 0; } 100% { background-position: calc(100% + 200px) 0; } }
   .card.blocked { border-color: rgba(230, 180, 90, .28); }
-  .card .dot { grid-area: dot; }
   .card-name { grid-area: name; min-width: 0; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--t0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-time { grid-area: time; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; color: var(--t2); font-variant-numeric: tabular-nums; }
   .card-sub { grid-area: sub; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-ticker { grid-area: tick; min-width: 0; font-family: var(--mono); font-size: 10px; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .dot { grid-area: dot; }
 
   /* project attribution badge: per-project hash hue, muted */
   .pbadge {
@@ -223,8 +274,8 @@
   .arow {
     display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: baseline; column-gap: 10px; row-gap: 1px;
-    padding: 7px 0 6px; border-bottom: 1px solid var(--line-2);
-    font-family: var(--mono); font-size: 11.5px; min-width: 0;
+    padding: 5px 0 5px; border-bottom: 1px solid var(--line-2);
+    font-family: var(--mono); font-size: 11px; min-width: 0;
   }
   .arow:last-child { border-bottom: 0; }
   .ameta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -241,14 +292,30 @@
     .a-out { grid-column: 2; }
   }
 
-  /* ---------- key-value rows (memory / guard / campaign detail) ---------- */
-  .kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line-2); font-family: var(--mono); font-size: 11px; align-items: baseline; }
+  /* ---------- key-value rows (memory / guard / budget detail) ---------- */
+  .kv { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line-2); font-family: var(--mono); font-size: 10.5px; align-items: baseline; }
   .kv:last-child { border-bottom: 0; }
   .kv .k { color: var(--t2); letter-spacing: .04em; }
   .kv .v { color: #c9cdd2; min-width: 0; overflow-wrap: break-word; font-variant-numeric: tabular-nums; }
   .kv .v .warn { color: var(--warn); }
   .kv .v .sig { color: var(--sig); }
   .kv .v .dim { color: var(--t3); }
+
+  /* ---------- MC campaign card: the user's live experiment, visually first ---------- */
+  .mc-card {
+    position: relative; border: 1px solid rgba(70, 224, 163, .22); border-radius: 8px;
+    padding: 8px 11px 8px; margin: 2px 0 8px; overflow: hidden;
+    background: rgba(70, 224, 163, .03);
+  }
+  .mc-card.live::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--sig-dim) 30%, var(--sig-dim) 70%, transparent);
+    background-size: 200px 1px; background-repeat: no-repeat;
+    animation: needle 3.4s var(--ease) infinite;
+  }
+  .mc-card > span { display: contents; }
+  .mc-name { font: 600 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--t0); margin-right: 8px; }
+  .mc-line { font: 500 10px var(--mono); color: var(--t1); font-variant-numeric: tabular-nums; padding: 2px 0 0; overflow-wrap: break-word; }
 
   /* ---------- ratio bar (budget: unattributed share, campaign budget) ---------- */
   .bar { display: flex; height: 4px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, .06); margin: 6px 0 4px; }
@@ -260,7 +327,7 @@
 
   /* ---------- projects strip (index.html .pcard port) ---------- */
   .pcard {
-    display: grid; width: 100%; margin: 6px 0; padding: 9px 13px 8px;
+    display: grid; width: 100%; margin: 5px 0; padding: 7px 11px 7px;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "dot name usage" "sub sub sub" "tick tick tick";
     align-items: center; column-gap: 8px; row-gap: 2px;
@@ -277,9 +344,9 @@
   #projects-note { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t2); font-variant-numeric: tabular-nums; }
   #projects-note.warn { color: var(--warn); }
 
-  /* ---------- org link card ---------- */
+  /* ---------- org link row ---------- */
   .orglink {
-    display: flex; align-items: center; gap: 10px; width: 100%; margin: 6px 0; padding: 11px 13px;
+    display: flex; align-items: center; gap: 10px; width: 100%; margin: 4px 0 0; padding: 9px 11px;
     border: 1px dashed var(--line); border-radius: 8px; text-decoration: none;
     font: 600 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--t2);
     transition: color .15s var(--ease), border-color .15s var(--ease);
@@ -288,13 +355,23 @@
   .orglink .arr { margin-left: auto; }
 
   /* ---------- footer stamp ---------- */
-  #foot { text-align: center; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); }
+  #foot { text-align: center; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); padding: 2px 0 6px; }
+  /* ---------- responsive bento: 2-col at <=1279, 1-col at <=719 ---------- */
+  @media (max-width: 1279px) {
+    #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px 14px calc(14px + var(--sa-b)); }
+    #tile-status, #tile-now, #tile-system { grid-column: 1 / -1; }
+    #tile-timeline, #tile-memory, #tile-guard, #tile-budget, #tile-activity, #tile-projects { grid-column: auto / span 1; }
+    #tile-now .tile-body { max-height: 340px; }
+    #tile-activity .tile-body, #tile-projects .tile-body { max-height: 380px; }
+  }
   @media (max-width: 719px) {
-    #col { padding: 16px 14px calc(24px + var(--sa-b)); gap: 18px; }
     #topbar { padding: 0 14px; padding-top: var(--sa-t); gap: 10px; }
     #topbar #project { display: none; }
+    #grid { grid-template-columns: minmax(0, 1fr); padding: 10px 10px calc(12px + var(--sa-b)); gap: 8px; }
+    #grid > .tile { grid-column: 1 / -1; }
+    #grid .tile-body { max-height: none; } /* stack naturally on phones */
     .cell { padding-right: 10px; margin-right: 10px; min-width: 84px; }
-    .kv { grid-template-columns: 84px minmax(0, 1fr); }
+    .kv { grid-template-columns: 80px minmax(0, 1fr); }
   }
   /* very narrow: the topbar stamp moves out (the footer stamp stays visible) */
   @media (max-width: 519px) {
@@ -320,66 +397,121 @@
 </header>
 <div id="pulsebar" aria-hidden="true"></div>
 
-<main id="col">
+<main id="grid">
 
-  <!-- 1. STATUS strip: bridge up · model · stream state · uptime · session -->
-  <section aria-label="Status">
-    <div class="cluster" id="status-cluster">
-      <div class="cell"><span class="plate">Bridge</span><div class="val" id="st-bridge">&mdash;</div></div>
-      <div class="cell"><span class="plate">Model</span><div class="val" id="st-model">&mdash;</div></div>
-      <div class="cell"><span class="plate">Stream</span><div class="val" id="st-stream">&mdash;</div></div>
-      <div class="cell"><span class="plate">Uptime</span><div class="val tnum" id="st-up">&mdash;</div></div>
-      <div class="cell"><span class="plate">Session</span><div class="val" id="st-sess" title="">&mdash;</div></div>
+  <!-- 1. STATUS: bridge up · model · stream state · uptime · session -->
+  <section class="tile" id="tile-status" aria-label="Status">
+    <header class="tile-head">
+      <span class="plate">Status</span>
+      <span class="sec-count" id="status-note"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-status" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="status-body">
+      <div class="cluster" id="status-cluster">
+        <div class="cell"><span class="plate">Bridge</span><div class="val" id="st-bridge">&mdash;</div></div>
+        <div class="cell"><span class="plate">Model</span><div class="val" id="st-model">&mdash;</div></div>
+        <div class="cell"><span class="plate">Stream</span><div class="val" id="st-stream">&mdash;</div></div>
+        <div class="cell"><span class="plate">Uptime</span><div class="val tnum" id="st-up">&mdash;</div></div>
+        <div class="cell"><span class="plate">Session</span><div class="val" id="st-sess" title="">&mdash;</div></div>
+      </div>
+      <div id="inflight" class="off" aria-live="polite"></div>
     </div>
-    <div id="inflight" class="off" aria-live="polite"></div>
   </section>
 
   <!-- 2. NOW: coordinator turn + live worker cards -->
-  <section aria-label="Now">
-    <div class="sec-head"><span class="plate">Now</span><span class="sec-count" id="now-count"></span></div>
-    <div id="now-box"></div>
+  <section class="tile" id="tile-now" aria-label="Now">
+    <header class="tile-head">
+      <span class="plate">Now</span>
+      <span class="sec-count" id="now-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-now" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="now-body">
+      <div id="now-box"></div>
+    </div>
   </section>
 
   <!-- 3. TIMELINE ribbon: today's dispatches as hourly buckets -->
-  <section aria-label="Timeline">
-    <div class="sec-head"><span class="plate">Timeline &middot; today</span><span class="sec-count" id="tl-count"></span></div>
-    <div id="tl-box"></div>
+  <section class="tile" id="tile-timeline" aria-label="Timeline">
+    <header class="tile-head">
+      <span class="plate">Timeline &middot; today</span>
+      <span class="sec-count" id="tl-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-timeline" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="tl-body">
+      <div id="tl-box"></div>
+    </div>
   </section>
 
-  <!-- 4. RECENT ACTIVITY: dispatches + journal + work records, newest first -->
-  <section aria-label="Recent activity">
-    <div class="sec-head"><span class="plate">Recent activity</span><span class="sec-count" id="act-count"></span></div>
-    <div id="act-box"></div>
+  <!-- 4. MEMORY layer: atoms · index · profile · distiller -->
+  <section class="tile" id="tile-memory" aria-label="Memory">
+    <header class="tile-head">
+      <span class="plate">Memory</span>
+      <span class="sec-count" id="mem-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-memory" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="mem-body">
+      <div id="mem-box"></div>
+    </div>
   </section>
 
-  <!-- 5. MEMORY layer: atoms · index · profile · distiller -->
-  <section aria-label="Memory">
-    <div class="sec-head"><span class="plate">Memory</span><span class="sec-count" id="mem-count"></span></div>
-    <div id="mem-box"></div>
+  <!-- 5. SAFETY / GUARD: mode · today's decisions · recent entries -->
+  <section class="tile" id="tile-guard" aria-label="Safety guard">
+    <header class="tile-head">
+      <span class="plate">Safety &middot; guard</span>
+      <span class="sec-count" id="guard-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-guard" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="guard-body">
+      <div id="guard-box"></div>
+    </div>
   </section>
 
-  <!-- 6. SAFETY / GUARD: mode · today's decisions · recent entries -->
-  <section aria-label="Safety guard">
-    <div class="sec-head"><span class="plate">Safety &middot; guard</span><span class="sec-count" id="guard-count"></span></div>
-    <div id="guard-box"></div>
+  <!-- 6. BUDGET & COST: MC campaign (prominent) · share bar · 30d · journal -->
+  <section class="tile accent" id="tile-budget" aria-label="Budget and cost">
+    <header class="tile-head">
+      <span class="plate">Budget &middot; MC loop</span>
+      <span class="sec-count" id="bud-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-budget" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="bud-body">
+      <div id="bud-box"></div>
+    </div>
   </section>
 
-  <!-- 7. BUDGET & COST: ratio bar · journal budgets · MC campaign -->
-  <section aria-label="Budget and cost">
-    <div class="sec-head"><span class="plate">Budget &middot; cost</span><span class="sec-count" id="bud-count"></span></div>
-    <div id="bud-box"></div>
+  <!-- 7. RECENT ACTIVITY: dispatches + journal + work records, newest first -->
+  <section class="tile" id="tile-activity" aria-label="Recent activity">
+    <header class="tile-head">
+      <span class="plate">Recent activity</span>
+      <span class="sec-count" id="act-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-activity" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="act-body">
+      <div id="act-box"></div>
+    </div>
   </section>
 
   <!-- 8. PROJECTS: registry + 7d/30d usage + honest unattributed buckets -->
-  <section aria-label="Projects">
-    <div class="sec-head"><span class="plate">Projects</span><span class="sec-count" id="projects-note"></span></div>
-    <div id="proj-box"></div>
+  <section class="tile" id="tile-projects" aria-label="Projects">
+    <header class="tile-head">
+      <span class="plate">Projects</span>
+      <span class="sec-count" id="projects-note"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-projects" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="proj-body">
+      <div id="proj-box"></div>
+    </div>
   </section>
 
   <!-- 9. SYSTEM health: bridge uptime · guard mode · D4 routing · extensions · org link -->
-  <section aria-label="System">
-    <div class="sec-head"><span class="plate">System</span><span class="sec-count" id="sys-count"></span></div>
-    <div id="sys-box"></div>
+  <section class="tile" id="tile-system" aria-label="System">
+    <header class="tile-head">
+      <span class="plate">System</span>
+      <span class="sec-count" id="sys-count"></span>
+      <button class="tile-toggle" type="button" data-tile="tile-system" aria-expanded="true" title="collapse">&minus;</button>
+    </header>
+    <div class="tile-body" id="sys-body">
+      <div id="sys-box"></div>
+    </div>
   </section>
 
   <div id="foot">auto-refresh 3&ndash;30s &middot; <span id="foot-updated">&mdash;</span></div>
@@ -607,6 +739,39 @@
     return false;
   }
 
+  // ---------- bento tiles: per-tile collapse persisted in localStorage ----------
+  const TILE_STORE_KEY = "pi-overview-tiles";
+  let tilePrefs = {};
+  try { tilePrefs = JSON.parse(localStorage.getItem(TILE_STORE_KEY) || "{}") ?? {}; } catch { tilePrefs = {}; }
+  function setTileCollapsed(id, collapsed, persist) {
+    const tile = document.getElementById(id);
+    if (!tile) return;
+    const btn = tile.querySelector(".tile-toggle");
+    tile.classList.toggle("collapsed", !!collapsed);
+    if (btn) {
+      btn.setAttribute("aria-expanded", String(!collapsed));
+      btn.textContent = collapsed ? "+" : "\u2212";
+      btn.title = collapsed ? "expand" : "collapse";
+    }
+    if (persist) {
+      tilePrefs[id] = !!collapsed;
+      try { localStorage.setItem(TILE_STORE_KEY, JSON.stringify(tilePrefs)); } catch { /* privacy mode: session-only */ }
+    }
+  }
+  function initTiles() {
+    for (const btn of document.querySelectorAll(".tile-toggle")) {
+      const id = btn.dataset.tile;
+      btn.addEventListener("click", () => {
+        const tile = document.getElementById(id);
+        if (tile) setTileCollapsed(id, !tile.classList.contains("collapsed"), true);
+      });
+    }
+    // restore persisted collapsed tiles (default: all expanded)
+    for (const [id, collapsed] of Object.entries(tilePrefs)) {
+      if (collapsed) setTileCollapsed(id, true, false);
+    }
+  }
+
   // ---------- 1. STATUS strip ----------
   function renderStatus() {
     const st = S.state, stream = S.stream;
@@ -643,6 +808,7 @@
     // pulsebar + topbar identity
     $("#pulsebar").classList.toggle("on", streaming);
     setCell("#project", typeof st?.project === "string" && st.project ? st.project : "\u2014");
+    setCell("#status-note", model ? model : "");
   }
 
   // ---------- 2. NOW ----------
@@ -1005,9 +1171,11 @@
       grid.append(kv("Journal", tasks
         ? el("span", null, `planned ${planned} \u00b7 spent ${spent} \u00b7 ${tasks} task${tasks === 1 ? "" : "s"} with budget fields`)
         : el("span", "dim", "no budget fields in the journal window")));
-      // MC closed-loop campaign card
+      // MC closed-loop campaign card (rendered into the prominent .mc-card)
       const c = b?.campaign;
+      const mc = el("div", "mc-card" + (c?.state?.mode === "live" ? " live" : ""));
       const campV = el("span");
+      campV.append(el("span", "mc-name", "MC closed-loop"));
       if (!c) {
         campV.append(el("span", "dim", "no campaign source"));
       } else if (!c.exists || !c.state) {
@@ -1015,7 +1183,7 @@
         if (c.root) campV.append(el("span", "dim", ` (${c.root})`));
       } else {
         const st = c.state;
-        const head = el("span");
+        const head = el("div");
         const modeChip = el("span", "chip " + (st.mode === "live" ? "sig" : ""), st.mode ?? "—");
         const status = st.status ?? "unknown";
         head.append(modeChip, el("span", "chip" + (status !== "running" ? " warn" : ""), status));
@@ -1056,6 +1224,8 @@
         campV.append(line3);
       }
       grid.append(kv("MC loop", campV));
+      mc.append(campV);
+      root.append(mc); // the campaign card leads the tile
       if (b?.note) grid.append(kv("  note", el("span", "warn", b.note)));
       root.append(grid);
     });
@@ -1286,6 +1456,7 @@
 
   // Boot + cadence: live surfaces refresh in 3-10s; deep panels in 10-30s
   // (their server-side sources are TTL-cached or append-only logs).
+  initTiles(); // restore persisted collapsed tiles before first render
   pollState();
   pollStream();
   pollProjects();
