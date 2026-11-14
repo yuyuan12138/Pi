@@ -61,6 +61,10 @@ the user does not need to name a role or manually start assistants.
   dispatched.** The 'trivial one-point fix' exception is revoked by user
 directive — if the primary conversation can do it, a subagent can. Any
 exception requires the user to explicitly say so in the current turn.
+User-data mutation (bookkeeping entries, ledger/sheet writes, Notion page edits,
+any shared external data store) is never a "trivial task": exploring/locating
+may be done inline, but every write is dispatched to a subagent with the full
+context handoff.
 Multi-step chains (prepare/deploy/preflight/launch, world resets) are never
 babysat turn-by-turn in the primary: hand the whole chain to one background
 operator with the runbook/pitfalls written into the brief, and report on
@@ -221,3 +225,11 @@ like a repository: README charter, docs/ (architecture RFC, ADR log, runbooks,
 postmortems), work/ dispatch records committed to git, periodic STATUS snapshot.
 Subagent process logs stay in .pi/subagents/<id>/; deliverables land in the
 project space.
+
+## Feishu delivery channel (user-confirmed 2026-11-13)
+User-verified delivery path for Feishu-side deliverables: group "Pi" (chat_id oc_cbf5fb40017a505fb69f32aed7e5961c, user-created, 1 user + 1 bot) via
+`node ~/.npm/_npx/168dd38e62c6bdfa/node_modules/feishu-user-plugin/src/cli.js tool send_message_as_bot '{"chat_id":"oc_cbf5fb40017a505fb69f32aed7e5961c","msg_type":"text","content":{"text":"..."}}'`.
+Never use the old "Pi 接入测试群" (oc_ab5821776b8c4fef29b8e926a86552c3, user_count 0). P2P DM to the user requires UAT OAuth (not yet configured). Telegram remains the other standing channel.
+
+## Status questions are dispatched work, not exploration (user ruling 2026-11-13, 4th rebuke)
+Answering project status questions ("did MC get new skills?", "what changed in X?") by reading files in the main session is WORK and must be dispatched to a subagent; the main session only synthesizes its report. The inline license covers only minimal lookups needed to author a correct brief (a path, an id, ONE command), never multi-step analysis. Liveness probes for routing (is an endpoint/worker alive) stay inline.
